@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/DavideCarvalho/adonis-authz.git",
+    "url": "git+https://github.com/DavideCarvalho/adonis-agora-authz.git",
     "directory": "packages/react"
   },
   "author": "Davi Carvalho <davi@goflip.ai>",
