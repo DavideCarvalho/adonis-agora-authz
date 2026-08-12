@@ -97,20 +97,20 @@
     }
   },
   "devDependencies": {
-    "@adonisjs/assembler": "^8.4.0",
-    "@adonisjs/bouncer": "^4.0.0",
-    "@adonisjs/core": "^7.3.0",
-    "@adonisjs/lucid": "^22.4.0",
-    "@types/node": "^20.0.0",
-    "@types/pg": "^8.20.0",
-    "@vinejs/vine": "^4.0.0",
-    "better-sqlite3": "^11.0.0",
-    "luxon": "^3.4.0",
-    "pg": "^8.22.0",
-    "reflect-metadata": "^0.2.2",
-    "typescript": "^5.4.0",
-    "unplugin-swc": "^1.5.0",
-    "vitest": "^3.0.0"
+    "@adonisjs/assembler": "8.4.0",
+    "@adonisjs/bouncer": "4.0.0",
+    "@adonisjs/core": "7.4.0",
+    "@adonisjs/lucid": "22.4.2",
+    "@types/node": "20.19.43",
+    "@types/pg": "8.21.0",
+    "@vinejs/vine": "4.4.0",
+    "better-sqlite3": "11.10.0",
+    "luxon": "3.7.2",
+    "pg": "8.23.0",
+    "reflect-metadata": "0.2.2",
+    "typescript": "5.9.3",
+    "unplugin-swc": "1.5.10",
+    "vitest": "3.2.7"
   },
   "engines": {
     "node": ">=20.6.0"
