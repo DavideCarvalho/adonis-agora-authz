@@ -36,7 +36,7 @@ importers:
   packages/core:
     dependencies:
       '@adonis-agora/diagnostics':
-        specifier: ^0.1.0
+        specifier: '>=0.1.0 <1.0.0'
         version: 0.1.0(@adonisjs/core@7.4.0(@adonisjs/assembler@8.4.0(typescript@5.9.3))(@vinejs/vine@4.4.0)(youch@4.1.1))
     devDependencies:
       '@adonisjs/assembler':
