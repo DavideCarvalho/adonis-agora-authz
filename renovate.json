@@ -4,6 +4,10 @@
   "rangeStrategy": "pin",
   "packageRules": [
     {
+      "matchDepTypes": ["engines"],
+      "enabled": false
+    },
+    {
       "matchDepTypes": ["dependencies", "devDependencies"],
       "matchUpdateTypes": ["patch", "minor"],
       "automerge": true
