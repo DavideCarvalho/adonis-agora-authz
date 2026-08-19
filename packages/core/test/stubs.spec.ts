@@ -3,6 +3,7 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AppFactory } from '@adonisjs/core/factories/app';
 import { describe, expect, it } from 'vitest';
+import { distPreconditionMode, missingDistMessage } from './support/dist_precondition.js';
 
 /**
  * What `node ace configure @adonis-agora/authz` hands a user.
@@ -21,48 +22,68 @@ import { describe, expect, it } from 'vitest';
  *
  * The render check below is the real thing — the same `app.stubs` pipeline `codemods.makeUsingStub`
  * runs — not a regex approximation, because the approximation is what let defect 1 survive.
+ *
+ * It renders from `dist/stubs`, NOT from the source tree. `dist/stubs` is what `copy:stubs` produces
+ * and what an installed app resolves through `stubsRoot`, so it is the only copy that can actually
+ * reach a user. Checking the source instead would trust a copy step that has itself failed before:
+ * the defect that started all of this was precisely a source-vs-published divergence, where the
+ * shipped file was empty while the tree it was copied from looked fine.
  */
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
-const stubsRoot = join(packageRoot, 'stubs');
+const sourceStubsRoot = join(packageRoot, 'stubs');
+const distStubsRoot = join(packageRoot, 'dist', 'stubs');
 
-/** Every `.stub` file under `dir`, relative to the package root. */
-function findStubs(dir: string): string[] {
+/**
+ * Every `.stub` file under `root`, as a path relative to `root`.
+ *
+ * `root` is threaded through the recursion rather than reusing `dir`: relativising against the
+ * current level would flatten `config/authz.stub` to `authz.stub` and make two stubs in different
+ * directories collide.
+ */
+function findStubs(root: string, dir: string = root): string[] {
   if (!existsSync(dir)) return [];
   const found: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
-    if (entry.isDirectory()) found.push(...findStubs(full));
-    else if (entry.name.endsWith('.stub')) found.push(relative(packageRoot, full));
+    if (entry.isDirectory()) found.push(...findStubs(root, full));
+    else if (entry.name.endsWith('.stub')) found.push(relative(root, full));
   }
   return found;
 }
 
-// Source stubs, plus the copies `copy:stubs` places in `dist/` when the build has already run.
-const stubFiles = [...findStubs(stubsRoot), ...findStubs(join(packageRoot, 'dist', 'stubs'))];
-
-/** Every stub `configure` publishes, with the path each one writes to. */
+/** Every stub `configure` publishes. */
 const PUBLISHED = [
   'config/authz.stub',
   'abilities/authz.stub',
   'database/migrations/create_authz_tables.stub',
 ];
 
+// Both trees, tagged, so a failure names which copy is broken.
+const allStubs = [
+  ...findStubs(sourceStubsRoot).map((file) => ({ tree: 'stubs', file, root: sourceStubsRoot })),
+  ...findStubs(distStubsRoot).map((file) => ({ tree: 'dist/stubs', file, root: distStubsRoot })),
+];
+
+const mode = distPreconditionMode({
+  distExists: existsSync(distStubsRoot),
+  ci: Boolean(process.env.CI),
+});
+
 describe('published stubs', () => {
-  it('finds every stub configure publishes', () => {
-    const sources = findStubs(stubsRoot).map((file) => relative('stubs', file));
-    expect(sources.sort()).toEqual([...PUBLISHED].sort());
+  it('finds every stub configure publishes in the source tree', () => {
+    expect(findStubs(sourceStubsRoot).sort()).toEqual([...PUBLISHED].sort());
   });
 
-  it.each(stubFiles)('%s is not empty', (file) => {
-    const bytes = statSync(join(packageRoot, file)).size;
+  it.each(allStubs)('$tree/$file is not empty', ({ file, root }) => {
+    const bytes = statSync(join(root, file)).size;
     expect(bytes, `${file} is empty — configure would publish a blank file`).toBeGreaterThan(0);
   });
 
-  it.each(stubFiles)('%s keeps its body free of backticks and ${ }', (file) => {
+  it.each(allStubs)('$tree/$file keeps its body free of backticks and ${ }', ({ file, root }) => {
     // Scoped to the BODY: the `{{{ … }}}` header is evaluated as JavaScript, so the migration stub's
     // `app.migrationsPath(\`${…}_create_authz_tables.ts\`)` is legitimate there and only there.
-    const contents = readFileSync(join(packageRoot, file), 'utf8');
+    const contents = readFileSync(join(root, file), 'utf8');
     const body = contents.replace(/\{\{\{[\s\S]*?\}\}\}/, '');
 
     expect(
@@ -75,26 +96,45 @@ describe('published stubs', () => {
     ).not.toContain('${');
   });
 
-  /**
-   * The check that actually proves it: build each stub through the real `app.stubs` pipeline, which is
-   * what `codemods.makeUsingStub` calls from `configure.ts`. A stub that cannot render throws here
-   * with the same message the user would have seen.
-   */
-  describe('render through the real Adonis stubs pipeline', () => {
-    it.each(PUBLISHED)('%s renders to a non-empty file', async (stubPath) => {
-      const app = new AppFactory().create(new URL('file:///stub-render-scratch/'));
-      await app.init();
-      const stubs = await app.stubs.create();
-
-      const stub = await stubs.build(stubPath, { source: stubsRoot });
-      const prepared = await stub.prepare({});
-
-      expect(prepared.attributes.to, `${stubPath} must declare a destination`).toBeTruthy();
-      expect(
-        prepared.contents.length,
-        `${stubPath} rendered to nothing — configure would publish a blank file`,
-      ).toBeGreaterThan(0);
-      expect(prepared.contents, `${stubPath} left unrendered template syntax`).not.toMatch(/\{\{/);
+  if (mode === 'fail') {
+    it('checks the published stubs', () => {
+      expect.fail(missingDistMessage(distStubsRoot));
     });
-  });
+  } else if (mode === 'skip') {
+    it.skip('dist/stubs does not exist — run `pnpm --filter @adonis-agora/authz build` first', () => {});
+  } else {
+    /**
+     * The copy step is a plain `cp` in the `build` script, outside the compiler's knowledge: nothing
+     * fails if it silently misses a file. Asserting the published set equals the source set is what
+     * turns "the build forgot to copy a stub" from a user's runtime error into a red test here.
+     */
+    it('publishes every source stub into dist/stubs', () => {
+      expect(findStubs(distStubsRoot).sort()).toEqual(findStubs(sourceStubsRoot).sort());
+    });
+
+    /**
+     * The check that actually proves it: build each PUBLISHED stub through the real `app.stubs`
+     * pipeline, which is what `codemods.makeUsingStub` calls from `configure.ts`. A stub that cannot
+     * render throws here with the same message the user would have seen.
+     */
+    describe('render through the real Adonis stubs pipeline', () => {
+      it.each(PUBLISHED)('%s renders to a non-empty file', async (stubPath) => {
+        const app = new AppFactory().create(new URL('file:///stub-render-scratch/'));
+        await app.init();
+        const stubs = await app.stubs.create();
+
+        const stub = await stubs.build(stubPath, { source: distStubsRoot });
+        const prepared = await stub.prepare({});
+
+        expect(prepared.attributes.to, `${stubPath} must declare a destination`).toBeTruthy();
+        expect(
+          prepared.contents.length,
+          `${stubPath} rendered to nothing — configure would publish a blank file`,
+        ).toBeGreaterThan(0);
+        expect(prepared.contents, `${stubPath} left unrendered template syntax`).not.toMatch(
+          /\{\{/,
+        );
+      });
+    });
+  }
 });

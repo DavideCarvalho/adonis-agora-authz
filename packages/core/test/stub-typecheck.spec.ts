@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
+import { distPreconditionMode, missingDistMessage } from './support/dist_precondition.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -27,35 +28,31 @@ const execFileAsync = promisify(execFile);
  * rather than `src/`.
  */
 
-/**
- * What the spec should do given the two facts that decide it. Extracted so both branches are
- * asserted below instead of being dead code that only one environment ever reaches: with
- * `turbo.json` making `test` depend on `build`, the `fail` branch is unreachable in practice, which
- * is exactly why it needs a direct test rather than trust.
- */
-function stubTypecheckMode(facts: { distExists: boolean; ci: boolean }): 'run' | 'fail' | 'skip' {
-  if (facts.distExists) return 'run';
-  return facts.ci ? 'fail' : 'skip';
-}
-
 const harness = fileURLToPath(new URL('./fixtures/stub-typecheck/check.mjs', import.meta.url));
+
+/**
+ * The harness reads `dist/stubs` (the copy an installed app resolves) and reaches the package by name
+ * through its `exports` map, so BOTH halves of a build are its precondition: the published
+ * declarations and the published stubs.
+ */
 const distTypes = fileURLToPath(new URL('../dist/src/index.d.ts', import.meta.url));
+const distStubs = fileURLToPath(new URL('../dist/stubs', import.meta.url));
 
 describe('the dist precondition', () => {
   // Resolving the package by name makes a built package a precondition. Under CI a missing build is
   // a failure, not a skip — `pnpm test` is what gates the publish, and a spec that silently skips
   // there is worse than no spec at all.
   it('runs the check whenever dist/ is present, in CI or not', () => {
-    expect(stubTypecheckMode({ distExists: true, ci: true })).toBe('run');
-    expect(stubTypecheckMode({ distExists: true, ci: false })).toBe('run');
+    expect(distPreconditionMode({ distExists: true, ci: true })).toBe('run');
+    expect(distPreconditionMode({ distExists: true, ci: false })).toBe('run');
   });
 
   it('fails hard, never skips, when dist/ is missing under CI', () => {
-    expect(stubTypecheckMode({ distExists: false, ci: true })).toBe('fail');
+    expect(distPreconditionMode({ distExists: false, ci: true })).toBe('fail');
   });
 
   it('skips for a developer who has not built yet', () => {
-    expect(stubTypecheckMode({ distExists: false, ci: false })).toBe('skip');
+    expect(distPreconditionMode({ distExists: false, ci: false })).toBe('skip');
   });
 
   it('is guaranteed a build by the task graph, so CI never reaches the fail branch', () => {
@@ -71,21 +68,14 @@ describe('the dist precondition', () => {
 });
 
 describe('the published stubs compile in a consumer app (real @adonisjs types)', () => {
-  const mode = stubTypecheckMode({
-    distExists: existsSync(distTypes),
+  const mode = distPreconditionMode({
+    distExists: existsSync(distTypes) && existsSync(distStubs),
     ci: Boolean(process.env.CI),
   });
 
   if (mode === 'fail') {
     it('type-checks the rendered stubs', () => {
-      expect.fail(
-        [
-          `${distTypes} does not exist, so this spec cannot check anything.`,
-          'It is the only check that the generated code COMPILES for a consumer; under CI a missing',
-          'build is a failure, not a skip. Run `pnpm build` before `pnpm test`, or restore',
-          '`tasks.test.dependsOn: ["build", "^build"]` in turbo.json.',
-        ].join(' '),
-      );
+      expect.fail(missingDistMessage(`${distTypes} / ${distStubs}`));
     });
   } else if (mode === 'skip') {
     it.skip('dist/ does not exist — run `pnpm --filter @adonis-agora/authz build` first', () => {});
