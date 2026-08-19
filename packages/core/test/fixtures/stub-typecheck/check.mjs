@@ -17,7 +17,9 @@
  * invisible to the package's own typecheck (its imports are relative) and fails here.
  *
  * Rendering goes through the REAL `app.stubs` pipeline — the same one `codemods.makeUsingStub` runs —
- * rather than a regex approximation. The approximation is precisely what let a whole separate defect
+ * reading `dist/stubs` rather than the source tree, so the file under test is the one an installed app
+ * actually resolves, and a build that fails to copy a stub fails here rather than in a user's project.
+ * It is a real pipeline rather than a regex approximation. The approximation is precisely what let a whole separate defect
  * survive: all three stubs carried backticks in their doc comments, which terminate Tempura's template
  * literal, so `configure` threw before writing anything while every hand-rolled renderer was happy.
  *
@@ -25,7 +27,15 @@
  * `stub-typecheck.spec.ts`.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,7 +43,17 @@ import { AppFactory } from '@adonisjs/core/factories/app';
 
 const pkgRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const repoRoot = fileURLToPath(new URL('../../../../../', import.meta.url));
-const stubsRoot = join(pkgRoot, 'stubs');
+/**
+ * `dist/stubs`, not the source tree. This is the copy `copy:stubs` produces and the one an installed
+ * app resolves through `stubsRoot`, so it is the only copy that can reach a user. Checking the source
+ * would trust a copy step that has itself failed before — the defect behind this whole harness was a
+ * source-vs-published divergence, where the shipped file was empty and its source looked fine.
+ */
+const stubsRoot = join(pkgRoot, 'dist', 'stubs');
+if (!existsSync(stubsRoot)) {
+  console.error(`stub typecheck: FAILED — ${stubsRoot} does not exist. Run \`pnpm build\` first.`);
+  process.exit(1);
+}
 
 /**
  * Every stub `configure` publishes. All three emit typed TypeScript that imports from the package, so
