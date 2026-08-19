@@ -25,17 +25,30 @@ node ace configure @adonis-agora/authz
 </Step>
 
 <Step>
-### Run the migration
+### Decide who creates the tables
 
-If you use the `lucid` store (the default), create the tables:
+The `lucid` store manages its own schema: with `autoCreateSchema` left at its
+default it creates `authz_roles`, `authz_permissions`, `authz_role_permission`,
+`authz_user_role` and `authz_user_permission` on first use. No users table is
+touched — users are referenced polymorphically. **You can skip straight to the
+next step and it will work.**
+
+For production, take the tables under your own control instead — schema changes
+then ship with your deploy rather than on first request. Turn the automatic
+creation off and run the migration `configure` published:
+
+```ts title="config/authz.ts"
+stores: {
+  lucid: stores.lucid({ autoCreateSchema: false }),
+}
+```
 
 ```sh
 node ace migration:run
 ```
 
-The migration creates `authz_roles`, `authz_permissions`,
-`authz_role_permission`, `authz_user_role` and `authz_user_permission`. No users
-table is touched — users are referenced polymorphically.
+Both paths create the same tables, so switching later is safe — see
+[Configuration](/docs/authz/config#stores).
 </Step>
 
 <Step>
@@ -54,9 +67,19 @@ node ace authz:assign editor 42          # role → user (id 42)
 import { AuthzService } from '@adonis-agora/authz'
 import app from '@adonisjs/core/services/app'
 
-const authz = await app.container.make(AuthzService)
-await authz.store.givePermissionToRole('editor', 'posts.edit')
-await authz.store.assignRole({ type: 'user', id: '42' }, 'editor')
+const service = await app.container.make(AuthzService)
+await service.store.givePermissionToRole('editor', 'posts.edit')
+await service.store.assignRole({ type: 'user', id: '42' }, 'editor')
+```
+
+Writing to the store needs the service instance. For *reading* a decision
+anywhere in the app, import the singleton instead — no container call:
+
+```ts
+import authz from '@adonis-agora/authz/services/main'
+
+await authz.can(user, 'posts.edit')
+await authz.hasRole(user, 'editor')
 ```
 </Step>
 

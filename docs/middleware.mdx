@@ -28,12 +28,6 @@ export const middleware = router.named({
 })
 ```
 
-<Callout type="info">
-  The middleware receives `AuthzService` by constructor injection (`@inject()`) —
-  the container resolves a fresh instance per request and injects the service, so
-  there is no `container.make` service-locator call in the request path.
-</Callout>
-
 ## Guard routes
 
 Pass the accepted roles per route. It is **any-of**: the request passes if the
@@ -81,8 +75,7 @@ router
 
 <Callout type="info">
   1. Resolve the user from `ctx.auth.getUser()` (authkit) or `ctx.auth.user`
-     (a `@adonisjs/auth` guard) — structural, so it works with either and depends
-     on neither.
+     (a `@adonisjs/auth` guard) — either works, and neither is required.
   2. No user → `guestRedirect` if set, else `401 Unauthenticated`.
   3. Compute `authz.effectiveRoles(user, options.scope)` and check that at least
      one of `options.roles` is present.
@@ -106,10 +99,7 @@ effectiveRoles(user, scope?)  =  context/global roles (token claim)
 ```
 
 ```ts
-import { AuthzService } from '@adonis-agora/authz'
-import app from '@adonisjs/core/services/app'
-
-const authz = await app.container.make(AuthzService)
+import authz from '@adonis-agora/authz/services/main'
 
 const roles = await authz.effectiveRoles(user)                 // global scope
 const scoped = await authz.effectiveRoles(user, { tenantId: 'acme' })
@@ -121,6 +111,10 @@ const scoped = await authz.effectiveRoles(user, { tenantId: 'acme' })
   [`resolveRoles`](/docs/authz/config#effective-roles-resolveroles--rolegrants)
   config seam (e.g. a `user_roles` domain table).
 - The **store** roles are those assigned via `store.assignRole(...)`.
+
+The reverse lookup — *who* holds a role — is
+[`usersWithRole`](/docs/authz/roles#the-reverse-question-userswithrole), which
+reads the same three sources.
 
 It returns a de-duplicated union, tenant-filtered by `scope`. An
 anonymous/unmappable user yields `[]`. This is the exact set `hasRole` /

@@ -42,7 +42,7 @@ registers onto a fresh registry the provider creates for you:
 
 ```ts title="config/authz.ts"
 import { defineConfig, stores } from '@adonis-agora/authz'
-import { eq, and, whereIn } from '@adonis-agora/authz/scope'
+import { and, eq, or } from '@adonis-agora/authz/scope'
 import Post from '#models/post'
 import Invoice from '#models/invoice'
 
@@ -194,16 +194,45 @@ Once registered, filter any collection with `accessibleBy` — see the full
 contract and the `orWhere` caveat in
 [Concepts → Query scopes](/docs/authz/concepts#query-scopes-accessibleby):
 
+`accessibleBy` returns the **query builder** with the scope applied, not the
+rows — awaiting it resolves the constraint, awaiting the builder runs the query:
+
 ```ts
 import { accessibleBy } from '@adonis-agora/authz/scope'
 
 // Only the posts this user may see (owner ∪ published, per the filter above).
-const posts = await accessibleBy(Post.query(), authz, user, Post)
+const scoped = await accessibleBy(Post.query(), authz, user, Post)
+const posts = await scoped
 
-// Scope by a specific action (defaults to 'viewAny'):
+// Scope by a specific action (defaults to 'viewAny'), then keep chaining:
 const editable = await accessibleBy(Post.query(), authz, user, Post, { action: 'posts.edit' })
+const recent = await editable.orderBy('created_at', 'desc').limit(20)
 ```
 
-Or resolve the raw constraint yourself with `authz.scope(user, resource, options)`
-when you need the `ScopeConstraint` without a query builder (e.g. to serialize a
-query plan).
+### Splitting resolve from apply
+
+`accessibleBy` is resolve-then-apply in one call. The two halves are also exported
+separately: [`authz.scope(user, resource, options)`](/docs/authz/service#scopeuser-resource-options)
+resolves the `ScopeConstraint` on its own, and `applyScopeConstraint(query, constraint)`
+compiles an already-resolved constraint onto a Lucid query.
+
+Reach for the split when the constraint is worth more than a single query — you
+want to inspect it, cache it, serialize it as a query plan, or apply the same one
+to several queries:
+
+```ts
+import { applyScopeConstraint } from '@adonis-agora/authz/scope'
+import authz from '@adonis-agora/authz/services/main'
+
+const constraint = await authz.scope(user, Post)
+// { kind: 'none' } → skip the query entirely, you know it returns nothing
+if (constraint.kind === 'none') return { posts: [], count: 0 }
+
+// One resolution, two queries:
+const posts = await applyScopeConstraint(Post.query(), constraint).limit(20)
+const [{ count }] = await applyScopeConstraint(Post.query(), constraint).count('* as count')
+```
+
+`applyScopeConstraint` is synchronous and returns the same builder, so it chains
+directly. It carries the identical `orWhere` contract as `accessibleBy` — apply
+it before any top-level `orWhere`.

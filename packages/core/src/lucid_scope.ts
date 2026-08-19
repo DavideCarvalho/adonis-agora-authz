@@ -169,8 +169,12 @@ export interface AccessibleByOptions {
  * filter derives from the SAME authorization data `can`/`hasRole` use — the user's
  * effective roles/permissions for the active tenant.
  *
+ * Returns the SAME builder with the scope applied — it does not run the query, so
+ * await it once for the constraint and again (or `.exec()`) for the rows:
+ *
  * ```ts
- * const posts = await accessibleBy(Post.query(), service, user, Post).exec()
+ * const scoped = await accessibleBy(Post.query(), service, user, Post)
+ * const posts = await scoped.exec()
  * // super-admin: every post; non-privileged: ownership/tenant WHERE injected;
  * // unknown resource: no rows (fail-closed).
  * ```
@@ -183,8 +187,8 @@ export interface AccessibleByOptions {
  *
  * ```ts
  * // SAFE — apply the scope FIRST, then add only AND-ed filters:
- * const q = await accessibleBy(Post.query(), service, user, Post)
- * q.where('published', true) // ANDed: fine
+ * const scoped = await accessibleBy(Post.query(), service, user, Post)
+ * await scoped.where('published', true) // ANDed: fine
  *
  * // SAFE — wrap any caller-side OR inside its own group, keeping the top level OR-free:
  * const base = Post.query().where((q) => q.where('id', 1).orWhere('id', 2))

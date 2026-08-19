@@ -39,17 +39,83 @@ await bouncer.allows('hasRole', 'admin')   // true
 await bouncer.denies('can', 'posts.edit')  // true (no grant)
 ```
 
-## The shared store contract
+## Writing your own store
 
-If you implement your own `PermissionStore`, validate it against the same
-contract the built-in stores pass. It is exported from the
-`@adonis-agora/authz/testing` subpath and runs under Vitest.
+`PermissionStore` is the whole surface authz asks of a backend — Redis, Mongo, a
+remote authorization service, an in-house table layout. Implement these sixteen
+methods and every feature in the package works against it unchanged:
 
-```ts
+```ts title="app/authz/redis_store.ts"
+import type { PermissionStore, TenantScope, UserRef } from '@adonis-agora/authz'
+
+export class RedisPermissionStore implements PermissionStore {
+  // ...
+}
+```
+
+**Schema**
+
+| Method | Contract |
+| ------ | -------- |
+| `ensureSchema()` | Create or upgrade whatever backing structures you need. Called on first use; a no-op is fine for a store with nothing to create. |
+
+**Roles & permissions**
+
+| Method | Contract |
+| ------ | -------- |
+| `createRole(name)` | Idempotently create the role; return its id. |
+| `createPermission(name)` | Idempotently create the permission; return its id. |
+| `givePermissionToRole(role, permission)` | Attach a permission to a role, creating either by name as needed. |
+| `revokePermissionFromRole(role, permission)` | Detach it. A no-op when either side is absent. |
+| `getRolePermissions(role)` | The permission names attached to a role. |
+| `listRoles()` | Every role name known to the store. |
+| `listPermissions()` | Every permission name known to the store. |
+
+**Assignments & grants**
+
+| Method | Contract |
+| ------ | -------- |
+| `assignRole(user, role, scope?)` | Assign a role to a user, optionally scoped to a tenant. |
+| `removeRole(user, role, scope?)` | Remove the assignment matching that **exact** tenant scope. |
+| `giveUserPermission(user, permission)` | Grant a permission straight to a user. |
+| `revokeUserPermission(user, permission)` | Revoke that direct grant. Role-derived permissions survive. |
+
+**Reads**
+
+| Method | Contract |
+| ------ | -------- |
+| `getRolesForUser(user, scope?)` | The user's role names, tenant-filtered. |
+| `getUsersForRole(role, scope?)` | The reverse: every `{ type, id }` holding the role, tenant-filtered the same way. |
+| `getPermissionsForUser(user, scope?)` | The user's effective permission names — role-derived ∪ direct. |
+| `userHasPermission(user, permission, scope?)` | Exact-name membership check. |
+
+Four invariants hold across all of them, and a store that breaks any one of them
+will pass casual testing and fail in production:
+
+1. **Writes are idempotent and race-tolerant.** Assigning the same role twice
+   concurrently must leave one assignment and throw nothing.
+2. **Tenant visibility is asymmetric.** A global request (no tenant, or `''`)
+   sees only global rows. A tenant request sees global rows **and** that tenant's.
+   A tenant-scoped assignment must never surface in an unscoped check or in
+   another tenant's.
+3. **Direct user-permission grants are tenant-independent.** They apply in every
+   scope. Only role assignments carry a tenant.
+4. **Names match exactly.** `userHasPermission` and `getPermissionsForUser` do no
+   wildcard expansion — the store returns what was granted, `posts.*` included,
+   and the service runs the [matcher](/docs/authz/concepts#wildcard-matching)
+   over it. A store that expands wildcards itself will double-expand.
+
+## The shared store contract suite
+
+Do not verify those invariants by hand — run the same suite the built-in stores
+pass. It is exported from the `@adonis-agora/authz/testing` subpath and runs
+under Vitest:
+
+```ts title="tests/unit/redis_store.spec.ts"
 import { runPermissionStoreContract } from '@adonis-agora/authz/testing'
-import { MyStore } from './my_store.js'
+import { RedisPermissionStore } from '#authz/redis_store'
 
-runPermissionStoreContract('MyStore', () => new MyStore())
+runPermissionStoreContract('RedisPermissionStore', () => new RedisPermissionStore())
 ```
 
 The suite covers idempotency, role/permission grants and revokes, direct grants,

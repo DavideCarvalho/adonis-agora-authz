@@ -1,30 +1,43 @@
 ---
 title: Agora integration
-description: Opt-in, structural bridges to the Agora ecosystem — tenant auto-scope, global-role bridge, event-driven provisioning, and the /authz/can endpoint.
+description: Opt-in bridges to the Agora ecosystem — tenant auto-scope, the global-role bridge, event-driven provisioning, and the /authz/can endpoint.
 icon: Plug
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-All four features below are **opt-in** and **default-OFF**. They read well-known
-`globalThis` slots structurally and never add a hard dependency, so authz keeps
-working standalone with unchanged default behavior.
+All four features below are **opt-in** and **default-OFF**. None of them adds a
+hard dependency: with the rest of Agora absent, each one degrades to its default
+and authz keeps working standalone with unchanged behavior.
 
 ## Tenant auto-scope
 
 When a permission check gets no explicit tenant and your `tenant` resolver
 yields none, default the tenant to the active Agora context's `tenantId`.
 
+`resolveTenant` is a **function** — `() => string | undefined` — called on every
+check that still has no tenant. The package ships one ready to use,
+`tenantFromContext`, which reads the active Agora context's `tenantId`:
+
 ```ts title="config/authz.ts"
-import { defineConfig, stores } from '@adonis-agora/authz'
+import { defineConfig, stores, tenantFromContext } from '@adonis-agora/authz'
 
 export default defineConfig({
   default: 'lucid',
   stores: { lucid: stores.lucid() },
-  // 'context' uses the built-in tenantFromContext() reader.
-  resolveTenant: 'context',
-  // …or supply your own:
-  // resolveTenant: () => myTenant(),
+  resolveTenant: tenantFromContext,
+})
+```
+
+Any zero-argument function works, so you are never tied to the Agora context —
+read the tenant from wherever your app already keeps it:
+
+```ts title="config/authz.ts"
+import { HttpContext } from '@adonisjs/core/http'
+
+export default defineConfig({
+  // ...
+  resolveTenant: () => HttpContext.get()?.request.header('x-tenant'),
 })
 ```
 
@@ -34,9 +47,9 @@ before.
 
 ## Global-role bridge
 
-Bridge an auth provider's **global roles** (read structurally from the Agora
-context store under `globalRoles`, written by authkit) into authz checks at
-check time — no DB seeding.
+Bridge an auth provider's **global roles** — the ones authkit puts on the active
+Agora context — into authz checks at check time, with nothing seeded in the
+database.
 
 ```ts
 defineConfig({
@@ -53,14 +66,43 @@ A super-admin global role short-circuits `can` and `hasRole` to allow.
 Otherwise, `roleGrants` for the user's **effective** roles are unioned into the
 permission match before consulting the store.
 
-<Callout type="warn">
-  **Renamed in a recent release.** `roleGrants` was formerly `globalRoleGrants`.
-  The name changed because the map now applies to the user's *effective* roles
-  (context ∪ `resolveRoles` ∪ store), not just global ones. The provider reads
-  **only** `roleGrants` — an old `globalRoleGrants` key is silently ignored, so
-  rename it. See [Effective roles](/docs/authz/config#effective-roles-resolveroles--rolegrants)
-  for the full model.
-</Callout>
+`roleGrants` applies to the user's *effective* roles — the context claim, the
+`resolveRoles` seam and the store alike — so it is not limited to global ones.
+See [Effective roles](/docs/authz/config#effective-roles-resolveroles--rolegrants)
+for the full model, and [Roles](/docs/authz/roles#superadminroles--global-roles-that-allow-everything)
+for how `superAdminRoles` composes with the `superAdmin` hook.
+
+## Reading the context yourself
+
+The two features above are built on a small set of readers the package exports,
+and you can use them for your own wiring. Each one degrades to a safe default
+when the Agora context is not there, so calling them is never conditional:
+
+```ts
+import {
+  globalRolesFromContext,
+  readContextValue,
+  tenantFromContext,
+} from '@adonis-agora/authz'
+
+tenantFromContext()       // the active tenant id, or undefined
+globalRolesFromContext()  // the token's global roles, or []
+readContextValue('locale') // any other key the context carries, or undefined
+```
+
+| Export | Returns | Without a context |
+| ------ | ------- | ----------------- |
+| `tenantFromContext()` | The active tenant id. | `undefined` |
+| `globalRolesFromContext()` | The user's global role names. | `[]` |
+| `readContextValue(key)` | Any value the context carries. | `undefined` |
+| `readContextAccessor()` | The context accessor itself. | `undefined` |
+| `AGORA_CONTEXT_ACCESSOR` | The symbol the accessor is published under. | — |
+
+`tenantFromContext` is the reader you pass straight to `resolveTenant`;
+`globalRolesFromContext` is the one `superAdminRoles` and the effective-role
+union consult. Reach for `readContextAccessor` / `AGORA_CONTEXT_ACCESSOR` only
+when you are writing something that publishes or replaces a context — a test
+harness, for example.
 
 ## Event-driven provisioning
 

@@ -25,8 +25,11 @@ export default class User extends compose(
 }
 ```
 
-The factory takes a resolver (sync or async) for the `AuthzService`, so the
-mixin never eagerly imports the container.
+The factory takes a resolver (sync or async) for the `AuthzService`. It needs the
+service **class** rather than the
+[`services/main` singleton](/docs/authz/service#the-service-singleton), because
+the write helpers (`assignRole`, `givePermission`, …) go through `service.store`,
+which the singleton does not carry.
 
 ## Methods
 
