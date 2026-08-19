@@ -14,7 +14,12 @@ import {
 // Re-exported for backward compatibility: these types originated here before the
 // schema was extracted into `lucid-schema.ts`. Consumers (and `factory.ts`) import
 // them from `./lucid.js`.
-export type { AuthzTableNames, LucidDatabase, LucidQueryClient } from './lucid-schema.js';
+export type {
+  AuthzTableNames,
+  LucidDatabase,
+  LucidQueryBindings,
+  LucidQueryClient,
+} from './lucid-schema.js';
 
 export interface LucidPermissionStoreOptions {
   tables?: AuthzTableNames;
