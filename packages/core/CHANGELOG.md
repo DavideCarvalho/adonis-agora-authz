@@ -1,5 +1,19 @@
 # @adonis-agora/authz
 
+## 0.10.2
+
+### Patch Changes
+
+- [#32](https://github.com/DavideCarvalho/adonis-agora-authz/pull/32) [`bd9ce3e`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/bd9ce3e66e8abef73216e26d73cc3af994289a86) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Fix `engines.node`, which was published as the exact version `v26.7.0` instead
+  of a supported range. Every consumer on any other Node version got an engine
+  warning on install, and installs under `engine-strict` failed outright. The
+  field is back to `>=20.6.0`, and Renovate no longer treats it as a pinnable
+  dependency.
+
+- [#32](https://github.com/DavideCarvalho/adonis-agora-authz/pull/32) [`bd9ce3e`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/bd9ce3e66e8abef73216e26d73cc3af994289a86) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Fix the `accessibleBy` JSDoc example: it called `.exec()` on the returned
+  Promise. `accessibleBy` resolves to the query builder, so the rows come from
+  awaiting (or `.exec()`-ing) the builder the Promise resolves to.
+
 ## 0.10.1
 
 ### Patch Changes
