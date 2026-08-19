@@ -1,5 +1,28 @@
 # @adonis-agora/authz
 
+## 0.10.4
+
+### Patch Changes
+
+- [#36](https://github.com/DavideCarvalho/adonis-agora-authz/pull/36) [`4a9605d`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/4a9605de6abeb1b9d96bceaa8d5f8701f5d8f31f) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Fix the published migration stub, whose `up()` did not compile in a consumer
+  app. `createAuthzTables` accepts a structural `LucidDatabase` whose `rawQuery`
+  declared `bindings?: readonly unknown[]` — not assignable in either direction to
+  Lucid's `RawQueryBindings`, since `readonly unknown[]` cannot go into the
+  mutable `StrictValues[]` and the named-map branch is not an array. No real query
+  client satisfied the interface, so `this.defer((db) => createAuthzTables(db))`
+  was a type error for anyone who ran the migration.
+
+  The mirrored binding type is now `readonly unknown[] | Record<string, unknown>`,
+  which Lucid's own union fits into, and it is exported as `LucidQueryBindings`.
+
+- [#36](https://github.com/DavideCarvalho/adonis-agora-authz/pull/36) [`4a9605d`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/4a9605de6abeb1b9d96bceaa8d5f8701f5d8f31f) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Fix `node ace configure @adonis-agora/authz`, which failed on every published
+  version. Adonis renders a stub body through Tempura, which compiles it into a
+  JavaScript template literal, so a backtick in the body terminates that literal
+  early. All three stubs carried backticks in their doc comments, so `configure`
+  threw `Unexpected identifier 'memory'` before writing a single file. The doc
+  comments now use quotes; the `{{{ … }}}` header, which is evaluated as
+  JavaScript, is unaffected.
+
 ## 0.10.3
 
 ### Patch Changes
