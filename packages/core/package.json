@@ -1,6 +1,6 @@
 {
   "name": "@adonis-agora/authz",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "description": "Bouncer-integrated, DB-backed RBAC for AdonisJS — roles, permissions, wildcard matching and multi-tenancy on top of @adonisjs/bouncer, with pluggable stores (Lucid / in-memory). Part of the Agora ecosystem.",
   "license": "MIT",
   "repository": {
