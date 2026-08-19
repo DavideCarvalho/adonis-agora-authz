@@ -97,10 +97,15 @@ Import the helpers from the `@adonis-agora/authz/scope` subpath.
   producer side (the `scopes` config key and the `eq`/`where`/`and`/`or` DSL).
 </Callout>
 
+`accessibleBy` resolves the constraint and applies it to the **query builder you
+passed**, returning that same builder — it does not run the query. So there are
+two awaits: one for the constraint resolution, one for the query itself.
+
 ```ts
 import { accessibleBy } from '@adonis-agora/authz/scope'
 
-const posts = await accessibleBy(Post.query(), authz, user, Post)
+const scoped = await accessibleBy(Post.query(), authz, user, Post)
+const posts = await scoped // …or `scoped.exec()` — now the rows
 // super-admin: every post; non-privileged: ownership/tenant WHERE injected;
 // unknown resource: no rows (fail-closed).
 ```
@@ -117,14 +122,15 @@ Two safe patterns keep the top level free of `orWhere`:
 
 ```ts
 // SAFE — apply the scope FIRST, then add only AND-ed filters:
-const q = await accessibleBy(Post.query(), authz, user, Post)
-q.where('published', true) // ANDed: fine
+const scoped = await accessibleBy(Post.query(), authz, user, Post)
+const posts = await scoped.where('published', true) // ANDed: fine
 
 // SAFE — wrap any caller-side OR inside its own group:
 const base = Post.query().where((q) => q.where('id', 1).orWhere('id', 2))
-await accessibleBy(base, authz, user, Post) // → (id = 1 OR id = 2) AND (scope)
+const grouped = await accessibleBy(base, authz, user, Post)
+await grouped // → (id = 1 OR id = 2) AND (scope)
 
 // UNSAFE — top-level OR; the scope binds only to the last branch and leaks:
 const bad = Post.query().where('id', 1).orWhere('id', 2)
-await accessibleBy(bad, authz, user, Post) // → id = 1 OR (id = 2 AND scope)  ✗
+await (await accessibleBy(bad, authz, user, Post)) // → id = 1 OR (id = 2 AND scope)  ✗
 ```

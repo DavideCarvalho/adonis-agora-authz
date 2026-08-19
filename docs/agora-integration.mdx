@@ -15,16 +15,29 @@ working standalone with unchanged default behavior.
 When a permission check gets no explicit tenant and your `tenant` resolver
 yields none, default the tenant to the active Agora context's `tenantId`.
 
+`resolveTenant` is a **function** — `() => string | undefined` — called on every
+check that still has no tenant. The package ships one ready to use,
+`tenantFromContext`, which reads the active Agora context's `tenantId`:
+
 ```ts title="config/authz.ts"
-import { defineConfig, stores } from '@adonis-agora/authz'
+import { defineConfig, stores, tenantFromContext } from '@adonis-agora/authz'
 
 export default defineConfig({
   default: 'lucid',
   stores: { lucid: stores.lucid() },
-  // 'context' uses the built-in tenantFromContext() reader.
-  resolveTenant: 'context',
-  // …or supply your own:
-  // resolveTenant: () => myTenant(),
+  resolveTenant: tenantFromContext,
+})
+```
+
+Any zero-argument function works, so you are never tied to the Agora context —
+read the tenant from wherever your app already keeps it:
+
+```ts title="config/authz.ts"
+import { HttpContext } from '@adonisjs/core/http'
+
+export default defineConfig({
+  // ...
+  resolveTenant: () => HttpContext.get()?.request.header('x-tenant'),
 })
 ```
 
