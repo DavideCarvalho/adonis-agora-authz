@@ -28,7 +28,11 @@ async function emitter() {
 }
 
 describe('feature A — event-driven provisioning', () => {
-  it('runs the mapped action when an authkit event fires', async () => {
+  // NOTE: this exercises the `metadata` shape, which only reaches a subscriber
+  // when the HOST feeds the bus (or wires authkit's un-redacted `events.onEvent`).
+  // Events coming through authkit's own diagnostics bridge are redacted — see the
+  // 'contrato real do payload do authkit' suite below for that path.
+  it('runs the mapped action when an event carrying metadata fires', async () => {
     const store = new MemoryPermissionStore();
     const emit = await emitter();
 
@@ -82,5 +86,38 @@ describe('feature A — event-driven provisioning', () => {
     provisioning.stop();
     await emit('authkit:account.created', {});
     expect(calls).toBe(0);
+  });
+});
+
+describe('provisioning — contrato real do payload do authkit', () => {
+  it('lê o orgId do topo do evento (o authkit redige `metadata` na ponte de diagnostics)', async () => {
+    const store = new MemoryPermissionStore();
+    const emit = await emitter();
+
+    const provisioning = await defineAuthzProvisioning({
+      store,
+      on: {
+        'organization.created': async (ev, s) => {
+          await s.assignRole({ type: 'user', id: ev.accountId as string }, 'org:owner', {
+            tenantId: ev.orgId as string,
+          });
+        },
+      },
+    });
+
+    // Este é o payload EXATO que `redactAuditEventForDiagnostics` publica:
+    // sem `email`/`ip`/`metadata` (PII), só o tipo e os ids opacos.
+    await emit('authkit:organization.created', {
+      type: 'organization.created',
+      accountId: 'owner-1',
+      actorId: null,
+      clientId: null,
+      orgId: 'acme',
+    });
+
+    expect(
+      await store.getRolesForUser({ type: 'user', id: 'owner-1' }, { tenantId: 'acme' }),
+    ).toContain('org:owner');
+    provisioning.stop();
   });
 });
