@@ -37,12 +37,26 @@ literal. Matching is segment-based on `.`:
 | `*`            | anything             | ✅       |
 | `posts`        | `posts.edit`         | ❌       |
 
-```ts
-import { permissionMatches } from '@adonis-agora/authz'
+The matcher is exported, so you can run the same rules over a permission set you
+hold yourself — a snapshot from `effectivePermissions`, a set you fetched, a
+fixture in a test:
 
+```ts
+import { permissionMatches, permissionSatisfied } from '@adonis-agora/authz'
+
+// one granted pattern against one required ability
 permissionMatches('posts.*', 'posts.edit') // true
 permissionMatches('posts.*', 'posts')      // false
+
+// does ANY pattern in a granted set satisfy the ability?
+permissionSatisfied(['billing.*', 'posts.read'], 'billing.refund') // true
+permissionSatisfied(['billing.*', 'posts.read'], 'posts.write')    // false
 ```
+
+`permissionSatisfied` is what `AuthzService.can` runs over the user's grants, and
+what `useCan` / `<Can>` run over the [frontend share](/docs/authz/react) — which
+is why a permission set is always tested with it rather than with
+`Array.includes`, whose exact match would miss every wildcard.
 
 <Callout type="info">
   Wildcard expansion happens in the service, not the database: the store returns
@@ -64,6 +78,23 @@ await authz.store.userHasPermission({ type: 'user', id: '1' }, 'system.manage') 
 The default `resolveUserRef` reads `user.id` (and an optional `user.type`).
 Override it in config to map your own user shape.
 
+Anywhere a reference is accepted, the shorthand forms are accepted too — a bare
+id, a number, an object without a `type` — and `normalizeUserRef` is the function
+that canonicalizes them. Call it when you need the exact `{ type, id }` a store
+row is keyed by:
+
+```ts
+import { normalizeUserRef } from '@adonis-agora/authz'
+
+normalizeUserRef('42')                        // { type: 'user', id: '42' }
+normalizeUserRef(42)                          // { type: 'user', id: '42' }
+normalizeUserRef({ id: 42 })                  // { type: 'user', id: '42' }
+normalizeUserRef({ type: 'admin', id: 42 })   // { type: 'admin', id: '42' }
+```
+
+Ids are always stringified, so the numeric `42` and the string `'42'` are the
+same subject; a missing `type` always means `'user'`.
+
 ## Multi-tenancy
 
 Role assignments can be scoped to a tenant. The empty string `''` is the
@@ -83,6 +114,21 @@ Visibility rules:
 
 Wire the active tenant once via the `tenant` resolver in config and every check
 becomes tenant-aware automatically.
+
+The global scope has a name — `GLOBAL_TENANT`, the empty string — and
+`normalizeTenant` collapses any `TenantScope` (including `undefined`) down to it,
+which is how a row's tenant column is keyed:
+
+```ts
+import { GLOBAL_TENANT, normalizeTenant } from '@adonis-agora/authz'
+
+normalizeTenant({ tenantId: 'acme' }) // 'acme'
+normalizeTenant(undefined)            // '' — GLOBAL_TENANT
+normalizeTenant({})                   // ''
+```
+
+Use them when you write code that keys or groups by tenant alongside authz, so
+"no tenant" is spelled the same way on both sides.
 
 ## Query scopes (`accessibleBy`)
 

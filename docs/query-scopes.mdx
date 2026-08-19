@@ -209,6 +209,30 @@ const editable = await accessibleBy(Post.query(), authz, user, Post, { action: '
 const recent = await editable.orderBy('created_at', 'desc').limit(20)
 ```
 
-Or resolve the raw constraint yourself with `authz.scope(user, resource, options)`
-when you need the `ScopeConstraint` without a query builder (e.g. to serialize a
-query plan).
+### Splitting resolve from apply
+
+`accessibleBy` is resolve-then-apply in one call. The two halves are also exported
+separately: [`authz.scope(user, resource, options)`](/docs/authz/service#scopeuser-resource-options)
+resolves the `ScopeConstraint` on its own, and `applyScopeConstraint(query, constraint)`
+compiles an already-resolved constraint onto a Lucid query.
+
+Reach for the split when the constraint is worth more than a single query — you
+want to inspect it, cache it, serialize it as a query plan, or apply the same one
+to several queries:
+
+```ts
+import { applyScopeConstraint } from '@adonis-agora/authz/scope'
+import authz from '@adonis-agora/authz/services/main'
+
+const constraint = await authz.scope(user, Post)
+// { kind: 'none' } → skip the query entirely, you know it returns nothing
+if (constraint.kind === 'none') return { posts: [], count: 0 }
+
+// One resolution, two queries:
+const posts = await applyScopeConstraint(Post.query(), constraint).limit(20)
+const [{ count }] = await applyScopeConstraint(Post.query(), constraint).count('* as count')
+```
+
+`applyScopeConstraint` is synchronous and returns the same builder, so it chains
+directly. It carries the identical `orWhere` contract as `accessibleBy` — apply
+it before any top-level `orWhere`.

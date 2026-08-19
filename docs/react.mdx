@@ -55,19 +55,21 @@ middleware's `sharedData`.
 
 ```ts title="config/inertia.ts"
 import { defineConfig } from '@adonisjs/inertia'
-import { AuthzService } from '@adonis-agora/authz'
+import authz from '@adonis-agora/authz/services/main'
 import { buildAuthzShare } from '@adonis-agora/authz-react/server'
 
 export default defineConfig({
   sharedData: {
     // `ctx.auth.user` works with @adonisjs/auth; use ctx.auth.getUser() for authkit.
-    authz: async (ctx) => {
-      const authz = await ctx.containerResolver.make(AuthzService)
-      return buildAuthzShare(authz, ctx.auth?.user ?? null)
-    },
+    authz: (ctx) => buildAuthzShare(authz, ctx.auth?.user ?? null),
   },
 })
 ```
+
+`buildAuthzShare` needs only the `effectiveRoles` / `effectivePermissions` slice
+of the service, so the
+[`services/main` singleton](/docs/authz/service#the-service-singleton) satisfies
+it — including here, at config-load time.
 
 `buildAuthzShare(authz, user, scope?)` returns `{ roles, permissions }`. A
 `null`/`undefined` user (anonymous) yields the empty share — no leak. Pass a
@@ -249,17 +251,16 @@ permissionSatisfied(['billing.*', 'posts.read'], 'billing.refund') // true
 ## Server subpath — `AuthzShare`
 
 `@adonis-agora/authz-react/server` exports `buildAuthzShare()` and its return
-type `AuthzShare` (`{ roles: string[]; permissions: string[] }`). It is the only
-export that imports `AuthzService`, which is why it lives on a separate subpath —
-importing it from a client component would pull the server engine into the
-bundle. Keep it to server files (the Inertia middleware, tests).
+type `AuthzShare` (`{ roles: string[]; permissions: string[] }`). Keep it to
+server files — the Inertia middleware, tests — and import the client primitives
+from the package root.
 
 ```ts
 import { buildAuthzShare, type AuthzShare } from '@adonis-agora/authz-react/server'
 ```
 
 <Callout type="info">
-  `buildAuthzShare` only needs the `effectiveRoles` / `effectivePermissions`
-  slice of `AuthzService`, so a stub with just those two methods satisfies it in
-  a test.
+  Because it needs only those two methods, a stub with just
+  `effectiveRoles` / `effectivePermissions` satisfies `buildAuthzShare` in a test
+  — no store, no container, no service instance.
 </Callout>

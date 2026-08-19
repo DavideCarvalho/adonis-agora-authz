@@ -25,6 +25,16 @@ exactly as before.
   always apply.
 - **Polymorphic users** — never owns a users table; users are referenced by
   `(type, id)`, so any model (or even non-Lucid identity) works.
+- **Query scopes** — `accessibleBy(Post.query(), …)` filters a *collection* at
+  the DB layer from the same authorization data, instead of over-fetching and
+  filtering in memory.
+- **The single authority on roles** — one union of the token claim, your domain
+  tables and the store, readable forwards (`effectiveRoles`) and backwards
+  (`usersWithRole`).
+- **A route guard** — `AuthzRoleMiddleware` keeps whole route trees behind a
+  role, with guest and denied redirects.
+- **Frontend parity** — `@adonis-agora/authz-react` ships the effective grants to
+  Inertia + React, so `<Can>` and the server agree on the same rule.
 - **Pluggable stores** — a `lucid` store for production and a zero-dependency
   `memory` store for tests, selected with the drivers-in-core config idiom.
 
@@ -38,5 +48,10 @@ exactly as before.
 
 - [Getting started](/docs/authz/getting-started)
 - [Concepts](/docs/authz/concepts) — roles, permissions, wildcards, tenancy
-- [Configuration](/docs/authz/config) — the store drivers
+- [The authz service](/docs/authz/service) — the decision API and the singleton
+- [Roles](/docs/authz/roles) — the effective-role union and the reverse lookup
+- [Query scopes](/docs/authz/query-scopes) — filtering collections
+- [Configuration](/docs/authz/config) — the store drivers and every config key
 - [Bouncer integration](/docs/authz/bouncer-integration)
+- [Route middleware](/docs/authz/middleware) — the `requireRole` guard
+- [React / Inertia](/docs/authz/react) — client-side gating

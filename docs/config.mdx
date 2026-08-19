@@ -40,9 +40,19 @@ stores.lucid({
 })
 ```
 
-With `autoCreateSchema` left on (the default), the store runs
-`CREATE TABLE IF NOT EXISTS` on first use. Set it to `false` and run the
-published migration in production so schema changes are explicit.
+`autoCreateSchema` is **on by default**: the store runs
+`CREATE TABLE IF NOT EXISTS` for its five tables on first use, so a fresh app
+works with no migration step at all. The tables authz needs are authz's own
+problem, not yours.
+
+Turn it off in production. `autoCreateSchema: false` makes the store assume the
+tables exist, and you own them through the migration `configure` published (or
+through [`createAuthzTables`](#standalone-schema-helpers) in a migration of your
+own) — so schema changes ship with your deploy, in order, reviewable, rather than
+happening on whichever request happens to arrive first.
+
+Both paths emit the same DDL, so it is safe to start with the default and switch
+later: the migration finds the tables already there and does nothing.
 
 </Tab>
 <Tab value="Memory">
@@ -74,6 +84,22 @@ defineConfig({
   The super-admin hook is the only hook whose `false` actively **denies** —
   it short-circuits even when a matching grant exists.
 </Callout>
+
+## `superAdminRoles`
+
+Global role names that short-circuit every check to **allow** — no rows seeded,
+no permissions listed:
+
+```ts
+defineConfig({
+  superAdminRoles: ['platform:super'],
+})
+```
+
+The `superAdmin` hook is consulted first and its `false` outranks the list; only
+the token's global roles are matched, not the whole effective union. See
+[Roles → `superAdminRoles`](/docs/authz/roles#superadminroles--global-roles-that-allow-everything)
+for the full composition rules and when to prefer a `roleGrants` wildcard instead.
 
 ## Mapping a user to a reference
 
@@ -137,6 +163,36 @@ defineConfig({
 The callback receives the resolved `{ type, id }` reference and the active
 `TenantScope`, so app roles can themselves be tenant-scoped.
 
+### `resolveRoleMembers` & `resolveGlobalRoleMembers` — the reverse seams
+
+`resolveRoles` answers "which roles does this user hold?". Two more keys answer
+the opposite question — "who holds this role?" — for
+[`usersWithRole`](/docs/authz/roles#the-reverse-question-userswithrole):
+
+```ts
+defineConfig({
+  // reverse of `resolveRoles`: your domain tables.
+  resolveRoleMembers: async (role, scope) => {
+    const rows = await UserRole.query()
+      .where('role', role)
+      .if(scope?.tenantId, (query) => query.where('tenant_id', scope!.tenantId!))
+    return rows.map((row) => row.userId)
+  },
+
+  // reverse of the token's global-role claim: your identity store.
+  resolveGlobalRoleMembers: async (role) => {
+    const accounts = await Account.query().whereJsonSuperset('global_roles', [role])
+    return accounts.map((account) => ({ type: 'user', id: account.id }))
+  },
+})
+```
+
+Each returns bare ids or `{ type, id }` references. Both are optional — and an
+unconfigured one contributes nothing rather than failing, so a `usersWithRole`
+call simply returns a shorter list. Wire the reverse seam for every source you
+wired forwards; [Roles](/docs/authz/roles#the-reverse-seams) covers the pairing
+and the failure mode.
+
 ### `roleGrants` — role → permissions, no seed
 
 A `role → permissions/wildcards` map applied to the user's **effective** roles at
@@ -154,12 +210,6 @@ defineConfig({
 
 Now a user with the `editor` role (from any of the three sources) passes
 `can('posts.edit')` even though nothing was written to `authz_role_permission`.
-
-<Callout type="info">
-  `roleGrants` was formerly named `globalRoleGrants`. The provider reads **only**
-  `roleGrants` now; an old `globalRoleGrants` key is silently ignored. It was
-  renamed because it applies to *all* effective roles, not just global ones.
-</Callout>
 
 ## Standalone schema helpers
 

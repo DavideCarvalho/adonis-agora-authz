@@ -32,15 +32,30 @@ export const { can, hasRole } = defineAuthzAbilities(service)
 Both deny anonymous users.
 
 <Callout type="info">
-  These are **abilities**, not policies. On `@adonisjs/bouncer` v4, *policies* are
-  auto-indexed into `.adonisjs/policies.ts` via the `indexPolicies()` init hook in
-  your app's `adonisrc.ts`. Abilities defined with `Bouncer.ability(...)` — like
-  the two above — are registered by passing them to your Bouncer instance /
-  middleware exactly as before, so `@adonis-agora/authz` requires **no**
-  `indexPolicies()` wiring. The `Bouncer.ability()` and
-  `AuthorizationResponse.allow()/deny(message, status)` API is unchanged between
-  v3 and v4.
+  These are **abilities**, not policies. Policies are auto-indexed into
+  `.adonisjs/policies.ts` by the `indexPolicies()` init hook in your app's
+  `adonisrc.ts`; abilities are registered by passing them to your Bouncer
+  instance / middleware. `@adonis-agora/authz` publishes abilities, so it needs
+  **no** `indexPolicies()` wiring.
 </Callout>
+
+### Building the abilities yourself
+
+`defineAuthzAbilities(service)` takes a service instance — the form the published
+file uses, and the one you want in a test where you construct the service by
+hand. When you would rather hand it a resolver than await the container first,
+`authzAbilities` takes the thunk instead and awaits it for you:
+
+```ts title="app/abilities/authz.ts"
+import app from '@adonisjs/core/services/app'
+import { AuthzService, authzAbilities } from '@adonis-agora/authz'
+
+export const { can, hasRole } = await authzAbilities(() => app.container.make(AuthzService))
+```
+
+Both return the same `{ can, hasRole }` pair. Prefer `defineAuthzAbilities` when
+you already hold a service (see [Testing](/docs/authz/testing)), `authzAbilities`
+when you only have a way to get one.
 
 ## Using them
 
@@ -73,24 +88,34 @@ In Edge templates (share `bouncer.edgeHelpers` with the view as usual):
   pair `@adonis-agora/authz` with a normal Bouncer policy and combine the checks.
 </Callout>
 
-## Resolving the service directly
+## Using the engine directly
 
-Outside of Bouncer you can use the engine directly:
+Bouncer covers the HTTP request. For everything else — a queued job, an ace
+command, a scheduled task — import the service singleton and ask it straight:
 
 ```ts
-const authz = await app.container.make(AuthzService)
+import authz from '@adonis-agora/authz/services/main'
+
 await authz.can(user, 'posts.edit')          // wildcard-aware
 await authz.hasRole(user, 'admin')
 await authz.hasAnyRole(user, ['admin', 'editor'])
 ```
 
-For a request that runs many checks, share a cache to coalesce the grant read:
+For a request that runs many checks, share a cache so the grant set is read once:
 
 ```ts
-const cache = authz.createCache()
-await authz.can(user, 'posts.edit', { cache })
-await authz.can(user, 'posts.delete', { cache }) // reuses the same fetch
+import { AuthzService } from '@adonis-agora/authz'
+
+const service = await app.container.make(AuthzService)
+const cache = service.createCache()
+
+await service.can(user, 'posts.edit', { cache })
+await service.can(user, 'posts.delete', { cache }) // reuses the same fetch
 ```
+
+See [The authz service](/docs/authz/service) for the full surface — the
+`scope()` signature, `effectivePermissions`, the super-admin resolution and the
+cache's lifetime.
 
 ## Pairing with an authentication provider (AuthKit)
 
@@ -109,16 +134,39 @@ export default defineConfig({
 })
 ```
 
-`identityUserRef` reads a minimal, structural identity (`{ userId }`, tolerant of
-`{ id }`) — there is **no** import of authkit, so the dependency stays soft. It
-returns `{ type: 'user', id: String(identity.userId ?? identity.id) }`, falling
-back to the default resolver when neither is present.
+`identityUserRef` accepts any identity carrying a `userId` (or an `id`) and
+returns `{ type: 'user', id: String(userId ?? id) }`, falling back to the default
+resolver when neither is present. It never imports authkit, so pairing the two
+packages stays optional in both directions.
 
-<Callout type="info">
-  **Division of responsibility.** Authentication owns **global roles**; authz
-  owns **DB-backed, fine-grained, tenant-scoped permissions**. Check a global
-  role through the auth provider (e.g. `identity.hasGlobalRole('admin')`) and a
-  fine-grained permission through authz (`bouncer.allows('can', 'posts.edit')`).
-  Do **not** seed or mirror the provider's roles into the authz tables — keep the
-  two stores separate.
+### Division of responsibility
+
+Authentication answers **who this is**. authz answers **what they may do** — and
+that includes roles. A global role asserted by the token is one of the three
+sources authz unions into a user's [effective roles](/docs/authz/roles), right
+next to your domain tables and the authz store, so every role question goes to
+authz regardless of where the answer happens to live:
+
+```ts
+// Roles — always authz, whatever the source.
+await ctx.bouncer.authorize('hasRole', 'admin')
+await authz.hasRole(user, 'admin')
+await authz.effectiveRoles(user)     // the whole union
+await authz.usersWithRole('admin')   // and the reverse
+
+// Permissions — authz too, with wildcards and tenancy.
+await ctx.bouncer.allows('can', 'posts.edit')
+```
+
+<Callout type="warn">
+  **Do not check a role through the auth provider.** An
+  `identity.hasGlobalRole('admin')` call sees only the token claim: it misses the
+  same role assigned in the authz store or resolved from your own tables, so it
+  disagrees with `bouncer.allows('hasRole', 'admin')` on the same user. Route
+  every role check through authz and the two can never drift.
 </Callout>
+
+Still keep the **stores** separate: do not seed or mirror the provider's roles
+into the authz tables. authz reads the token claim at check time — copying it in
+would give you two copies to keep in sync, which is the problem the union exists
+to avoid.
