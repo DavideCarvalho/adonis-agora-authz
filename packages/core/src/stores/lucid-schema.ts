@@ -15,12 +15,30 @@
  */
 
 /**
+ * The bindings a Lucid `rawQuery` accepts: positional values, or a named map.
+ *
+ * Mirrors Lucid's own `RawQueryBindings` (`StrictValues[] | Dictionary<StrictValues, string>`)
+ * WIDELY rather than narrowly, and that direction is load-bearing. A structural mirror is only
+ * useful if the real client satisfies it, and parameter positions make that a question of
+ * assignability into this type: Lucid's union must fit here, not the other way round. Declaring
+ * just `readonly unknown[]` left no direction that worked — `readonly unknown[]` is not assignable
+ * to the mutable `StrictValues[]`, and the named-map branch is not an array at all — so no real
+ * query client satisfied {@link LucidQueryClient}, and the published migration stub did not compile
+ * in a consumer app even though every check inside this repo passed.
+ */
+export type LucidQueryBindings = readonly unknown[] | Record<string, unknown>;
+
+/**
  * The slice of a Lucid query client the schema functions rely on. Both the root
  * `Database` and a connection client satisfy it, so we depend on the surface
  * rather than a concrete Lucid type — keeping the optional-peer coupling minimal.
+ *
+ * `rawQuery` is declared as a METHOD (not a function-typed property) on purpose: methods are
+ * checked bivariantly, which is what lets a real Lucid client — whose signature is more specific
+ * than this mirror — satisfy the interface under `strictFunctionTypes`.
  */
 export interface LucidQueryClient {
-  rawQuery(sql: string, bindings?: readonly unknown[]): Promise<unknown>;
+  rawQuery(sql: string, bindings?: LucidQueryBindings): Promise<unknown>;
 }
 
 /**

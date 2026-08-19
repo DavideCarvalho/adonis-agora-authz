@@ -35,6 +35,7 @@ export type {
   AuthzTableNames,
   LucidDatabase,
   LucidPermissionStoreOptions,
+  LucidQueryBindings,
   LucidQueryClient,
 } from './stores/lucid.js';
 

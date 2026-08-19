@@ -5,15 +5,15 @@ import { defineConfig, stores } from '@adonis-agora/authz'
 
 export default defineConfig({
   /**
-   * The active store. `memory` keeps RBAC state in-process (great for tests);
-   * `lucid` persists it in your database. Point `default` at the one you use.
+   * The active store. "memory" keeps RBAC state in-process (great for tests);
+   * "lucid" persists it in your database. Point "default" at the one you use.
    */
   default: 'lucid',
 
   /**
-   * Named stores, built with the `stores` factory. The Lucid store lazily
-   * imports `@adonisjs/lucid` only when selected — install it, then run
-   * `node ace migration:run` (the configure step published the migration).
+   * Named stores, built with the "stores" factory. The Lucid store lazily
+   * imports @adonisjs/lucid only when selected — install it, then run
+   * "node ace migration:run" (the configure step published the migration).
    */
   stores: {
     memory: stores.memory(),
@@ -24,22 +24,22 @@ export default defineConfig({
   },
 
   /**
-   * Optional super-admin hook. Returning `true` allows, `false` denies, and
-   * `undefined` falls through to the normal RBAC resolution.
+   * Optional super-admin hook. Returning true allows, false denies, and
+   * undefined falls through to the normal RBAC resolution.
    *
    *   superAdmin: (user) => user.id === '1',
    */
 
   /**
-   * Map a host user object to a polymorphic user reference `{ type, id }`. The
-   * default reads `user.id` (and an optional `user.type`).
+   * Map a host user object to a polymorphic user reference { type, id }. The
+   * default reads user.id (and an optional user.type).
    *
    *   resolveUserRef: (user) => ({ type: 'user', id: user.id }),
    */
 
   /**
    * Resolve the active tenant for the current request (multi-tenancy). Return a
-   * tenant id string or `{ tenantId }`; omit for single-tenant apps.
+   * tenant id string or { tenantId }; omit for single-tenant apps.
    *
    *   tenant: () => HttpContext.getOrFail().request.header('x-tenant'),
    */
