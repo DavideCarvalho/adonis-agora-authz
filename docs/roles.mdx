@@ -1,0 +1,195 @@
+---
+title: Roles
+description: authz as the single authority on roles — the effective-role union, the reverse lookup usersWithRole(), the resolveRoleMembers / resolveGlobalRoleMembers seams, and superAdminRoles.
+icon: Users
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+An app almost never keeps its roles in one place. Some arrive as a claim on the
+token your identity provider issued. Some live in a domain table you already
+own — a `user_roles` join, a `coordinator_id` column, a membership model. Some
+are assigned through the authz store. Ask three different modules "is this user
+a coordinator?" and you get three different answers, each right about its own
+source and wrong about the other two.
+
+`@adonis-agora/authz` is the place that reconciles them. It does not move your
+roles: it takes them where they are, unions them, and answers **every** role
+question — forwards and backwards — off that one union. Nothing else in the app
+should be asking a role source directly.
+
+## The effective-role union
+
+A user's **effective roles** are the union of three sources:
+
+```
+effectiveRoles(user, scope?)  =  global roles   (the token claim, via authkit)
+                               ∪  app roles      (the `resolveRoles` seam)
+                               ∪  store roles    (assigned via store.assignRole)
+```
+
+```ts
+import authz from '@adonis-agora/authz/services/main'
+
+await authz.effectiveRoles(user)                      // global scope
+await authz.effectiveRoles(user, { tenantId: 'acme' }) // tenant scope
+// ['COORDINATOR', 'editor']
+```
+
+The result is de-duplicated and tenant-filtered. An anonymous or unmappable user
+yields `[]`. This is the exact set `hasRole` and `hasAnyRole` test against, the
+set the [route middleware](/docs/authz/middleware) guards on, the set a
+[query-scope filter](/docs/authz/query-scopes) receives as `ctx.roles`, and the
+set `buildAuthzShare` pushes to the [frontend](/docs/authz/react) — so the guard,
+the ability and the UI cannot disagree.
+
+Wire the app-roles source with the
+[`resolveRoles`](/docs/authz/config#resolveroles--app-roles) config key, and map
+any of those roles onto permissions with
+[`roleGrants`](/docs/authz/config#rolegrants--role--permissions-no-seed).
+
+## The reverse question: `usersWithRole`
+
+Forward lookups ("which roles does this user hold?") answer authorization.
+Backward lookups ("who holds this role?") answer everything else: notify every
+coordinator, assign a ticket to an on-call admin, render an org chart, export an
+audit of privileged accounts.
+
+`usersWithRole` is the mirror of `effectiveRoles` — same union, read in the other
+direction:
+
+```ts
+import authz from '@adonis-agora/authz/services/main'
+
+const coordinators = await authz.usersWithRole('COORDINATOR')
+// [{ type: 'user', id: '12' }, { type: 'user', id: '31' }]
+
+const scoped = await authz.usersWithRole('COORDINATOR', { tenantId: 'acme' })
+```
+
+It returns `UserRef` objects — `{ type, id }` — because authz never owns a users
+table. Hydrate them with your own model:
+
+```ts title="app/services/notify_coordinators.ts"
+import authz from '@adonis-agora/authz/services/main'
+import User from '#models/user'
+
+export async function notifyCoordinators(tenantId: string, message: string) {
+  const refs = await authz.usersWithRole('COORDINATOR', { tenantId })
+  const ids = refs.filter((ref) => ref.type === 'user').map((ref) => ref.id)
+  if (ids.length === 0) return
+
+  const users = await User.query().whereIn('id', ids)
+  await Promise.all(users.map((user) => user.notify(message)))
+}
+```
+
+The tenant argument behaves exactly like it does on `hasRole`: pass one and you
+get that tenant's holders plus the global ones; pass nothing and the configured
+tenant resolvers decide. Duplicates across sources are collapsed by `(type, id)`,
+so a user who holds the role in two places appears once.
+
+## The reverse seams
+
+The forward union reads three sources, so the reverse union has to read three
+sources too. authz can walk its own store on its own — it cannot walk **your**
+tables or **your** identity provider, because it has no idea what shape they are.
+So each of those two gets a config seam, the exact reverse counterpart of the
+forward one:
+
+| Direction | Store | Your domain tables | Global / IdP roles |
+| --------- | ----- | ------------------ | ------------------ |
+| forward — roles of a user | built in | `resolveRoles` | the token claim |
+| reverse — users of a role | built in | `resolveRoleMembers` | `resolveGlobalRoleMembers` |
+
+```ts title="config/authz.ts"
+import { defineConfig, stores } from '@adonis-agora/authz'
+import Account from '#models/account'
+import UserRole from '#models/user_role'
+
+export default defineConfig({
+  default: 'lucid',
+  stores: { lucid: stores.lucid() },
+
+  // Forward: which app roles does this user hold?
+  resolveRoles: async (user, scope) => {
+    const rows = await UserRole.query()
+      .where('user_id', user.id)
+      .if(scope?.tenantId, (query) => query.where('tenant_id', scope!.tenantId!))
+    return rows.map((row) => row.role)
+  },
+
+  // Reverse: who holds this app role?
+  resolveRoleMembers: async (role, scope) => {
+    const rows = await UserRole.query()
+      .where('role', role)
+      .if(scope?.tenantId, (query) => query.where('tenant_id', scope!.tenantId!))
+    return rows.map((row) => row.userId)
+  },
+
+  // Reverse: who holds this role as a global / IdP role?
+  resolveGlobalRoleMembers: async (role) => {
+    const accounts = await Account.query().whereJsonSuperset('global_roles', [role])
+    return accounts.map((account) => ({ type: 'user', id: account.id }))
+  },
+})
+```
+
+Both seams may return bare ids (`'12'`, `42`) or full references
+(`{ type: 'account', id: '12' }`). A bare id is read as the default `user` type —
+the same normalization every other entry point applies — so you only spell out
+`type` when you keep more than one kind of subject.
+
+Both receive the active `TenantScope` as their second argument. Honour it when
+your source is tenant-aware and ignore it when it is not: global roles usually
+are not, which is why the example above takes only `role`.
+
+<Callout type="warn">
+  **An unconfigured seam contributes nothing, silently.** With neither seam wired,
+  `usersWithRole` answers from the authz store alone — it returns a *shorter*
+  list, not an error. That is the failure mode to watch for: a coordinator whose
+  role comes from `user_roles` never gets notified, and nothing anywhere reports a
+  problem. If `resolveRoles` reads a source, `resolveRoleMembers` must read the
+  same source, or the two directions describe different worlds.
+</Callout>
+
+The three lookups run in parallel, so adding a seam costs the latency of its own
+query, not the sum.
+
+## `superAdminRoles` — global roles that allow everything
+
+Some roles are not "a bundle of permissions" but "skip the check". `superAdminRoles`
+names the global roles that short-circuit to **allow**, without seeding a single
+row:
+
+```ts title="config/authz.ts"
+defineConfig({
+  superAdminRoles: ['platform:super'],
+})
+```
+
+A user whose token carries `platform:super` now passes `can()` for any
+permission, `hasRole()` for any role name, and resolves to `allow-all` in
+`scope()` — so `accessibleBy` adds no `WHERE` at all and they see every row.
+
+Two things worth knowing about how it composes:
+
+- **The `superAdmin` hook runs first.** If the hook returns `false` the request is
+  denied and `superAdminRoles` is never consulted — a hook `false` is a hard deny
+  that outranks the role. If the hook returns `true` the check allows; anything
+  nullish falls through to the role list. See
+  [super-admin resolution](/docs/authz/service#super-admin-resolution).
+- **Only global roles count.** `superAdminRoles` is matched against the token's
+  global roles, not the full effective union. Assigning `platform:super` in the
+  store or returning it from `resolveRoles` makes it an ordinary role — it will
+  satisfy `hasRole('platform:super')` and pick up any `roleGrants` you mapped
+  onto it, but it will not skip checks. Keep "who may bypass authorization" an
+  identity-provider decision, not a row anyone with store access can write.
+
+<Callout type="info">
+  For an ordinary broad role, prefer
+  [`roleGrants`](/docs/authz/config#rolegrants--role--permissions-no-seed) with a
+  wildcard — `{ auditor: ['audit.*'] }` — over `superAdminRoles`. A wildcard grant
+  is still a grant: it goes through the matcher, respects tenancy, and shows up in
+  `effectivePermissions`. A super-admin role is invisible to all three.
+</Callout>

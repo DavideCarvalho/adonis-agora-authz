@@ -1,0 +1,254 @@
+---
+title: The authz service
+description: AuthzService and the services/main singleton — can, scope, hasRole, hasAnyRole, effectiveRoles, effectivePermissions, usersWithRole, the super-admin resolution and the per-request permission cache.
+icon: Boxes
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+`AuthzService` is the engine every other surface delegates to. The Bouncer
+abilities call it, the [route middleware](/docs/authz/middleware) calls it, the
+[query scopes](/docs/authz/query-scopes) call it, and the
+[Inertia share](/docs/authz/react) is built from it. Calling it directly is how
+you authorize anything that is not an HTTP request through Bouncer — a job, a
+console command, an AI tool call, a scheduled task.
+
+## The service singleton
+
+Import the singleton from the `@adonis-agora/authz/services/main` subpath and
+use it anywhere. There is no container plumbing to write and no instance to
+thread through your call sites:
+
+```ts title="app/jobs/publish_post.ts"
+import authz from '@adonis-agora/authz/services/main'
+
+export default class PublishPost {
+  async handle(user: User, post: Post) {
+    if (!(await authz.can(user, 'posts.publish'))) {
+      throw new Error('not allowed to publish')
+    }
+    // ...
+  }
+}
+```
+
+The singleton is safe to import from a **config file**, which is what makes it
+usable as a plug for other Agora packages that take an authorizer at config
+time:
+
+```ts title="config/agent.ts"
+import { defineConfig } from '@adonis-agora/agent'
+import { authzToolAuthorizer } from '@adonis-agora/agent/authz'
+import authz from '@adonis-agora/authz/services/main'
+
+export default defineConfig({
+  authorizer: authzToolAuthorizer({ authz }),
+})
+```
+
+It exposes the asynchronous decision surface — `can`, `scope`, `hasRole`,
+`hasAnyRole`, `effectiveRoles`, `effectivePermissions` and `usersWithRole`. For
+the synchronous members (`store`, `scopes`, `createCache`) resolve the class
+itself from the container:
+
+```ts
+import { AuthzService } from '@adonis-agora/authz'
+import app from '@adonisjs/core/services/app'
+
+const service = await app.container.make(AuthzService)
+await service.store.assignRole({ type: 'user', id: '42' }, 'editor')
+const cache = service.createCache()
+```
+
+<Callout type="info">
+  Both forms are the **same** instance: the provider registers `AuthzService` as
+  a container singleton built from `config/authz.ts`, and the service singleton
+  forwards to it.
+</Callout>
+
+## `can(user, permission, options?)`
+
+The wildcard-aware permission check — the one the `can` Bouncer ability wraps.
+
+```ts
+await authz.can(user, 'posts.edit')
+await authz.can(user, 'posts.edit', { scope: { tenantId: 'acme' } })
+await authz.can(user, 'posts.edit', { cache })
+```
+
+| Option  | Type              | Meaning |
+| ------- | ----------------- | ------- |
+| `scope` | `TenantScope?`    | Explicit tenant. Omit to use the configured resolvers. |
+| `cache` | `PermissionCache?`| Share one grant read across many checks. |
+
+It resolves in this order:
+
+1. the [super-admin verdict](#super-admin-resolution) — may allow **or** deny;
+2. the user's granted permissions — the store's grants unioned with the
+   `roleGrants` mapped over their [effective roles](/docs/authz/roles) — run
+   through the [wildcard matcher](/docs/authz/concepts#wildcard-matching);
+3. otherwise deny.
+
+An anonymous or unmappable user is always `false`.
+
+## `effectivePermissions(user, scope?)`
+
+The full permission set behind a `can()` decision, as a plain array. `can()`
+answers one question; this hands you the whole set, which is what you want when
+you are shipping the decision somewhere else — a UI snapshot, an audit log, a
+debugging endpoint.
+
+```ts
+const permissions = await authz.effectivePermissions(user)
+// ['posts.*', 'comments.moderate', 'billing.view']
+
+const scoped = await authz.effectivePermissions(user, { tenantId: 'acme' })
+```
+
+It is the union of the store's grants for the user (role-derived ∪ direct) and
+every permission `roleGrants` maps onto their effective roles. Anonymous users
+get `[]`.
+
+<Callout type="info">
+  The set contains the **granted** patterns, wildcards and all — `posts.*` stays
+  `posts.*`. Test membership with `permissionSatisfied(permissions, 'posts.edit')`
+  rather than `permissions.includes(...)`, so wildcards keep working.
+  `buildAuthzShare` in [authz-react](/docs/authz/react) ships this set to the
+  browser for exactly that reason.
+</Callout>
+
+## `scope(user, resource, options?)`
+
+Resolves the [query-scope constraint](/docs/authz/query-scopes) for a resource —
+the collection-level counterpart of `can`. Use it directly when you want the
+`ScopeConstraint` without a query builder (to serialize a query plan, or to feed
+a non-Lucid data source); use
+[`accessibleBy`](/docs/authz/query-scopes#consuming-the-scope) when you have a
+Lucid query.
+
+```ts
+const constraint = await authz.scope(user, Post)
+// { kind: 'all' } | { kind: 'none' } | a condition AST
+```
+
+| Option   | Type              | Default      | Meaning |
+| -------- | ----------------- | ------------ | ------- |
+| `action` | `string?`         | `'viewAny'`  | The ability being scoped. Checked as a permission grant, and passed to the registered filter as `ctx.action`. |
+| `scope`  | `TenantScope?`    | —            | Explicit tenant. |
+| `cache`  | `PermissionCache?`| —            | Share the grant read with the request's other checks. |
+
+```ts
+// "which posts may this user edit?" instead of the default viewAny
+const editable = await authz.scope(user, Post, { action: 'posts.edit' })
+```
+
+Because `action` defaults to `viewAny`, a user granted `viewAny` (or a wildcard
+covering it, such as `*`) short-circuits to `allow-all` before any filter runs.
+
+## `hasRole` and `hasAnyRole`
+
+Exact, tenant-aware role checks against the user's
+[effective roles](/docs/authz/roles):
+
+```ts
+await authz.hasRole(user, 'admin')
+await authz.hasRole(user, 'coordinator', { scope: { tenantId: 'acme' } })
+
+// any-of: true when the user holds AT LEAST ONE
+await authz.hasAnyRole(user, ['admin', 'editor'])
+await authz.hasAnyRole(user, ['admin', 'editor'], { scope: { tenantId: 'acme' } })
+```
+
+`hasAnyRole` is not sugar for a loop of `hasRole` calls: it reads the effective
+roles **once** and intersects, so it costs one resolution regardless of how many
+roles you pass, and it can never disagree with `hasRole` on the same input.
+
+Both take a single `{ scope }` option and both honour the super-admin verdict, so
+a super-admin answers `true` for any role name.
+
+## Super-admin resolution
+
+Every decision method — `can`, `hasRole`, `hasAnyRole` and `scope` — consults the
+same two-step super-admin guard before doing any RBAC work:
+
+1. the `superAdmin` hook from `config/authz.ts`, if configured. `true` allows,
+   `false` **denies** (it is the only hook whose `false` actively denies, even
+   when a matching grant exists), anything nullish falls through;
+2. the `superAdminRoles` list: if any of the user's global roles is in it, allow.
+
+```ts title="config/authz.ts"
+defineConfig({
+  superAdmin: (user, ability) => {
+    if (user.type === 'service' && ability.startsWith('jobs.')) return true
+    if (user.id === BANNED_ID) return false // hard deny, overrides every grant
+    return undefined                        // otherwise: normal RBAC
+  },
+  superAdminRoles: ['platform:super'],
+})
+```
+
+The hook's second argument is the thing being checked, so one hook can special-case
+each entry point. Its shape follows the caller:
+
+| Caller | `ability` argument |
+| ------ | ------------------ |
+| `can(user, 'posts.edit')` | `'posts.edit'` |
+| `scope(user, Post, { action: 'posts.edit' })` | `'posts.edit'` |
+| `hasRole(user, 'admin')` | `'role:admin'` |
+| `hasAnyRole(user, ['a', 'b'])` | `'role:a,b'` |
+
+In `scope`, the verdict maps onto the two terminals: `true` → `allow-all` (no
+`WHERE` added), `false` → `deny-all` (no rows). See
+[`superAdminRoles`](/docs/authz/roles#superadminroles--global-roles-that-allow-everything)
+for how the global-role half is fed.
+
+## The per-request permission cache
+
+Every check reads the user's granted permissions from the store. A request that
+runs a dozen checks would issue a dozen reads; a `PermissionCache` collapses them
+into one read per `(user, tenant)` pair, including for checks that run
+concurrently.
+
+```ts
+import { AuthzService } from '@adonis-agora/authz'
+
+const service = await app.container.make(AuthzService)
+const cache = service.createCache()
+
+await service.can(user, 'posts.edit', { cache })
+await service.can(user, 'posts.delete', { cache })   // no second read
+await service.scope(user, Post, { cache })           // still no second read
+```
+
+Create one cache per request (or per job) and let it fall out of scope with it.
+A cache is a **snapshot**: it never expires and never invalidates, so a grant
+written after the cache warmed is not visible to it. That is exactly what you
+want inside one request — every check in it decides against the same
+authorization state — and exactly what you do not want in a long-lived process.
+Never hoist a cache to module scope.
+
+```ts title="app/controllers/posts_controller.ts"
+export default class PostsController {
+  async index(ctx: HttpContext) {
+    const service = await ctx.containerResolver.make(AuthzService)
+    const cache = service.createCache()
+
+    const user = ctx.auth.user
+    return {
+      canCreate: await service.can(user, 'posts.create', { cache }),
+      canModerate: await service.can(user, 'comments.moderate', { cache }),
+    }
+  }
+}
+```
+
+`PermissionCache` is exported from the package barrel if you want to build one
+against a store yourself (`new PermissionCache(store)`), and exposes
+`getPermissions(user, scope?)` for the raw memoized set plus
+`satisfies(user, ability, scope?)` for a wildcard-aware check off it.
+
+<Callout type="warn">
+  The cache memoizes the **store's** grants only. Role sources outside the store
+  — the token's global roles and the `resolveRoles` seam — are consulted on every
+  check, so a cache never makes them stale.
+</Callout>

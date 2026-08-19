@@ -4,6 +4,8 @@
     "index",
     "getting-started",
     "concepts",
+    "service",
+    "roles",
     "query-scopes",
     "config",
     "bouncer-integration",
