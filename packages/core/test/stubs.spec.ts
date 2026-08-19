@@ -113,6 +113,25 @@ describe('published stubs', () => {
     });
 
     /**
+     * Matching NAMES is not enough, and the gap is the historical defect exactly. The de-backtick
+     * pass rewrote published stubs while their sources kept looking fine: same file, same path, same
+     * set — different bytes. A divergence that still renders and still type-checks passes every other
+     * check here, and it means the file that was reviewed is not the file that ships.
+     *
+     * `copy:stubs` is a plain `cp`, so the two copies must be byte-identical. Comparing buffers
+     * rather than strings keeps encoding and line-ending drift in scope too.
+     */
+    it.each(findStubs(sourceStubsRoot))('dist/stubs/%s is byte-identical to its source', (file) => {
+      const source = readFileSync(join(sourceStubsRoot, file));
+      const published = readFileSync(join(distStubsRoot, file));
+
+      expect(
+        published.equals(source),
+        `dist/stubs/${file} differs from stubs/${file} — the published stub is not the one in the tree. Re-run \`pnpm build\`; if it still differs, the copy step is rewriting content.`,
+      ).toBe(true);
+    });
+
+    /**
      * The check that actually proves it: build each PUBLISHED stub through the real `app.stubs`
      * pipeline, which is what `codemods.makeUsingStub` calls from `configure.ts`. A stub that cannot
      * render throws here with the same message the user would have seen.
