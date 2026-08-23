@@ -1,0 +1,629 @@
+# Domain map for adonis-authz (single map for the whole monorepo).
+# Produced autonomously (no maintainer interview). Grounded in docs/*.mdx,
+# README.md, and packages/*/src.
+
+library: adonis-authz
+oneLiner: >
+  Bouncer-integrated, DB-backed RBAC for AdonisJS. A small fixed set of static
+  Bouncer abilities (`can`, `hasRole`) — published to app/abilities/authz.ts by
+  `node ace configure @adonis-agora/authz` via defineAuthzAbilities() /
+  authzAbilities() — consults a pluggable PermissionStore (lucid or memory)
+  through AuthzService. Decisions are wildcard-based (permissionSatisfied over
+  segment patterns), tenant-aware (GLOBAL_TENANT '' vs { tenantId }), and union
+  three role sources (token claim ∪ resolveRoles seam ∪ store). Collections are
+  filtered with accessibleBy() over registered ScopeRegistry filters using the
+  eq/where/whereIn/and/or DSL; routes get an any-of requireRole guard
+  (AuthzRoleMiddleware); the frontend mirrors decisions via buildAuthzShare()
+  + useCan/<Can> from @adonis-agora/authz-react.
+
+packages:
+  public:
+    - name: "@adonis-agora/authz"
+      path: packages/core
+      version: "0.10.5"
+      role: core
+      clientFacing: true
+      covered: true
+      imports: [defineConfig, stores, AuthzService, MemoryPermissionStore,
+                LucidPermissionStore, PermissionCache, defineAuthzAbilities,
+                authzAbilities, AuthzRoleMiddleware, hasPermissions, accessibleBy,
+                applyScopeConstraint, ScopeRegistry, scopeAll, scopeNone, eq, where,
+                whereIn, and, or, permissionMatches, permissionSatisfied,
+                normalizeUserRef, GLOBAL_TENANT, normalizeTenant, createAuthzTables,
+                dropAuthzTables, AUTHZ_TABLES, identityUserRef, tenantFromContext,
+                globalRolesFromContext, readContextValue, runPermissionStoreContract]
+    - name: "@adonis-agora/authz-react"
+      path: packages/react
+      version: "0.2.1"
+      role: client
+      clientFacing: true
+      covered: true
+      imports: [AuthzProvider, useAuthz, useCan, Can, permissionMatches,
+                permissionSatisfied, buildAuthzShare, AuthzSharedProps, AuthzShare]
+
+concepts:
+  - id: static-bouncer-abilities
+    summary: >
+      Bouncer has no runtime API to register one ability per DB row, so the package
+      registers two static abilities whose bodies consult the store: `can(user,
+      permission, resource?)` (wildcard-aware) and `hasRole(user, role)`. Published
+      by configure to app/abilities/authz.ts; both deny anonymous users. RBAC grants
+      are model-less, so the `resource` argument is accepted but NOT inspected — pair
+      with a normal Bouncer policy for per-record ownership.
+    source: docs/bouncer-integration.mdx, packages/core/src/bouncer/abilities.ts
+  - id: service-singleton-vs-class
+    summary: >
+      The services/main singleton (@adonis-agora/authz/services/main) exposes only
+      the async decision surface (can/scope/hasRole/hasAnyRole/effectiveRoles/
+      effectivePermissions/usersWithRole) and is safe at config-load time. Writes,
+      store access, scopes and createCache() need the class resolved from the
+      container (app.container.make(AuthzService)). Both forms are the SAME instance.
+    source: docs/service.mdx, packages/core/services/main.ts
+  - id: wildcard-matching
+    summary: >
+      Segment-based on '.', spatie-style: only the GRANTED side may carry wildcards;
+      the required ability is always literal. Trailing '*' needs ONE-OR-MORE remaining
+      segments ('posts.*' does NOT match bare 'posts'); interior '*' consumes exactly
+      one segment. Wildcard expansion happens in the SERVICE, not the DB — the store's
+      userHasPermission/getPermissionsForUser match names EXACTLY and return granted
+      patterns verbatim ('posts.*' stays 'posts.*'). Test sets with
+      permissionSatisfied(set, ability), never Array.includes.
+    source: packages/core/src/permission_matcher.ts, docs/concepts.mdx
+  - id: effective-role-union
+    summary: >
+      effectiveRoles = global/token roles (Agora context via authkit) ∪ app roles
+      (resolveRoles config seam) ∪ store roles (store.assignRole). Every consumer —
+      can, hasRole, hasAnyRole, AuthzRoleMiddleware, scope-filter ctx.roles,
+      buildAuthzShare — reads this same union so guard/ability/UI cannot disagree.
+      usersWithRole is the reverse lookup with reverse seams resolveRoleMembers /
+      resolveGlobalRoleMembers; an unconfigured seam contributes nothing silently.
+    source: docs/roles.mdx, packages/core/src/authz_service.ts
+  - id: super-admin-resolution
+    summary: >
+      Two-step short-circuit before any RBAC work: (1) the superAdmin hook — its true
+      allows AND its false actively DENIES even against matching grants (the only hook
+      whose false denies); nullish falls through; (2) superAdminRoles matched against
+      GLOBAL context roles only (not the full union). Ability shape follows the caller:
+      can→'posts.edit', scope→action, hasRole→'role:admin', hasAnyRole→'role:a,b'.
+      In scope(), verdict maps to allow-all / deny-all terminals.
+    source: docs/service.mdx, packages/core/src/authz_service.ts
+  - id: tenancy-model
+    summary: >
+      Tenant precedence: explicit scope arg → tenant resolver → opt-in resolveTenant
+      (e.g. tenantFromContext). '' (GLOBAL_TENANT) is the global scope; normalizeTenant
+      collapses any TenantScope down to it. A global request sees only global rows; a
+      tenant request sees global ∪ that tenant; tenant-scoped assignments never leak
+      across tenants or into the global view. Direct user-permission grants are
+      TENANT-INDEPENDENT — they always apply.
+    source: docs/concepts.mdx, docs/agora-integration.mdx, packages/core/src/authz_service.ts
+  - id: query-scopes
+    summary: >
+      Consumer side: accessibleBy(query, authz, user, resource, { action? }) resolves
+      then applies the constraint to THE SAME builder (two awaits: constraint, query).
+      Producer side: registry.register(ModelOrString, filter) in the scopes config key;
+      unregistered resource → deny-all (fail-closed). Resolution order: super-admin →
+      wildcard grant for action (default 'viewAny') → registered filter → deny-all.
+      Split API: authz.scope() + applyScopeConstraint() for caching/serializing plans.
+      CRITICAL contract: the passed query must have NO top-level orWhere — the scope is
+      appended with AND, which binds tighter than OR, so a trailing top-level OR leaks
+      rows past deny-all. Wrap caller-side ORs in where(q => ...).
+    source: docs/query-scopes.mdx, docs/concepts.mdx, packages/core/src/lucid_scope.ts
+  - id: route-middleware
+    summary: >
+      AuthzRoleMiddleware (default export of @adonis-agora/authz/middleware) gates on
+      EFFECTIVE roles, any-of. Options: roles (required), scope, guestRedirect
+      (else 401 Unauthenticated), deniedRedirect (else 403 deniedMessage default
+      'Forbidden'), deniedMessage. Deliberately role-only: permission checks go through
+      Bouncer inside actions, collections through query scopes.
+    source: docs/middleware.mdx, packages/core/src/middleware.ts
+  - id: permission-cache
+    summary: >
+      createCache() memoizes store.getPermissionsForUser per (user, tenant), deduping
+      concurrent checks; pass { cache } to can/scope. It is a SNAPSHOT of the STORE's
+      grants only — never expires, never invalidates; global/context roles and the
+      resolveRoles seam are consulted every check so they never go stale through it.
+      One cache per request/job; hoisting it to module scope serves stale grants forever.
+    source: docs/service.mdx, packages/core/src/permission_cache.ts
+  - id: polymorphic-users
+    summary: >
+      No users table. Subjects are UserRef { type, id }; normalizeUserRef canonicalizes
+      shorthand (bare id, number, {id}) — missing type means 'user', ids stringified.
+      resolveUserRef maps host user objects (identityUserRef bridges authkit identities).
+      usersWithRole returns refs; hydrate yourself.
+    source: docs/concepts.mdx, packages/core/src/user_ref.ts
+
+skills:
+  - name: authz-setup
+    slug: authz-setup
+    domain: setup-and-config
+    description: Install/configure @adonis-agora/authz — defineConfig/stores, lucid autoCreateSchema vs migration, ace commands, catalog sync.
+    type: core
+    packages: ["@adonis-agora/authz"]
+    covers: [defineConfig, stores.lucid, stores.memory, autoCreateSchema,
+             createAuthzTables, AUTHZ_TABLES, node ace configure, authz:grant,
+             authz:assign, authz:list, authz:sync, catalog, resolveUserRef,
+             identityUserRef, tenant resolver]
+    tasks:
+      - "Install and configure authz in a fresh AdonisJS app"
+      - "Own the RBAC schema via migration instead of first-request CREATE TABLE"
+      - "Seed roles/permissions from a catalog"
+    failure_modes:
+      - mistake: "Shipping autoCreateSchema default to production"
+        mechanism: >
+          With the default, the lucid store runs CREATE TABLE IF NOT EXISTS on FIRST
+          USE — a request-triggered DDL instead of a reviewed migration; schema changes
+          ship whenever traffic arrives, not with deploys.
+        wrong_pattern: |
+          export default defineConfig({
+            default: 'lucid',
+            stores: { lucid: stores.lucid() }, // autoCreateSchema defaults ON
+          })
+        correct_pattern: |
+          export default defineConfig({
+            default: 'lucid',
+            stores: { lucid: stores.lucid({ autoCreateSchema: false }) },
+          })
+          // plus node ace migration:run (or a createAuthzTables(db) migration)
+        source: docs/getting-started.mdx ("For production, take the tables under your own control"), docs/config.mdx Stores/Lucid
+        priority: HIGH
+        status: active
+        skills: ['authz-setup']
+      - mistake: "Table-name overrides diverge between store and helpers"
+        mechanism: >
+          createAuthzTables(db, { tables }) and stores.lucid({ tables }) must agree;
+          overriding names in one place only makes the migration create tables the
+          store never reads (and vice versa).
+        wrong_pattern: |
+          const tables = { ...AUTHZ_TABLES, roles: 'rbac_roles' };
+          await createAuthzTables(db, { tables });
+          // config still uses defaults → mismatched table names
+        correct_pattern: |
+          const tables = { ...AUTHZ_TABLES, roles: 'rbac_roles' };
+          // config/authz.ts → stores.lucid({ autoCreateSchema: false, tables })
+          await createAuthzTables(db, { tables }); // same override
+        source: docs/config.mdx "Standalone schema helpers" (pass matching overrides to BOTH)
+        priority: MEDIUM
+        status: active
+        skills: ['authz-setup']
+      - mistake: "Seeding grants with authz:sync while expecting revocations"
+        mechanism: >
+          authz:sync is deliberately idempotent — it only creates missing rows and
+          never removes ones dropped from the catalog; stale permissions survive.
+        wrong_pattern: |
+          // removed 'posts.delete' from catalog, ran sync, assumed revoked
+          node ace authz:sync
+        correct_pattern: |
+          // remove explicitly, then re-sync what remains
+          node ace authz:list
+          // revoke via store.revokePermissionFromRole(...) / CLI-equivalent write, then:
+          node ace authz:sync
+        source: docs/commands.mdx ("Idempotent — only missing rows are created/attached")
+        priority: MEDIUM
+        status: active
+        skills: ['authz-setup']
+
+  - name: authz-decisions
+    slug: authz-decisions
+    domain: deciding-access
+    description: Answer may-I questions with AuthzService/Bouncer abilities — can, hasRole, wildcards, super-admin hook, PermissionCache.
+    type: core
+    packages: ["@adonis-agora/authz"]
+    covers: [defineAuthzAbilities, authzAbilities, ctx.bouncer.allows,
+             ctx.bouncer.authorize, authz.can, permissionSatisfied,
+             permissionMatches, superAdmin hook, superAdminRoles,
+             PermissionCache, createCache, services/main singleton]
+    tasks:
+      - "Check a permission/role from a controller, Edge template, job, or command"
+      - "Wire the published can/hasRole Bouncer abilities"
+      - "Coalesce many checks into one grant read per request"
+    failure_modes:
+      - mistake: "Testing wildcard grants with Array.includes"
+        mechanism: >
+          effectivePermissions returns granted PATTERNS verbatim ('posts.*' stays
+          'posts.*'); includes() does exact matching, so any wildcard grant fails the
+          check even though the server would allow it.
+        wrong_pattern: |
+          const perms = await authz.effectivePermissions(user);
+          if (!perms.includes('posts.edit')) throw new ForbiddenError();
+        correct_pattern: |
+          import { permissionSatisfied } from '@adonis-agora/authz';
+          const perms = await authz.effectivePermissions(user);
+          if (!permissionSatisfied(perms, 'posts.edit')) throw new ForbiddenError();
+        source: docs/service.mdx Callout ("Test membership with permissionSatisfied rather than permissions.includes"), docs/concepts.mdx
+        priority: CRITICAL
+        status: active
+        skills: ['authz-decisions', 'authz-react-ui']
+      - mistake: "Expecting the can ability to inspect the resource argument"
+        mechanism: >
+          RBAC grants are model-less; the default `can` ability accepts `resource` for
+          ergonomic call sites and ignores it, so ownership checks silently pass/fail on
+          grants alone.
+        wrong_pattern: |
+          // looks like an ownership check, is not
+          if (!(await ctx.bouncer.allows('can', 'posts.edit', post))) { ... }
+        correct_pattern: |
+          // combine RBAC with a real policy for per-record ownership
+          await ctx.bouncer.authorize('can', 'posts.edit');
+          await ctx.bouncer.authorize('edit', post); // your own Bouncer policy
+        source: docs/bouncer-integration.mdx Callout, docs/getting-started.mdx Callout ("RBAC grants are model-less")
+        priority: HIGH
+        status: active
+        skills: ['authz-decisions']
+      - mistake: "Hoisting the permission cache to module scope"
+        mechanism: >
+          A PermissionCache is a snapshot that never expires or invalidates; a module-
+          level cache serves the warm grant set to later requests forever, including
+          after revocation.
+        wrong_pattern: |
+          // module scope — shared across requests, never invalidated
+          const cache = (await app.container.make(AuthzService)).createCache();
+          export async function check(user, perm) {
+            return authz.can(user, perm, { cache });
+          }
+        correct_pattern: |
+          export async function check(user, perm) {
+            const service = await ctx.containerResolver.make(AuthzService);
+            return service.can(user, perm, { cache: service.createCache() });
+          }
+        source: docs/service.mdx "per-request permission cache" (snapshot warning)
+        priority: HIGH
+        status: active
+        skills: ['authz-decisions']
+      - mistake: "Assuming the superAdmin hook false falls through"
+        mechanism: >
+          The super-admin hook's false ACTIVELY DENIES — it short-circuits before grants
+          and outranks superAdminRoles; only nullish/undefined falls through to RBAC.
+        wrong_pattern: |
+          superAdmin: (user) => user.id === bannedId ? undefined : undefined
+          // intended hard-deny written as fall-through; grants still decide
+        correct_pattern: |
+          superAdmin: (user, ability) => {
+            if (user.id === BANNED_ID) return false;   // hard deny, overrides grants
+            if (user.type === 'service') return true;  // allow everything else
+            return undefined;                          // fall through to RBAC
+          }
+        source: docs/config.mdx superAdmin warn Callout, docs/service.mdx "Super-admin resolution"
+        priority: HIGH
+        status: active
+        skills: ['authz-decisions']
+
+  - name: authz-roles-tenancy
+    slug: authz-roles-tenancy
+    domain: roles-and-tenancy
+    description: Reconcile token/app/store roles and tenants — effectiveRoles, usersWithRole, resolveRoles/resolveRoleMembers seams, GLOBAL_TENANT visibility rules.
+    type: core
+    packages: ["@adonis-agora/authz"]
+    covers: [effectiveRoles, usersWithRole, resolveRoles, resolveRoleMembers,
+             resolveGlobalRoleMembers, roleGrants, superAdminRoles,
+             GLOBAL_TENANT, normalizeTenant, tenantFromContext, resolveTenant]
+    tasks:
+      - "Answer role questions from one union regardless of source"
+      - "Notify everyone holding a role (reverse lookup)"
+      - "Make every check tenant-aware automatically"
+    failure_modes:
+      - mistake: "Checking roles through the auth provider instead of authz"
+        mechanism: >
+          identity.hasGlobalRole('admin') sees only the token claim; the same role
+          assigned in the store or returned by resolveRoles is invisible, so the answer
+          drifts from bouncer.allows('hasRole', ...) on the identical user.
+        wrong_pattern: |
+          if (await identity.hasGlobalRole('admin')) { ... }
+        correct_pattern: |
+          import authz from '@adonis-agora/authz/services/main';
+          if (await authz.hasRole(user, 'admin')) { ... }
+        source: docs/bouncer-integration.mdx "Division of responsibility" warn Callout
+        priority: CRITICAL
+        status: active
+        skills: ['authz-roles-tenancy', 'authz-route-guards']
+      - mistake: "Wiring resolveRoles without its reverse seam"
+        mechanism: >
+          usersWithRole answers from configured sources only; an unwired
+          resolveRoleMembers contributes NOTHING silently — shorter list, no error —
+          so coordinators backed by domain tables never get notified.
+        wrong_pattern: |
+          defineConfig({
+            resolveRoles: async (user, scope) => { /* reads user_roles */ },
+            // resolveRoleMembers missing → reverse lookup misses those users
+          })
+        correct_pattern: |
+          defineConfig({
+            resolveRoles: async (user, scope) => { /* reads user_roles */ },
+            resolveRoleMembers: async (role, scope) => { /* SAME table */ },
+          })
+        source: docs/roles.mdx "The reverse seams" warn Callout
+        priority: HIGH
+        status: active
+        skills: ['authz-roles-tenancy']
+      - mistake: "Assigning superAdminRoles outside the global context"
+        mechanism: >
+          superAdminRoles matches ONLY the token's global context roles; assigning
+          platform:super via store.assignRole or returning it from resolveRoles yields
+          an ordinary role — hasRole passes but nothing skips checks.
+        wrong_pattern: |
+          defineConfig({ superAdminRoles: ['platform:super'] });
+          await authz.store.assignRole(ref, 'platform:super'); // ordinary role, no bypass
+        correct_pattern: |
+          // keep the bypass in the IdP claim, or prefer roleGrants wildcard:
+          defineConfig({
+            superAdminRoles: ['platform:super'],
+            roleGrants: { auditor: ['audit.*'] }, // broad-but-auditable alternative
+          })
+        source: docs/roles.mdx superAdminRoles section ("Only global roles count"), docs/config.mdx superAdminRoles
+        priority: HIGH
+        status: active
+        skills: ['authz-roles-tenancy']
+      - mistake: "Expecting direct grants to be tenant-scoped"
+        mechanism: >
+          giveUserPermission grants are tenant-INDEPENDENT by design — they apply in
+          every scope, including a global request that otherwise sees no tenant rows.
+        wrong_pattern: |
+          await authz.store.giveUserPermission(
+            { type: 'user', id: '1' }, 'billing.view',
+            { tenantId: 'acme' } as any, // third arg doesn't exist; grant is global
+          );
+        correct_pattern: |
+          await authz.store.giveUserPermission(
+            { type: 'user', id: '1' },
+            'billing.view',
+          ); // applies in ALL tenants — scope roles instead if tenancy is needed
+        source: docs/concepts.mdx Multi-tenancy bullet, docs/testing.mdx invariant 3
+        priority: MEDIUM
+        status: active
+        skills: ['authz-roles-tenancy']
+
+  - name: authz-query-scopes
+    slug: authz-query-scopes
+    domain: filtering-collections
+    description: Filter Lucid collections by authorization data — accessibleBy, ScopeRegistry.register, eq/where/whereIn/and/or DSL, applyScopeConstraint split.
+    type: core
+    packages: ["@adonis-agora/authz"]
+    covers: [accessibleBy, applyScopeConstraint, ScopeRegistry.register,
+             scopes config key, ScopeFilterContext, eq, where, whereIn, and, or,
+             scopeAll, scopeNone, action option]
+    tasks:
+      - "List only the rows a user may see, filtered at the DB layer"
+      - "Register per-resource scope filters"
+      - "Reuse one resolved constraint across queries"
+    failure_modes:
+      - mistake: "Applying accessibleBy after a top-level orWhere"
+        mechanism: >
+          The scope is appended with AND; SQL AND binds tighter than OR, so gluing it
+          onto a top-level OR constrains only the LAST branch — rows leak past even a
+          deny-all (1 = 0).
+        wrong_pattern: |
+          const bad = Post.query().where('id', 1).orWhere('id', 2);
+          const posts = await accessibleBy(bad, authz, user, Post);
+          // id = 1 OR (id = 2 AND scope) — branch 1 unscoped
+        correct_pattern: |
+          const base = Post.query().where((q) => q.where('id', 1).orWhere('id', 2));
+          const posts = await accessibleBy(base, authz, user, Post);
+          // (id = 1 OR id = 2) AND (scope)
+        source: docs/concepts.mdx query-scopes warn Callout, docs/query-scopes.mdx "Consuming the scope"
+        priority: CRITICAL
+        status: active
+        skills: ['authz-query-scopes']
+      - mistake: "Leaving a resource unregistered and reading empty results as data"
+        mechanism: >
+          An unregistered resource resolves to deny-all (fail-closed): accessibleBy
+          returns ZERO rows for EVERYONE, indistinguishable from an empty table unless
+          you know the rule.
+        wrong_pattern: |
+          const posts = await accessibleBy(Post.query(), authz, user, Post);
+          // [] — nobody (not even admins) sees anything; no error anywhere
+        correct_pattern: |
+          // register the filter first in config/authz.ts
+          scopes: (registry) => {
+            registry.register(Post, ({ user }) =>
+              or(eq('author_id', user.id), eq('published', true)));
+          }
+        source: docs/query-scopes.mdx opening warn Callout ("deny-all ... zero rows for everyone")
+        priority: CRITICAL
+        status: active
+        skills: ['authz-query-scopes']
+      - mistake: "Awaiting accessibleBy once and treating the result as rows"
+        mechanism: >
+          accessibleBy returns the QUERY BUILDER with the scope applied, not the rows;
+          the first await resolves the constraint, the second runs the query — awaiting
+          only once leaves code holding a thenable builder.
+        wrong_pattern: |
+          const posts = await accessibleBy(Post.query(), authz, user, Post);
+          console.log(posts.length); // undefined — posts is still a builder
+        correct_pattern: |
+          const scoped = await accessibleBy(Post.query(), authz, user, Post);
+          const posts = await scoped; // second await executes the query
+        source: docs/concepts.mdx ("So there are two awaits..."), docs/query-scopes.mdx
+        priority: MEDIUM
+        status: active
+        skills: ['authz-query-scopes']
+
+  - name: authz-route-guards
+    slug: authz-route-guards
+    domain: guarding-routes
+    description: Guard routes with requireRole — AuthzRoleMiddleware registration, any-of roles, guest/denied redirects, effective-role semantics.
+    type: core
+    packages: ["@adonis-agora/authz"]
+    covers: [AuthzRoleMiddleware, requireRole named middleware, RequireRoleOptions,
+             guestRedirect, deniedRedirect, deniedMessage, middleware.scope,
+             effectiveRoles engine]
+    tasks:
+      - "Keep whole route trees behind a role"
+      - "Redirect guests/unauthorized users in SSR or Inertia apps"
+    failure_modes:
+      - mistake: "Using requireRole as a permission gate"
+        mechanism: >
+          AuthzRoleMiddleware is deliberately role-ONLY; there is no permission option,
+          so forcing permission checks onto it either fails to compile or invites a
+          hand-rolled duplicate that skips the effective-role union.
+        wrong_pattern: |
+          router.get('/posts', [...]).use(
+            middleware.requireRole({ permissions: ['posts.view'] }) as any,
+          )
+        correct_pattern: |
+          router.get('/posts', [PostsController, 'index'])
+            .use(middleware.requireRole({ roles: ['EDITOR'] }))
+          // permission checks live in the action:
+          // await ctx.bouncer.authorize('can', 'posts.view')
+        source: docs/middleware.mdx closing Callout ("deliberately role-only")
+        priority: MEDIUM
+        status: active
+        skills: ['authz-route-guards']
+      - mistake: "Requiring a store-seeded role when only the token carries it"
+        mechanism: >
+          The guard tests EFFECTIVE roles (global ∪ app ∪ store), so seeding is
+          unnecessary — but an agent that assumes store-only sources adds pointless seed
+          scripts, or conversely doubts the guard works because the store is empty.
+        wrong_pattern: |
+          // assuming the claim alone won't match and duplicating state:
+          await authz.store.assignRole({ type: 'user', id: '42' }, 'ADMIN')
+          router.get('/admin', ...).use(middleware.requireRole({ roles: ['ADMIN'] }))
+        correct_pattern: |
+          // effectiveRoles already includes the token claim — no seeding:
+          router.get('/admin', [AdminController, 'dashboard'])
+            .use(middleware.requireRole({ roles: ['ADMIN'] }))
+        source: docs/middleware.mdx ("reads EFFECTIVE roles... matches a token claim even when nothing is seeded")
+        priority: LOW
+        status: active
+        skills: ['authz-route-guards']
+      - mistake: "Omitting guestRedirect and exposing 401 JSON to browsers"
+        mechanism: >
+          Without guestRedirect an unauthenticated request gets a 401 JSON body, and
+          without deniedRedirect a role miss gets 403 JSON — fine for APIs, wrong for
+          server-rendered flows that expect a redirect.
+        wrong_pattern: |
+          .use(middleware.requireRole({ roles: ['ADMIN'] })) // SPA/SSR: raw 401/403
+        correct_pattern: |
+          .use(middleware.requireRole({
+            roles: ['ADMIN'],
+            guestRedirect: '/login',
+            deniedRedirect: '/unauthorized',
+          }))
+        source: docs/middleware.mdx RequireRoleOptions table
+        priority: LOW
+        status: active
+        skills: ['authz-route-guards']
+
+  - name: authz-react-ui
+    slug: authz-react-ui
+    domain: mirroring-authz-in-react
+    description: Mirror server decisions in Inertia+React — buildAuthzShare, AuthzSharedProps, AuthzProvider/useAuthz/useCan/<Can>, client-safe matcher.
+    type: core
+    packages: ["@adonis-agora/authz-react"]
+    covers: [buildAuthzShare, AuthzShare, AuthzSharedProps, AuthzProvider,
+             AuthzContextValue, useAuthz, useCan, CanProps, fallback,
+             permissionMatches, permissionSatisfied]
+    tasks:
+      - "Push the authorization snapshot to the frontend via Inertia share"
+      - "Gate UI elements with useCan/<Can>"
+      - "Test components without the Inertia tree"
+    failure_modes:
+      - mistake: "Importing the server helper from the client barrel"
+        mechanism: >
+          buildAuthzShare lives under @adonis-agora/authz-react/server precisely so the
+          server engine never lands in the browser bundle; importing it from the root
+          barrel drags server-only code into client bundles.
+        wrong_pattern: |
+          import { buildAuthzShare } from '@adonis-agora/authz-react'; // wrong entry
+        correct_pattern: |
+          import { buildAuthzShare } from '@adonis-agora/authz-react/server';
+        source: docs/react.mdx intro (two entry points), packages/react/src/index.ts comment
+        priority: HIGH
+        status: active
+        skills: ['authz-react-ui']
+      - mistake: "Passing permission and role to <Can> expecting an AND"
+        mechanism: >
+          When both props are present, permission takes PRECEDENCE and role is ignored —
+          the component is not an AND of the two; agents composing both get broader
+          access than intended.
+        wrong_pattern: |
+          <Can permission="billing.manage" role="auditor">
+            <BillingSettings />
+          </Can> // role ignored — permission alone decides
+        correct_pattern: |
+          <Can permission="billing.manage">
+            <Can role="auditor">
+              <BillingSettings /> {/* nested Cans compose as AND */}
+            </Can>
+          </Can>
+        source: docs/react.mdx <Can> warn Callout, packages/react/src/components/can.tsx
+        priority: MEDIUM
+        status: active
+        skills: ['authz-react-ui']
+      - mistake: "Testing UI primitives by mocking the Inertia page props"
+        mechanism: >
+          usePage throws outside an Inertia <App>; useAuthz catches that and prefers an
+          explicit <AuthzProvider value={...}> — mocking Inertia internals fights the
+          designed test seam and breaks when internals change.
+        wrong_pattern: |
+          jest.mock('@inertiajs/react', () => ({ usePage: () => ({ props: {...} }) }));
+          render(<Can permission="posts.edit">Edit</Can>);
+        correct_pattern: |
+          render(
+            <AuthzProvider value={{ roles: [], permissions: ['posts.*'] }}>
+              <PostsIndex />
+            </AuthzProvider>,
+          ); // provider wins over usePage by design
+        source: docs/react.mdx <AuthzProvider> section + use_authz.ts try/catch
+        priority: MEDIUM
+        status: active
+        skills: ['authz-react-ui']
+
+tensions:
+  - name: fail-closed silence vs debuggability
+    skills: ['authz-query-scopes', 'authz-decisions']
+    description: >
+      Fail-closed behavior (unregistered scope → deny-all, anonymous can → false,
+      unconfigured reverse seam → shorter list) keeps systems safe but reports problems
+      as empty results rather than errors.
+    implication: >
+      Agents treat empty query results or false checks as data and "fix" application
+      logic, when the real bug is a missing registration/seam/config key.
+  - name: UI gating vs server authority
+    skills: ['authz-react-ui', 'authz-decisions']
+    description: >
+      The React share is a snapshot of effective grants for hiding controls; the server
+      re-decides every request from live sources.
+    implication: >
+      Agents may treat <Can> as the security boundary; it is UX only — every mutating
+      endpoint still needs a Bouncer/service check.
+  - name: coarse route gates vs fine-grained object checks
+    skills: ['authz-route-guards', 'authz-decisions']
+    description: >
+      requireRole keeps whole trees behind roles; RBAC can is model-less and policies
+      own per-record ownership.
+    implication: >
+      Agents pick exactly one layer (usually middleware) and assume it covers object
+      access, leaking per-record authorization.
+
+cross_references:
+  - from: authz-setup
+    to: authz-decisions
+    reason: After configuring stores/catalog, the next task is checking permissions via Bouncer abilities or the service.
+  - from: authz-decisions
+    to: authz-query-scopes
+    reason: Single-resource can() pairs with collection filtering via accessibleBy on the same resolution order.
+  - from: authz-roles-tenancy
+    to: authz-route-guards
+    reason: The middleware guards on effectiveRoles; understanding the union explains token-claim matches.
+  - from: authz-react-ui
+    to: authz-decisions
+    reason: The share is built FROM effectiveRoles/effectivePermissions; parity reasoning requires knowing the decision surface.
+
+gaps:
+  - skill: authz-setup
+    question: >
+      Is autoCreateSchema:true considered acceptable for staging environments, or
+      production-only-off? Docs recommend off for production but never bless staging.
+    context: Affects how strongly the skill should phrase the recommendation.
+    status: open
+  - skill: authz-decisions
+    question: >
+      Is there a blessed pattern for combining the `can` ability with per-record
+      policies inside one authorize call (docs show sequential checks only)?
+    context: Agents composing RBAC + ownership would benefit from one canonical form.
+    status: open
+  - skill: authz-route-guards
+    question: >
+      No GitHub issue mining was performed (autonomous run, none verified), so real-world
+      agent failure modes are inferred from docs callouts and source asserts only.
+    context: Issue-sourced mistakes may be missing across all skills.
+    status: open

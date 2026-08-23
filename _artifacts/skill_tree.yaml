@@ -1,0 +1,56 @@
+# Skill tree for adonis-authz. Flat structure, all type: core, no router skill.
+# Each entry names its package and the target SKILL.md path.
+
+structure: flat
+routerSkill: false
+
+skills:
+  - name: authz-setup
+    type: core
+    package: "@adonis-agora/authz"
+    path: packages/core/skills/authz-setup/SKILL.md
+    covers: [defineConfig, stores.lucid, stores.memory, autoCreateSchema,
+             createAuthzTables, dropAuthzTables, AUTHZ_TABLES,
+             node ace configure, authz:grant, authz:assign, authz:list,
+             authz:sync, catalog, resolveUserRef, identityUserRef]
+
+  - name: authz-decisions
+    type: core
+    package: "@adonis-agora/authz"
+    path: packages/core/skills/authz-decisions/SKILL.md
+    covers: [defineAuthzAbilities, authzAbilities, bouncer.allows,
+             bouncer.authorize, AuthzService.can, effectivePermissions,
+             permissionSatisfied, superAdmin hook, superAdminRoles,
+             PermissionCache, services/main singleton]
+
+  - name: authz-roles-tenancy
+    type: core
+    package: "@adonis-agora/authz"
+    path: packages/core/skills/authz-roles-tenancy/SKILL.md
+    covers: [effectiveRoles, usersWithRole, resolveRoles, resolveRoleMembers,
+             resolveGlobalRoleMembers, roleGrants, superAdminRoles,
+             GLOBAL_TENANT, normalizeTenant, tenantFromContext, resolveTenant]
+
+  - name: authz-query-scopes
+    type: core
+    package: "@adonis-agora/authz"
+    path: packages/core/skills/authz-query-scopes/SKILL.md
+    covers: [accessibleBy, applyScopeConstraint, ScopeRegistry.register,
+             scopes config key, eq/where/whereIn/and/or DSL, scopeAll,
+             scopeNone, action option, orWhere caveat]
+
+  - name: authz-route-guards
+    type: core
+    package: "@adonis-agora/authz"
+    path: packages/core/skills/authz-route-guards/SKILL.md
+    covers: [AuthzRoleMiddleware, requireRole named middleware,
+             RequireRoleOptions, guestRedirect, deniedRedirect,
+             deniedMessage, effectiveRoles engine]
+
+  - name: authz-react-ui
+    type: core
+    package: "@adonis-agora/authz-react"
+    path: packages/react/skills/authz-react-ui/SKILL.md
+    covers: [buildAuthzShare, AuthzShare, AuthzSharedProps, AuthzProvider,
+             useAuthz, useCan, Can, CanProps, fallback, permissionMatches,
+             permissionSatisfied]
