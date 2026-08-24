@@ -1,4 +1,4 @@
-export const VERSION = '0.10.6';
+export const VERSION = '0.11.0';
 
 // Wildcard matcher (the core of the port).
 export { permissionMatches, permissionSatisfied } from './permission_matcher.js';
