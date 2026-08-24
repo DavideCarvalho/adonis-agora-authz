@@ -1,6 +1,6 @@
 {
   "name": "@adonis-agora/authz-react",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "React/Inertia bindings for @adonis-agora/authz: AuthzProvider, useAuthz, useCan, <Can>, and a server-side buildAuthzShare() for the Inertia share.",
   "license": "MIT",
   "repository": {
