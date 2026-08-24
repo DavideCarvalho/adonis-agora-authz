@@ -56,5 +56,15 @@
   "engines": {
     "node": ">=20.6.0"
   },
-  "keywords": ["adonisjs", "adonis", "inertia", "react", "authorization", "authz", "rbac", "agora", "tanstack-intent"]
+  "keywords": [
+    "adonisjs",
+    "adonis",
+    "inertia",
+    "react",
+    "authorization",
+    "authz",
+    "rbac",
+    "agora",
+    "tanstack-intent"
+  ]
 }
