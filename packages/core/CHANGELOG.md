@@ -1,5 +1,15 @@
 # @adonis-agora/authz
 
+## 0.10.6
+
+### Patch Changes
+
+- [#43](https://github.com/DavideCarvalho/adonis-agora-authz/pull/43) [`e0ee489`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/e0ee489ceb2f94ad484149c14646332e3fca30f8) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Ship TanStack Intent AI-agent skills with both packages: six SKILL.md files
+  (`packages/core/skills/authz-*`, `packages/react/skills/authz-react-ui`) plus
+  repo-level `_artifacts/` (domain map, skill spec, skill tree), validated by
+  `intent validate` and a new `.github/workflows/check-skills.yml`. Skills are
+  published via the new `skills/` entry in each package's `files` array.
+
 ## 0.10.5
 
 ### Patch Changes
