@@ -87,6 +87,55 @@ Because it reads **effective** roles, `effectiveRoles` populates the request's
 global roles along the way — so `roles: ['ADMIN']` matches a token claim even
 when nothing is seeded in the store.
 
+## `authorizeByRoles` — the same gate for dashboards
+
+Every `@adonis-agora` dashboard (telescope, durable, media, agent) gates its
+routes with an **`authorize` hook** — a `(ctx) => boolean` decision the guard
+turns into a `401`/`403` (or honors a redirect the hook writes). `authorizeByRoles`
+is that hook, built on the exact same engine as the middleware:
+
+```ts title="config/telescope_ui.ts"
+import { defineConfig } from '@adonis-agora/telescope/ui'
+import { authorizeByRoles } from '@adonis-agora/authz'
+
+export default defineConfig({
+  authorize: authorizeByRoles({ roles: ['ADMIN'] }),
+})
+```
+
+It accepts **any** context shape (the dashboards type `authorize` differently —
+durable uses `HttpContext`, telescope a framework-light slice), reading
+`ctx.auth` structurally and never touching AdonisJS internals, so one RBAC gate
+reads the same across every dashboard:
+
+```ts
+export default defineConfig({
+  authorize: authorizeByRoles({ roles: ['ADMIN', 'OPS'] }),
+})
+```
+
+### How it decides
+
+<Callout type="info">
+  1. Resolve the user from `ctx.auth.getUser()` (authkit) or `ctx.auth.user`
+     (any guard) — with or without authkit.
+  2. No user → `false` (the dashboard guard answers `401`/`403`, or honors a
+     redirect the hook wrote).
+  3. Compute `authz.effectiveRoles(user, scope)` and return whether at least
+     one of `roles` is present.
+</Callout>
+
+### `AuthorizeByRolesOptions`
+
+| Option  | Type         | Default | Behavior |
+| ------- | ------------ | ------- | -------- |
+| `roles` | `string[]`   | —       | **Required.** Accepted roles (any-of). |
+| `scope` | `TenantScope?` | —     | Tenant scope forwarded to `effectiveRoles`. |
+
+Want a custom decision instead of roles — an IP allow-list, an environment
+gate, a redirect to your own login page? Write the `authorize` hook by hand;
+the helper is a convenience for the common "any-of these roles" case.
+
 ## `AuthzService.effectiveRoles`
 
 The middleware's engine is a public method you can call directly. It is the
