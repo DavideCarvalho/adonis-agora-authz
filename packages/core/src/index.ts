@@ -96,6 +96,10 @@ export type { AuthzAbilities } from './bouncer/abilities.js';
 export { default as AuthzRoleMiddleware } from './middleware.js';
 export type { RequireRoleOptions } from './middleware.js';
 
+// Dashboard authorization hook factory (shared by telescope/durable/media/agent dashboards).
+export { authorizeByRoles } from './authorize.js';
+export type { AuthorizeByRolesOptions } from './authorize.js';
+
 // Drivers-in-core config idiom.
 export { defineConfig, stores } from './define_config.js';
 export type { AuthzConfig } from './define_config.js';
