@@ -24,7 +24,12 @@
       "default": "./dist/src/share.js"
     }
   },
-  "files": ["dist/", "skills", "README.md", "CHANGELOG.md"],
+  "files": [
+    "dist/",
+    "skills",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.json",

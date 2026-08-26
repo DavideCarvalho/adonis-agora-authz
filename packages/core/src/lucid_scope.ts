@@ -137,8 +137,8 @@ function applyNode(query: ScopeableQuery, node: ScopeNode): void {
  * Returns the same builder for chaining. Prefer {@link accessibleBy} for the common
  * case (resolve + apply in one call); use this when you already hold a constraint.
  */
-export function applyScopeConstraint<Q extends ScopeableQuery>(
-  query: Q,
+export function applyScopeConstraint<Q>(
+  query: Q & ScopeableQuery,
   constraint: ScopeConstraint,
 ): Q {
   if (constraint.kind === 'all') return query;
@@ -199,8 +199,8 @@ export interface AccessibleByOptions {
  * await accessibleBy(bad, service, user, Post) // → id=1 OR (id=2 AND scope)  ✗
  * ```
  */
-export async function accessibleBy<Q extends ScopeableQuery>(
-  query: Q,
+export async function accessibleBy<Q>(
+  query: Q & ScopeableQuery,
   service: AuthzService,
   user: unknown,
   resource: ResourceKey,

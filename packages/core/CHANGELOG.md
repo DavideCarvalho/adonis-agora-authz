@@ -1,5 +1,11 @@
 # @adonis-agora/authz
 
+## 0.11.1
+
+### Patch Changes
+
+- Fix generic signature of `accessibleBy` and `applyScopeConstraint` in `@adonis-agora/authz/scope`. The previous `<Q extends ScopeableQuery>(query: Q, …): Promise<Q>` made TypeScript infer `Q` as the resource's array shape (e.g. `Appointment[]`) rather than the Lucid `ModelQueryBuilderContract`, forcing a `as unknown as typeof query` cast at every call site. The new `<Q>(query: Q & ScopeableQuery, …): Promise<Q>` is a structural-intersection generic — the `& ScopeableQuery` is a type-level check (does the builder have the methods the adapter uses?) without narrowing the caller's `Q`. End-to-end the caller's concrete Lucid builder is preserved (including `preload` keys, `whereRaw` overloads, and `applyFilterFromRequest` macro chains), so no cast is needed at the call site.
+
 ## 0.11.0
 
 ### Minor Changes
