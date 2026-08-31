@@ -20,6 +20,7 @@ export function useAuthz(): AuthzContextValue {
   const fromContext = useContext(AuthzContext);
   let fromPage: AuthzSharedProps['authz'] | undefined;
   try {
+    // biome-ignore lint/correctness/useHookAtTopLevel: the call is unconditional and always in the same order — the try only absorbs the throw `usePage()` makes outside an Inertia `<App>` (see the doc above).
     fromPage = usePage<AuthzSharedProps>().props?.authz;
   } catch {
     fromPage = undefined;

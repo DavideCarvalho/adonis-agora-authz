@@ -102,21 +102,21 @@
     }
   },
   "devDependencies": {
-    "@adonisjs/assembler": "8.4.0",
-    "@adonisjs/bouncer": "4.0.0",
-    "@adonisjs/core": "7.4.0",
+    "@adonisjs/assembler": "8.5.0",
+    "@adonisjs/bouncer": "4.0.1",
+    "@adonisjs/core": "7.5.0",
     "@adonisjs/lucid": "22.4.2",
-    "@tanstack/intent": "^0.3.2",
-    "@types/node": "20.19.43",
-    "@types/pg": "8.21.0",
+    "@tanstack/intent": "^0.3.7",
+    "@types/node": "26.4.0",
+    "@types/pg": "8.23.1",
     "@vinejs/vine": "4.4.0",
-    "better-sqlite3": "11.10.0",
+    "better-sqlite3": "13.0.3",
     "luxon": "3.7.2",
     "pg": "8.23.0",
     "reflect-metadata": "0.2.2",
-    "typescript": "5.9.3",
-    "unplugin-swc": "1.5.10",
-    "vitest": "3.2.7"
+    "typescript": "7.0.2",
+    "unplugin-swc": "1.5.11",
+    "vitest": "4.1.11"
   },
   "engines": {
     "node": ">=20.6.0"

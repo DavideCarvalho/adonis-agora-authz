@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import type { PermissionStore } from '../store.js';
-import { GLOBAL_TENANT, type TenantScope, type UserRef, normalizeTenant } from '../user_ref.js';
+import { GLOBAL_TENANT, normalizeTenant, type TenantScope, type UserRef } from '../user_ref.js';
 import {
   AUTHZ_TABLES,
   type AuthzTableNames,
-  type LucidDatabase,
   assertSafeIdentifier,
   createAuthzTables,
   detectDialect,
   isMysql,
+  type LucidDatabase,
 } from './lucid-schema.js';
 
 // Re-exported for backward compatibility: these types originated here before the

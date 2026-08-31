@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode, createElement } from 'react';
+import { createElement, Fragment, type ReactNode } from 'react';
 import { permissionSatisfied } from '../matcher.js';
 import { useAuthz } from '../use_authz.js';
 

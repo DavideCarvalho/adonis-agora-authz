@@ -1,5 +1,4 @@
-import { Bouncer } from '@adonisjs/bouncer';
-import { AuthorizationResponse } from '@adonisjs/bouncer';
+import { AuthorizationResponse, Bouncer } from '@adonisjs/bouncer';
 import type { AuthzService } from '../authz_service.js';
 
 /** The two static, DB-backed abilities this library registers with Bouncer. */

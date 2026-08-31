@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type ScopeableQuery, applyScopeConstraint } from '../src/lucid_scope.js';
+import { applyScopeConstraint, type ScopeableQuery } from '../src/lucid_scope.js';
 import {
   and,
   assertSafeIdentifier,

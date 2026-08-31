@@ -1,8 +1,8 @@
 import type { Database } from '@adonisjs/lucid/database';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AuthzService } from '../src/authz_service.js';
-import { type ScopeableQuery, accessibleBy, applyScopeConstraint } from '../src/lucid_scope.js';
-import { ScopeRegistry, and, eq } from '../src/scope.js';
+import { accessibleBy, applyScopeConstraint, type ScopeableQuery } from '../src/lucid_scope.js';
+import { and, eq, ScopeRegistry } from '../src/scope.js';
 import { LucidPermissionStore } from '../src/stores/lucid.js';
 import { asLucidDatabase, makeMemoryDatabase } from './lucid_helpers.js';
 
