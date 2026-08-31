@@ -83,7 +83,6 @@ export function defineConfig(config: AuthzConfig): AuthzConfig {
   return config;
 }
 
-export { stores };
 export type {
   LucidStoreConfig,
   MemoryStoreConfig,
@@ -91,3 +90,4 @@ export type {
   StoreProvider,
 } from './stores/factory.js';
 export type { AuthzTableNames, LucidDatabase, LucidQueryClient } from './stores/lucid.js';
+export { stores };

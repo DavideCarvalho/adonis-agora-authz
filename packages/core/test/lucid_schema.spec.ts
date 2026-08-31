@@ -1,7 +1,7 @@
 import type { Database } from '@adonisjs/lucid/database';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { AUTHZ_TABLES, createAuthzTables, dropAuthzTables } from '../src/stores/lucid-schema.js';
 import { LucidPermissionStore } from '../src/stores/lucid.js';
+import { AUTHZ_TABLES, createAuthzTables, dropAuthzTables } from '../src/stores/lucid-schema.js';
 import { asLucidDatabase, makeMemoryDatabase } from './lucid_helpers.js';
 
 async function tableExists(db: Database, name: string): Promise<boolean> {

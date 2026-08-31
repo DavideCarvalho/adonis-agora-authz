@@ -1,4 +1,4 @@
-import { BaseCommand, args } from '@adonisjs/core/ace';
+import { args, BaseCommand } from '@adonisjs/core/ace';
 import type { CommandOptions } from '@adonisjs/core/types/ace';
 import { AuthzService } from '../src/authz_service.js';
 

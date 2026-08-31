@@ -5,8 +5,8 @@ import { LoggerFactory } from '@adonisjs/core/factories/logger';
 import { Database } from '@adonisjs/lucid/database';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { LucidPermissionStore } from '../src/stores/lucid.js';
 import type { LucidDatabase } from '../src/stores/lucid.js';
+import { LucidPermissionStore } from '../src/stores/lucid.js';
 
 /**
  * Real-Postgres coverage for the reverse lookup `getUsersForRole`. Points at the

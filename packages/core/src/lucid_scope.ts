@@ -14,14 +14,14 @@
  */
 
 import type { AuthzService } from './authz_service.js';
+import type { ResourceKey } from './scope.js';
 import {
+  assertSafeIdentifier,
   type ScopeCondition,
   type ScopeConstraint,
   type ScopeNode,
   type ScopeOperator,
-  assertSafeIdentifier,
 } from './scope.js';
-import type { ResourceKey } from './scope.js';
 import type { TenantScope } from './user_ref.js';
 
 /**
@@ -137,10 +137,7 @@ function applyNode(query: ScopeableQuery, node: ScopeNode): void {
  * Returns the same builder for chaining. Prefer {@link accessibleBy} for the common
  * case (resolve + apply in one call); use this when you already hold a constraint.
  */
-export function applyScopeConstraint<Q>(
-  query: Q & ScopeableQuery,
-  constraint: ScopeConstraint,
-): Q {
+export function applyScopeConstraint<Q>(query: Q & ScopeableQuery, constraint: ScopeConstraint): Q {
   if (constraint.kind === 'all') return query;
   if (constraint.kind === 'none') {
     // Group the deny-all too, so the scope's own clauses are always a single AND-group

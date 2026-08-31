@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { type ReactNode, createElement } from 'react';
+import { createElement, type ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Can } from '../src/components/can.js';
 import { AuthzProvider } from '../src/provider.js';

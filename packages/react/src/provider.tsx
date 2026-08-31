@@ -1,4 +1,4 @@
-import { type ReactNode, createContext, createElement } from 'react';
+import { createContext, createElement, type ReactNode } from 'react';
 
 /** O valor do share de autorização que o `<AuthzProvider>`/`useAuthz` expõem. */
 export interface AuthzContextValue {

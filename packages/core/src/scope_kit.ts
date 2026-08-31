@@ -8,19 +8,8 @@
  * subpath pattern.
  */
 
-export {
-  and,
-  assertSafeIdentifier,
-  eq,
-  normalizeScope,
-  or,
-  SAFE_IDENTIFIER,
-  ScopeRegistry,
-  scopeAll,
-  scopeNone,
-  where,
-  whereIn,
-} from './scope.js';
+export type { AccessibleByOptions, ScopeableQuery } from './lucid_scope.js';
+export { accessibleBy, applyScopeConstraint } from './lucid_scope.js';
 export type {
   ResourceKey,
   ScopeAll,
@@ -34,5 +23,16 @@ export type {
   ScopeOperator,
   ScopeResult,
 } from './scope.js';
-export { accessibleBy, applyScopeConstraint } from './lucid_scope.js';
-export type { AccessibleByOptions, ScopeableQuery } from './lucid_scope.js';
+export {
+  and,
+  assertSafeIdentifier,
+  eq,
+  normalizeScope,
+  or,
+  SAFE_IDENTIFIER,
+  ScopeRegistry,
+  scopeAll,
+  scopeNone,
+  where,
+  whereIn,
+} from './scope.js';

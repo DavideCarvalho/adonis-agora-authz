@@ -2,21 +2,21 @@ import { globalRolesFromContext } from './agora/context.js';
 import { PermissionCache } from './permission_cache.js';
 import { permissionSatisfied } from './permission_matcher.js';
 import {
+  normalizeScope,
   type ResourceKey,
   type ScopeConstraint,
   ScopeRegistry,
-  normalizeScope,
   scopeAll,
   scopeNone,
 } from './scope.js';
 import type { PermissionStore } from './store.js';
 import {
+  defaultResolveUserRef,
+  normalizeUserRef,
   type ResolveUserRef,
   type TenantScope,
   type UserRef,
   type UserRefInput,
-  defaultResolveUserRef,
-  normalizeUserRef,
 } from './user_ref.js';
 
 export { tenantFromContext } from './agora/context.js';
