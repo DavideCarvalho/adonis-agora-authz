@@ -1,4 +1,4 @@
-export const VERSION = '0.12.0';
+export const VERSION = '0.13.0';
 
 export type { AgoraContextAccessor } from './agora/context.js';
 // Structural Agora context bridge (features B & C).
