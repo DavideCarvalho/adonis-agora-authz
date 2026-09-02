@@ -1,5 +1,22 @@
 # @adonis-agora/authz
 
+## 0.13.1
+
+### Patch Changes
+
+- [#51](https://github.com/DavideCarvalho/adonis-agora-authz/pull/51) [`cc00925`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/cc00925ec11571844b51594316bedc83b0f7205f) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `authzRolesRelation({ tenantId })` descartava os papéis globais.
+  
+  O `tenantClause` do store devolve, para um tenant específico, as linhas dele **mais** as
+  globais — um papel global vale dentro de qualquer tenant. A relação aplicava uma
+  igualdade simples no `tenant_id`, então `authzRolesRelation({ tenantId: 'acme' })` trazia
+  só as de `acme`, e um papel atribuído globalmente sumia.
+  
+  Silenciosamente — que é exatamente o modo de falha que a função foi escrita para remover.
+  
+  O caminho default (tenant global) sempre esteve correto, então quem não usa a opção não é
+  afetado. Agora a relação espelha o store: pedido global vê só o global; pedido de tenant
+  vê o dele mais o global.
+
 ## 0.13.0
 
 ### Minor Changes
