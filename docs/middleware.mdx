@@ -119,10 +119,45 @@ export default defineConfig({
 <Callout type="info">
   1. Resolve the user from `ctx.auth.getUser()` (authkit) or `ctx.auth.user`
      (any guard) — with or without authkit.
-  2. No user → `false` (the dashboard guard answers `401`/`403`, or honors a
-     redirect the hook wrote).
+  2. No user → `false` (the dashboard guard answers `401`/`403`). With
+     `loginPath`, a page navigation is redirected to your login first — see below.
   3. Compute `authz.effectiveRoles(user, scope)` and return whether at least
      one of `roles` is present.
+</Callout>
+
+### Sending an expired session to your login page
+
+By default a visitor with no session gets the dashboard's own denial — a
+"401 — you need to be signed in" page with **no way out**. The dashboard can say
+that login is missing; it cannot ask for login. Getting in means walking over to
+the app by hand, letting the session refresh, and coming back.
+
+`loginPath` closes that loop:
+
+```ts title="config/telescope_ui.ts"
+export default defineConfig({
+  authorize: authorizeByRoles({ roles: ['ADMIN'], loginPath: '/auth/login' }),
+})
+```
+
+Now opening the console without a session redirects to
+`/auth/login?redirect=%2Ftelescope`, and your login route sends the visitor back
+when it is done. Every `@adonis-agora` dashboard honors a `location` written by
+the hook before writing its own denial, so this works across all of them.
+
+Two deliberate limits:
+
+- **Only when there is no session.** Someone signed in who merely lacks the role
+  keeps getting `403`. Redirecting them would loop: the login is already done, and
+  coming back yields the same denial.
+- **Only page navigations** (`Accept: text/html`). A `302` on the dashboard's own
+  API call would hand the SPA's `fetch` the login HTML where it expects JSON —
+  trading an honest `401` for a parse error.
+
+<Callout type="warn">
+  The return-to is built from the **request URL**, which the server already knows —
+  there is no open redirect to introduce here. Your login route still has to
+  validate what it receives: it is public, and anyone can craft that link by hand.
 </Callout>
 
 ### `AuthorizeByRolesOptions`
@@ -131,6 +166,8 @@ export default defineConfig({
 | ------- | ------------ | ------- | -------- |
 | `roles` | `string[]`   | —       | **Required.** Accepted roles (any-of). |
 | `scope` | `TenantScope?` | —     | Tenant scope forwarded to `effectiveRoles`. |
+| `loginPath` | `string?` | —      | Where to send a page navigation that has **no session**. Omit to keep the dashboard's own `401`/`403`. |
+| `returnToParam` | `string?` | `'redirect'` | Query parameter carrying the return-to. Use whatever your login route reads. |
 
 Want a custom decision instead of roles — an IP allow-list, an environment
 gate, a redirect to your own login page? Write the `authorize` hook by hand;
