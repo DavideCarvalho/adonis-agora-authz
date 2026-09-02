@@ -48,6 +48,11 @@ Wire the app-roles source with the
 any of those roles onto permissions with
 [`roleGrants`](/docs/authz/config#rolegrants--role--permissions-no-seed).
 
+`effectiveRoles` answers for one user at a time. When what you need is the
+**store's** assignments for a whole page of users — a listing, an export — read
+them over a relation instead of once per row: see
+[roles relation](/docs/authz/roles-relation).
+
 ## The reverse question: `usersWithRole`
 
 Forward lookups ("which roles does this user hold?") answer authorization.

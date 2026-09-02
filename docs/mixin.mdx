@@ -55,3 +55,7 @@ await user.hasRole('admin')
   `resolveUserRef`. The default reads `this.id`; set a `type` via
   `resolveUserRef` if you store multiple subject kinds.
 </Callout>
+
+Every method above is one query for one user. Over a list of users, `getRoles()`
+becomes one round trip per row — for that case declare a
+[roles relation](/docs/authz/roles-relation) and `preload` it.

@@ -248,7 +248,8 @@ against a store yourself (`new PermissionCache(store)`), and exposes
 `satisfies(user, ability, scope?)` for a wildcard-aware check off it.
 
 <Callout type="warn">
-  The cache memoizes the **store's** grants only. Role sources outside the store
-  — the token's global roles and the `resolveRoles` seam — are consulted on every
-  check, so a cache never makes them stale.
+  The cache memoizes `store.getPermissionsForUser` only. Roles are never cached:
+  the token's global roles, the `resolveRoles` seam **and** `store.getRolesForUser`
+  are all consulted on every check — so a cache never makes a role stale, and a
+  cached check still costs that role read.
 </Callout>

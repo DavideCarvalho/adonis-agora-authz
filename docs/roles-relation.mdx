@@ -1,0 +1,138 @@
+---
+title: Roles relation
+description: authzRolesRelation() — the Lucid manyToMany options that join your user model to the authz roles through the authz_user_role pivot, so a listing preloads roles instead of asking once per user.
+icon: Link
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+`getRolesForUser` — and the [mixin](/docs/authz/mixin)'s `getRoles()` on top of
+it — answers for **one** user, with one query. That is the right shape for a
+request that already has a user in hand, and the wrong shape for a list: a
+paginated screen of 20 users costs 20 extra round trips, and the cost grows with
+the page.
+
+`authzRolesRelation()` returns the options of a Lucid `manyToMany` joining your
+user model to the authz roles through the `authz_user_role` pivot, so roles
+arrive over a JOIN with `preload` instead:
+
+```ts
+import { authzRolesRelation } from '@adonis-agora/authz'
+
+@manyToMany(() => AuthzRole, authzRolesRelation())
+declare roles: ManyToMany<typeof AuthzRole>
+```
+
+## The role model is yours
+
+The package does not ship the model on purpose. A model has to be bound to the
+host's connection, and apps disagree about what the property should be called —
+mapping the `name` column onto a `role` property is common when consumers already
+spell it that way. What is dangerous is the **pivot**, and that is the part
+`authzRolesRelation()` owns.
+
+A minimal model over the store's `authz_roles` table:
+
+```ts title="app/models/authz_role.ts"
+import { BaseModel, column } from '@adonisjs/lucid/orm'
+
+export default class AuthzRole extends BaseModel {
+  static table = 'authz_roles'
+
+  @column({ isPrimary: true })
+  declare id: string
+
+  // The column is `name`; call the property whatever your app already calls it.
+  @column({ columnName: 'name' })
+  declare role: string
+}
+```
+
+Then declare the relation on the user model:
+
+```ts title="app/models/user.ts"
+import { BaseModel, column, manyToMany } from '@adonisjs/lucid/orm'
+import type { ManyToMany } from '@adonisjs/lucid/types/relations'
+import { authzRolesRelation } from '@adonis-agora/authz'
+import AuthzRole from '#models/authz_role'
+
+export default class User extends BaseModel {
+  @column({ isPrimary: true })
+  declare id: number
+
+  @manyToMany(() => AuthzRole, authzRolesRelation())
+  declare roles: ManyToMany<typeof AuthzRole>
+}
+```
+
+```ts
+const users = await User.query().preload('roles').paginate(page, 20)
+// one query for the users, one for every role of every user on the page
+```
+
+## What the function spells for you
+
+The pivot's shape is an internal of this package, not of your app, and two of its
+columns are easy to get wrong in a way that **raises no error** — you just read
+rows from the wrong scope:
+
+- **`user_type` is part of the key.** authz users are
+  [polymorphic](/docs/authz/concepts#polymorphic-users): the primary key of
+  `authz_user_role` is `(user_type, user_id, role_id, tenant_id)`, so `admin#1`
+  and `user#1` are different subjects that share an id. A relation that joins on
+  `user_id` alone mixes them.
+- **The global tenant is the empty string, not `null`.** The store writes
+  `''` ([`GLOBAL_TENANT`](/docs/authz/concepts#multi-tenancy)) for an unscoped
+  assignment. Filtering the pivot on `null` matches no row at all.
+
+So the returned object is:
+
+| Key                                | Value                                                |
+| ---------------------------------- | ---------------------------------------------------- |
+| `pivotTable`                       | `authz_user_role`                                    |
+| `localKey` / `relatedKey`          | `id` on the user model / `id` on the role model      |
+| `pivotForeignKey`                  | `user_id`                                            |
+| `pivotRelatedForeignKey`           | `role_id`                                            |
+| `onQuery`                          | `wherePivot('user_type', …)` plus the tenant filter below |
+
+## Options
+
+```ts
+authzRolesRelation({ tables, userType, tenantId })
+```
+
+| Option     | Default              | When you need it                                                                                          |
+| ---------- | -------------------- | --------------------------------------------------------------------------------------------------------- |
+| `tables`   | the default names    | The store was configured with [table overrides](/docs/authz/config#stores). Only `userRole` is read here — the roles table name lives on the model's `static table`. |
+| `userType` | `'user'`             | This model is not the default subject kind — i.e. `resolveUserRef` returns another `type` for it. It must match what `assignRole` wrote. |
+| `tenantId` | `''` (global)        | The relation should read a tenant's assignments as well as the global ones.                                |
+
+The tenant filter mirrors the store's, so the relation and
+`getRolesForUser(user, scope)` agree: a **global** read sees global rows only,
+and a **tenant** read sees that tenant's rows **plus** the global ones — a
+globally-assigned role holds inside every tenant. That is the visibility rule
+described in [multi-tenancy](/docs/authz/concepts#multi-tenancy).
+
+<Callout type="warn">
+  **`tenantId` is fixed when the model is defined.** It cannot follow a
+  per-request tenant, and a `wherePivot` added in `preload` ANDs with the one in
+  `onQuery` rather than widening it. For a request-scoped tenant, read through
+  the service (`getRolesForUser(user, { tenantId })`) instead of the relation.
+</Callout>
+
+## It reads the store, not the effective roles
+
+Two limits worth keeping straight, both of them the reason this is a convenience
+for listings and not a shortcut for authorization:
+
+- **It is store rows only.** The
+  [effective-role union](/docs/authz/roles#the-effective-role-union) also folds in
+  the identity provider's global roles and whatever `resolveRoles` returns. The
+  relation sees none of that. Decisions still go through `can` / `hasRole` /
+  `effectiveRoles`.
+- **It is for reading.** Writes stay on the store (`assignRole` / `removeRole`,
+  or the mixin methods that delegate to them): `assignRole` creates the role when
+  it does not exist yet and is idempotent, and it is what fills `user_type` and
+  `tenant_id`. The relation's pivot filters live in `onQuery`, which constrains
+  **queries** — attaching through the relation does not write those columns, and
+  `user_type` is `NOT NULL` with no default.

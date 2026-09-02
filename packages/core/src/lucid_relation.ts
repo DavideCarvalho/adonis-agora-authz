@@ -7,6 +7,7 @@ import { GLOBAL_TENANT } from './user_ref.js';
  */
 interface PivotQueryLike {
   wherePivot(column: string, value: unknown): unknown;
+  whereInPivot(column: string, values: readonly unknown[]): unknown;
 }
 
 /** Opções de {@link authzRolesRelation}. */
@@ -18,7 +19,13 @@ export interface AuthzRolesRelationOptions {
    * `refOf`/`assignRole` gravam para um usuário.
    */
   userType?: string;
-  /** O tenant a ler. Default o global (string vazia), como o resto da lib. */
+  /**
+   * O tenant a ler. Default o global (string vazia).
+   *
+   * Um tenant específico traz as linhas DELE **mais** as globais — a mesma
+   * visibilidade que `getRolesForUser({ tenantId })` dá, porque um papel global vale
+   * dentro de qualquer tenant. Só o pedido global é exclusivo (traz apenas globais).
+   */
   tenantId?: string;
 }
 
@@ -62,7 +69,15 @@ export function authzRolesRelation(options: AuthzRolesRelationOptions = {}) {
     pivotRelatedForeignKey: 'role_id',
     onQuery: (query: PivotQueryLike) => {
       query.wherePivot('user_type', userType);
-      query.wherePivot('tenant_id', tenantId);
+      // Espelha o `tenantClause` do store: pedido global vê só o global; pedido de um
+      // tenant vê o dele MAIS o global. Uma igualdade simples aqui descartaria os
+      // papéis globais de quem lê por tenant — silenciosamente, que é exatamente o
+      // modo de falha que esta função existe para remover.
+      if (tenantId === GLOBAL_TENANT) {
+        query.wherePivot('tenant_id', GLOBAL_TENANT);
+      } else {
+        query.whereInPivot('tenant_id', [GLOBAL_TENANT, tenantId]);
+      }
     },
   };
 }

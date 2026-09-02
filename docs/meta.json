@@ -13,6 +13,7 @@
     "agora-integration",
     "react",
     "mixin",
+    "roles-relation",
     "commands",
     "testing"
   ],

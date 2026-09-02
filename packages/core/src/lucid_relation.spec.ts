@@ -4,7 +4,10 @@ import { authzRolesRelation } from './lucid_relation.js';
 /** Captura as chamadas de `wherePivot` que o `onQuery` faria. */
 function capture(relation: ReturnType<typeof authzRolesRelation>) {
   const calls: Array<[string, unknown]> = [];
-  relation.onQuery({ wherePivot: (c: string, v: unknown) => void calls.push([c, v]) });
+  relation.onQuery({
+    wherePivot: (c: string, v: unknown) => void calls.push([c, v]),
+    whereInPivot: (c: string, v: readonly unknown[]) => void calls.push([c, v]),
+  });
   return calls;
 }
 
@@ -43,11 +46,20 @@ describe('authzRolesRelation', () => {
     expect(relation.pivotTable).toBe('rbac_user_role');
   });
 
-  it('permite outro user_type e outro tenant', () => {
-    const calls = capture(authzRolesRelation({ userType: 'service', tenantId: 'acme' }));
-    expect(calls).toEqual([
-      ['user_type', 'service'],
-      ['tenant_id', 'acme'],
-    ]);
+  it('permite outro user_type', () => {
+    const calls = capture(authzRolesRelation({ userType: 'service' }));
+    expect(calls[0]).toEqual(['user_type', 'service']);
+  });
+
+  it('um tenant específico vê o dele MAIS o global', () => {
+    // Espelha o `tenantClause` do store: um papel global vale dentro de qualquer
+    // tenant. Uma igualdade simples aqui descartaria os globais em silêncio — o
+    // próprio modo de falha que esta função existe para remover.
+    const calls = capture(authzRolesRelation({ tenantId: 'acme' }));
+    expect(calls[1]).toEqual(['tenant_id', ['', 'acme']]);
+  });
+
+  it('o pedido global é exclusivo — só linhas globais', () => {
+    expect(capture(authzRolesRelation())[1]).toEqual(['tenant_id', '']);
   });
 });

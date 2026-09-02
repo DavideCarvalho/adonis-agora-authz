@@ -62,9 +62,10 @@ defineConfig({
 })
 ```
 
-A super-admin global role short-circuits `can` and `hasRole` to allow.
-Otherwise, `roleGrants` for the user's **effective** roles are unioned into the
-permission match before consulting the store.
+A super-admin global role short-circuits every decision — `can`, `hasRole`,
+`hasAnyRole` and `scope` — to allow. Otherwise, the permissions `roleGrants`
+maps onto the user's **effective** roles are unioned with the store's grants and
+the whole set goes through the wildcard matcher.
 
 `roleGrants` applies to the user's *effective* roles — the context claim, the
 `resolveRoles` seam and the store alike — so it is not limited to global ones.
@@ -119,10 +120,18 @@ const authz = await app.container.make(AuthzService)
 await defineAuthzProvisioning({
   store: authz.store,
   on: {
-    'organization.created': (ev, store) =>
-      store.assignRole(ev.metadata.userRef, 'org:owner', { tenantId: ev.metadata.orgId }),
-    'member.added': (ev, store) =>
-      store.assignRole(ev.metadata.userRef, 'org:member', { tenantId: ev.metadata.orgId }),
+    'organization.created': (ev, store) => {
+      if (!ev.accountId || !ev.orgId) return
+      return store.assignRole({ type: 'user', id: ev.accountId }, 'org:owner', {
+        tenantId: ev.orgId,
+      })
+    },
+    'member.added': (ev, store) => {
+      if (!ev.accountId || !ev.orgId) return
+      return store.assignRole({ type: 'user', id: ev.accountId }, 'org:member', {
+        tenantId: ev.orgId,
+      })
+    },
   },
 })
 ```
@@ -130,6 +139,16 @@ await defineAuthzProvisioning({
 Keys are the bare authkit event type (subscribed on channels
 `agora:authkit:<type>`). The call returns a handle with `.stop()` to
 unsubscribe.
+
+<Callout type="warn">
+  **Read the ids from the top level of the event, not from `metadata`.** authkit
+  redacts its audit event before publishing it on the diagnostics bus: `email`,
+  `ip` and the free-form `metadata` are stripped, and what reaches a subscriber is
+  the event `type` plus the opaque `accountId`, `actorId`, `clientId` and `orgId`.
+  An action written against `ev.metadata.orgId` reads `undefined` in production.
+  `metadata` survives only when the host feeds the bus itself, or wires
+  `defineAuthzProvisioning` to authkit's un-redacted `events.onEvent`.
+</Callout>
 
 ## The `/authz/can` endpoint
 
