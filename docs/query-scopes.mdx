@@ -107,7 +107,7 @@ receives everything needed to derive a `WHERE` from the SAME authorization data
 | -------------------------- | ------- |
 | `user`         | The resolved `{ type, id }` user reference. |
 | `action`       | The action/ability being scoped (e.g. `viewAny`, `posts.read`). |
-| `permissions`  | The user's effective permission names for the active tenant (role-derived ∪ direct, wildcard-aware). |
+| `permissions`  | The user's effective permission names for the active tenant — the store's grants (role-derived ∪ direct) unioned with whatever `roleGrants` maps onto `roles`. These are the **granted** patterns, wildcards included, so test them with `permissionSatisfied` rather than `includes`. |
 | `roles`        | The user's effective role names for the active tenant. |
 | `tenant`       | The active `TenantScope`, or `undefined` (global). |
 
