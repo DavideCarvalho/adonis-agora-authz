@@ -1,5 +1,10 @@
 export const VERSION = '0.13.1';
 
+// Re-export the configure hook from the package root so `node ace configure` finds it.
+// AdonisJS imports the package MAIN and reads `configure` off the module namespace —
+// the `./configure` subpath alone is never consulted.
+export { configure } from '../configure.js';
+
 export type { AgoraContextAccessor } from './agora/context.js';
 // Structural Agora context bridge (features B & C).
 export {
