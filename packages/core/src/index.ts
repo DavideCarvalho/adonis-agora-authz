@@ -13,6 +13,7 @@ export {
   readContextAccessor,
   readContextValue,
   tenantFromContext,
+  userRefFromContext,
 } from './agora/context.js';
 export type { AuthorizeByRolesOptions } from './authorize.js';
 // Dashboard authorization hook factory (shared by telescope/durable/media/agent dashboards).

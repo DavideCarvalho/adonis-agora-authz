@@ -4,6 +4,7 @@ import {
   globalRolesFromContext,
   readContextValue,
   tenantFromContext,
+  userRefFromContext,
 } from './context.js';
 
 type GlobalSlots = Record<symbol, unknown>;
@@ -19,18 +20,65 @@ afterEach(() => {
 describe('agora context bridge', () => {
   it('returns undefined when no accessor slot is present', () => {
     expect(tenantFromContext()).toBeUndefined();
+    expect(userRefFromContext()).toBeUndefined();
     expect(globalRolesFromContext()).toEqual([]);
     expect(readContextValue('globalRoles')).toBeUndefined();
   });
 
-  it('reads tenantId structurally from the accessor', () => {
-    setAccessor({ tenantId: 'acme' });
+  // The real @adonis-agora/context accessor (packages/core/src/accessor.ts) publishes
+  // `tenantId`/`userRef` as METHODS, not plain properties. Earlier versions of this test
+  // faked `tenantId` as a string value, a contract the context lib never shipped — which
+  // is exactly why the bug (authz reading the function reference itself, truthy but
+  // wrong, instead of calling it) went unnoticed.
+  it('reads tenantId structurally from the accessor by calling it', () => {
+    setAccessor({ tenantId: () => 'acme' });
     expect(tenantFromContext()).toBe('acme');
   });
 
+  it('reads userRef structurally from the accessor by calling it', () => {
+    setAccessor({ userRef: () => ({ type: 'user', id: '42' }) });
+    expect(userRefFromContext()).toEqual({ type: 'user', id: '42' });
+  });
+
   it('treats empty-string tenantId as no tenant', () => {
-    setAccessor({ tenantId: '' });
+    setAccessor({ tenantId: () => '' });
     expect(tenantFromContext()).toBeUndefined();
+  });
+
+  it('treats a tenantId field that is not a function as absent', () => {
+    // Guards against regressing to the old plain-property contract: if some caller
+    // publishes a non-callable `tenantId`, we must not read it as a value.
+    setAccessor({ tenantId: 'acme' as unknown as () => string });
+    expect(tenantFromContext()).toBeUndefined();
+  });
+
+  it('treats a userRef field that is not a function as absent', () => {
+    setAccessor({ userRef: { type: 'user', id: '1' } as unknown as () => undefined });
+    expect(userRefFromContext()).toBeUndefined();
+  });
+
+  it('tolerates a throwing tenantId() accessor', () => {
+    setAccessor({
+      tenantId: () => {
+        throw new Error('boom');
+      },
+    });
+    expect(tenantFromContext()).toBeUndefined();
+  });
+
+  it('tolerates a throwing userRef() accessor', () => {
+    setAccessor({
+      userRef: () => {
+        throw new Error('boom');
+      },
+    });
+    expect(userRefFromContext()).toBeUndefined();
+  });
+
+  it('returns undefined when the accessor has no tenantId/userRef field at all', () => {
+    setAccessor({ get: () => ({}) });
+    expect(tenantFromContext()).toBeUndefined();
+    expect(userRefFromContext()).toBeUndefined();
   });
 
   // The real @adonis-agora/context accessor implements get() → the whole store, and
