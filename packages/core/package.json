@@ -115,7 +115,7 @@
     "pg": "8.23.0",
     "reflect-metadata": "0.2.2",
     "typescript": "7.0.2",
-    "unplugin-swc": "1.5.11",
+    "unplugin-swc": "1.6.0",
     "vitest": "4.1.11"
   },
   "engines": {
