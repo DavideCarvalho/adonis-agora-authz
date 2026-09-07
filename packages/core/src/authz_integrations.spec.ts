@@ -22,7 +22,9 @@ describe('feature B — tenant auto-scope', () => {
     await store.assignRole({ type: 'user', id: '1' }, 'viewer', { tenantId: 'acme' });
     const service = new AuthzService({ store });
 
-    setContext({ tenantId: 'acme' });
+    // The real @adonis-agora/context accessor publishes `tenantId` as a METHOD, not a
+    // plain property — mock it that way so this test exercises the real contract.
+    setContext({ tenantId: () => 'acme' });
     // Without opt-in, the check is global '' → tenant-scoped grant invisible.
     expect(await service.can(user, 'reports.view')).toBe(false);
   });
@@ -33,10 +35,10 @@ describe('feature B — tenant auto-scope', () => {
     await store.assignRole({ type: 'user', id: '1' }, 'viewer', { tenantId: 'acme' });
     const service = new AuthzService({ store, resolveTenant: tenantFromContext });
 
-    setContext({ tenantId: 'acme' });
+    setContext({ tenantId: () => 'acme' });
     expect(await service.can(user, 'reports.view')).toBe(true);
 
-    setContext({ tenantId: 'other' });
+    setContext({ tenantId: () => 'other' });
     expect(await service.can(user, 'reports.view')).toBe(false);
   });
 
@@ -46,7 +48,7 @@ describe('feature B — tenant auto-scope', () => {
     await store.assignRole({ type: 'user', id: '1' }, 'viewer', { tenantId: 'acme' });
     const service = new AuthzService({ store, resolveTenant: tenantFromContext });
 
-    setContext({ tenantId: 'other' });
+    setContext({ tenantId: () => 'other' });
     expect(await service.can(user, 'reports.view', { scope: { tenantId: 'acme' } })).toBe(true);
   });
 
