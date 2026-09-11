@@ -1,4 +1,3 @@
-import type { NormalizeConstructor } from '@adonisjs/core/types/helpers';
 import type { AuthzService } from './authz_service.js';
 import type { TenantScope, UserRef } from './user_ref.js';
 
@@ -36,7 +35,10 @@ export interface HasPermissions {
 export function hasPermissions(resolve: () => AuthzService | Promise<AuthzService>) {
   const authzService = (): Promise<AuthzService> => Promise.resolve(resolve());
 
-  return <Model extends NormalizeConstructor<typeof Object>>(superclass: Model) => {
+  // TypeScript requires `any[]` for a class expression that extends a generic constructor.
+  // The public return type below preserves the actual model instance type.
+  // biome-ignore lint/suspicious/noExplicitAny: required by TypeScript's mixin class constraint
+  return <Model extends new (...args: any[]) => object>(superclass: Model) => {
     class WithPermissions extends superclass implements HasPermissions {
       authzRef(): UserRef {
         // Resolved synchronously is not possible without the service; callers of
@@ -105,6 +107,8 @@ export function hasPermissions(resolve: () => AuthzService | Promise<AuthzServic
       }
     }
 
-    return WithPermissions;
+    return WithPermissions as unknown as {
+      new (...args: ConstructorParameters<Model>): InstanceType<Model> & HasPermissions;
+    } & Omit<Model, 'prototype'>;
   };
 }
