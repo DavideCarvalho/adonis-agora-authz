@@ -13,6 +13,12 @@ describe('published mixin types', () => {
       [
         fileURLToPath(new URL('../../../node_modules/typescript/bin/tsc', import.meta.url)),
         '--noEmit',
+        // The fixture is passed as an explicit file while `packages/core/tsconfig.json` sits in
+        // the cwd, and TypeScript 7 makes that combination the error TS5112 rather than the
+        // warning it used to be. The fixture is meant to typecheck against the package's
+        // published types under fixed flags, not under the package's own config, so the config
+        // is the thing to drop.
+        '--ignoreConfig',
         '--target',
         'ES2022',
         '--module',
