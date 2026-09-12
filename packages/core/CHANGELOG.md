@@ -1,5 +1,13 @@
 # @adonis-agora/authz
 
+## 0.13.4
+
+### Patch Changes
+
+- [#42](https://github.com/DavideCarvalho/adonis-agora-authz/pull/42) [`d23a588`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/d23a588faf544c445a005b1e55537086c126a481) Thanks [@filipebraida](https://github.com/filipebraida)! - Fix the `hasPermissions` mixin types so they compose with Lucid model constructors and relations.
+
+- [`167f9fa`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/167f9fafaf914402f202808cab5a21914c304115) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Document that `identityUserRef` always produces the `user` type, ignoring any `type` on the incoming identity.
+
 ## 0.13.3
 
 ### Patch Changes
