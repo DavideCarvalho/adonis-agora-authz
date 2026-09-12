@@ -107,7 +107,7 @@
     "@adonisjs/core": "7.5.0",
     "@adonisjs/lucid": "22.4.2",
     "@tanstack/intent": "0.4.0",
-    "@types/node": "26.5.0",
+    "@types/node": "26.5.1",
     "@types/pg": "8.23.1",
     "@vinejs/vine": "4.4.0",
     "better-sqlite3": "13.0.3",
