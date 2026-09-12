@@ -72,7 +72,9 @@ export function defaultResolveUserRef(user: unknown): UserRefInput | undefined {
 /**
  * A minimal, structurally-typed authentication identity. Deliberately NOT
  * imported from any auth package: it just describes the shape we read. AuthKit's
- * `Identity` has `userId`; we stay tolerant of `id` and `type` too.
+ * `Identity` has `userId`; a plain `id` is accepted as an alternative. A `type`
+ * here is tolerated but not carried over — {@link identityUserRef} always
+ * produces the `user` type.
  */
 export interface IdentityLike {
   userId?: string | number;
