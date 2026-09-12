@@ -8,6 +8,21 @@
     "url": "git+https://github.com/DavideCarvalho/adonis-agora-authz.git",
     "directory": "packages/react"
   },
+  "homepage": "https://davidecarvalho.github.io/agora/docs/authz",
+  "bugs": {
+    "url": "https://github.com/DavideCarvalho/adonis-agora-authz/issues"
+  },
+  "keywords": [
+    "adonisjs",
+    "adonis",
+    "inertia",
+    "react",
+    "authorization",
+    "authz",
+    "rbac",
+    "agora",
+    "tanstack-intent"
+  ],
   "author": "Davi Carvalho <davi@goflip.ai>",
   "type": "module",
   "main": "./dist/src/index.js",
@@ -60,16 +75,5 @@
   },
   "engines": {
     "node": ">=20.6.0"
-  },
-  "keywords": [
-    "adonisjs",
-    "adonis",
-    "inertia",
-    "react",
-    "authorization",
-    "authz",
-    "rbac",
-    "agora",
-    "tanstack-intent"
-  ]
+  }
 }
