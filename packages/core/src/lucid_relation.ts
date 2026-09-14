@@ -27,6 +27,17 @@ export interface AuthzRolesRelationOptions {
    * dentro de qualquer tenant. Só o pedido global é exclusivo (traz apenas globais).
    */
   tenantId?: string;
+  /**
+   * O atributo do modelo do host que guarda o id de usuário COMUM AO PIVÔ. Default `'id'`.
+   *
+   * O pivô é polimórfico e grava `user_id` como TEXTO (o authz aceita UUIDs). Quando o
+   * `id` do host é `increments()` — número — o `whereIn` no SQL até casa (o banco coerce
+   * `'42' = 42`), mas na volta o Lucid compara em JS `pivot.user_id` (`'42'`) com
+   * `user.id` (`42`) em igualdade estrita: cada linha do pivô cai fora e `preload('roles')`
+   * devolve `[]` SEM ERRO. Com ids numéricos passe um atributo que exponha o id como
+   * string (ver a receita no docblock de {@link authzRolesRelation}), ex.: `localKey: 'idAsText'`.
+   */
+  localKey?: string;
 }
 
 /**
@@ -53,6 +64,20 @@ export interface AuthzRolesRelationOptions {
  * }
  * ```
  *
+ * **Ids numéricos (`increments()`)** — o `id` do pivô é texto; comparar `'42'` (pivô) com
+ * `42` (modelo) em JS não casa e o `preload` devolve `[]` em silêncio. Aponte `localKey`
+ * para um atributo que exponha o mesmo id como string:
+ *
+ * ```ts
+ * export default class User extends BaseModel {
+ *   \@column({ columnName: 'id', consume: String, serializeAs: null })
+ *   declare idAsText: string
+ *
+ *   \@manyToMany(() => AuthzRole, authzRolesRelation({ localKey: 'idAsText' }))
+ *   declare roles: ManyToMany<typeof AuthzRole>
+ * }
+ * ```
+ *
  * Serve para LER. Escrita continua pelo store (`assignRole`/`removeRole`), que é quem
  * garante idempotência e a criação do papel quando ele ainda não existe.
  */
@@ -63,7 +88,7 @@ export function authzRolesRelation(options: AuthzRolesRelationOptions = {}) {
 
   return {
     pivotTable: tables.userRole,
-    localKey: 'id',
+    localKey: options.localKey ?? 'id',
     pivotForeignKey: 'user_id',
     relatedKey: 'id',
     pivotRelatedForeignKey: 'role_id',

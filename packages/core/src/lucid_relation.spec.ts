@@ -62,4 +62,13 @@ describe('authzRolesRelation', () => {
   it('o pedido global é exclusivo — só linhas globais', () => {
     expect(capture(authzRolesRelation())[1]).toEqual(['tenant_id', '']);
   });
+
+  it('localKey default é id; um override muda só a chave local', () => {
+    expect(authzRolesRelation().localKey).toBe('id');
+    const relation = authzRolesRelation({ localKey: 'idAsText' });
+    expect(relation.localKey).toBe('idAsText');
+    // As restantes chaves do pivô não mudam com o override.
+    expect(relation.pivotForeignKey).toBe('user_id');
+    expect(relation.relatedKey).toBe('id');
+  });
 });
