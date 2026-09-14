@@ -68,7 +68,7 @@ export {
   whereIn,
 } from './scope.js';
 // Store contract & implementations.
-export type { PermissionStore } from './store.js';
+export type { PermissionStore, StoreOptions, StoreQueryClient } from './store.js';
 export type {
   LucidStoreConfig,
   MemoryStoreConfig,

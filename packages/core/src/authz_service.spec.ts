@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { AuthzService } from './authz_service.js';
+import { PermissionCache } from './permission_cache.js';
+import { ScopeRegistry, scopeAll, scopeNone } from './scope.js';
+import type { PermissionStore } from './store.js';
 import { MemoryPermissionStore } from './stores/memory.js';
 
 class User {
@@ -205,5 +208,139 @@ describe('AuthzService.usersWithRole', () => {
     const users = await service.usersWithRole('editor');
     expect(users).toEqual([{ type: 'user', id: '1' }]);
     expect(seamScope).toBe('acme');
+  });
+});
+
+/** A store spy counting the two role/permission reads `can()` performs. */
+function countingStore(base: PermissionStore) {
+  const counts = { roles: 0, perms: 0 };
+  const spy = Object.create(base) as PermissionStore;
+  spy.getRolesForUser = (u, s) => {
+    counts.roles += 1;
+    return base.getRolesForUser(u, s);
+  };
+  spy.getPermissionsForUser = (u, s) => {
+    counts.perms += 1;
+    return base.getPermissionsForUser(u, s);
+  };
+  return { spy, counts };
+}
+
+describe('AuthzService caching (issue #75)', () => {
+  it('memoizes the ROLE read too: one resolution per (user, tenant) per cache', async () => {
+    const store = new MemoryPermissionStore();
+    await store.givePermissionToRole('editor', 'posts.*');
+    await store.assignRole({ type: 'user', id: '1' }, 'editor');
+    const { spy, counts } = countingStore(store);
+    const service = new AuthzService({ store: spy });
+    const user = new User('1');
+
+    const cache = service.createCache();
+    expect(await service.can(user, 'posts.edit', { cache })).toBe(true);
+    expect(await service.can(user, 'posts.delete', { cache })).toBe(true);
+    expect(await service.can(user, 'comments.edit', { cache })).toBe(false);
+    expect(await service.hasRole(user, 'editor', { cache })).toBe(true);
+    expect(await service.hasAnyRole(user, ['ghost', 'editor'], { cache })).toBe(true);
+    expect(await service.effectiveRoles(user, undefined, { cache })).toEqual(['editor']);
+    expect(await service.effectivePermissions(user, undefined, { cache })).toContain('posts.*');
+
+    // Eight checks, ONE read per dimension — the promise the cache makes.
+    expect(counts.roles).toBe(1);
+    expect(counts.perms).toBe(1);
+  });
+
+  it('without a cache every check re-reads (the N+1 the cache exists to kill)', async () => {
+    const store = new MemoryPermissionStore();
+    await store.givePermissionToRole('editor', 'posts.edit');
+    await store.assignRole({ type: 'user', id: '1' }, 'editor');
+    const { spy, counts } = countingStore(store);
+    const service = new AuthzService({ store: spy });
+    const user = new User('1');
+
+    expect(await service.can(user, 'posts.edit')).toBe(true);
+    expect(await service.can(user, 'posts.edit')).toBe(true);
+    expect(counts.roles).toBe(2);
+    expect(counts.perms).toBe(2);
+  });
+
+  it('the cache memoizes the resolveRoles seam, not just the store', async () => {
+    const store = new MemoryPermissionStore();
+    let seamCalls = 0;
+    const service = new AuthzService({
+      store,
+      resolveRoles: async () => {
+        seamCalls += 1;
+        return ['COORDINATOR'];
+      },
+    });
+    const user = new User('1');
+    const cache = service.createCache();
+    expect(await service.hasRole(user, 'COORDINATOR', { cache })).toBe(true);
+    expect(await service.hasRole(user, 'COORDINATOR', { cache })).toBe(true);
+    expect(await service.effectiveRoles(user, undefined, { cache })).toContain('COORDINATOR');
+    // Domain-table role derivation costs one query per request, not per check.
+    expect(seamCalls).toBe(1);
+  });
+
+  it('decisions stay snapshotted: a mid-request grant does not flip cached checks', async () => {
+    const store = new MemoryPermissionStore();
+    const service = new AuthzService({ store });
+    const user = new User('1');
+    const cache = service.createCache();
+
+    expect(await service.can(user, 'posts.edit', { cache })).toBe(false);
+    await store.giveUserPermission({ type: 'user', id: '1' }, 'posts.edit');
+    // Same request, same cache: the decision was made against one state.
+    expect(await service.can(user, 'posts.edit', { cache })).toBe(false);
+    // A fresh cache (next request) sees the grant.
+    expect(await service.can(user, 'posts.edit', { cache: service.createCache() })).toBe(true);
+  });
+
+  it('keys by (user, tenant): different tenants resolve independently', async () => {
+    const store = new MemoryPermissionStore();
+    await store.assignRole({ type: 'user', id: '1' }, 'viewer', { tenantId: 'acme' });
+    const { spy, counts } = countingStore(store);
+    const service = new AuthzService({ store: spy });
+    const user = new User('1');
+    const cache = service.createCache();
+
+    expect(await service.hasRole(user, 'viewer', { cache })).toBe(false);
+    expect(await service.hasRole(user, 'viewer', { scope: { tenantId: 'acme' }, cache })).toBe(
+      true,
+    );
+    expect(counts.roles).toBe(2);
+  });
+
+  it('a standalone cache falls back to store.getRolesForUser', async () => {
+    const store = new MemoryPermissionStore();
+    await store.assignRole({ type: 'user', id: '1' }, 'admin');
+    const { spy, counts } = countingStore(store);
+    const cache = new PermissionCache(spy);
+    expect(await cache.getRoles({ type: 'user', id: '1' })).toEqual(['admin']);
+    expect(await cache.getRoles({ type: 'user', id: '1' })).toEqual(['admin']);
+    expect(counts.roles).toBe(1);
+    // Permissions memoize on the same key.
+    expect([...(await cache.getPermissions({ type: 'user', id: '1' }))]).toEqual([]);
+    expect(counts.perms).toBe(1);
+  });
+
+  it('scope() shares the role resolution through the cache', async () => {
+    const store = new MemoryPermissionStore();
+    await store.givePermissionToRole('editor', 'posts.edit');
+    await store.assignRole({ type: 'user', id: '1' }, 'editor');
+    const { spy, counts } = countingStore(store);
+    const scopes = new ScopeRegistry().register('posts', (ctx) =>
+      ctx.roles.includes('editor') ? scopeAll : scopeNone,
+    );
+    const service = new AuthzService({ store: spy, scopes });
+    const user = new User('1');
+    const cache = service.createCache();
+
+    expect(await service.can(user, 'posts.edit', { cache })).toBe(true);
+    // The filter decision reads the SAME memoized role resolution — a request
+    // that gates a collection after gating an action costs one read, not two.
+    expect(await service.scope(user, 'posts', { cache })).toEqual(scopeAll);
+    expect(counts.roles).toBe(1);
+    expect(counts.perms).toBe(1);
   });
 });

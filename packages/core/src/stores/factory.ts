@@ -1,5 +1,5 @@
 import type { ApplicationService } from '@adonisjs/core/types';
-import type { PermissionStore } from '../store.js';
+import type { PermissionStore, StoreQueryClient } from '../store.js';
 import type { AuthzTableNames, LucidDatabase } from './lucid.js';
 import { MemoryPermissionStore } from './memory.js';
 
@@ -25,6 +25,14 @@ export interface LucidStoreConfig {
   tables?: AuthzTableNames;
   /** Auto-create tables on first use (default true). Set false when migrating. */
   autoCreateSchema?: boolean;
+  /**
+   * Ambient transaction seam (wired once, like a channel config): read before
+   * each data method; a non-nullish return runs that call's SQL on it — the
+   * host's idiom is a tiny AsyncLocalStorage around `db.transaction`.
+   * Precedence per call: `opts.client` → `store.withClient(…)` → this
+   * resolver → the store's own connection. Ignored by the memory store.
+   */
+  resolveClient?: () => StoreQueryClient | undefined;
 }
 
 /**

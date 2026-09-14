@@ -37,6 +37,7 @@ stores.lucid({
   tables: {                // optional name overrides
     roles: 'authz_roles',
   },
+  resolveClient: () => authzClient.getStore(), // optional; see "Joining a transaction"
 })
 ```
 
@@ -53,6 +54,46 @@ happening on whichever request happens to arrive first.
 
 Both paths emit the same DDL, so it is safe to start with the default and switch
 later: the migration finds the tables already there and does nothing.
+
+### Joining a transaction
+
+Granting a role is almost never an isolated act — it happens inside the same
+`db.transaction` that creates the user and writes the audit trail. A store call
+outside that transaction commits on its own: a rollback later leaves the role
+granted (or a guard reading member counts sees a state the transaction will
+never write). Three layers, **most local wins**:
+
+```ts title="app/authz/transaction.ts"
+import { AsyncLocalStorage } from 'node:async_hooks'
+import type { StoreQueryClient } from '@adonis-agora/authz'
+
+// The ambient seam: set the config's `resolveClient` to read this.
+export const authzClient = new AsyncLocalStorage<StoreQueryClient>()
+```
+
+1. **`opts.client`** (per call) — the Lucid-style escape hatch:
+   `await authz.store.assignRole(ref, 'editor', undefined, { client: trx })`.
+2. **`store.withClient(trx)`** (one injection point) — returns a view that is
+   itself a `PermissionStore`; every call on it joins the transaction:
+
+   ```ts
+   await db.transaction(async (trx) => {
+     const authz = store.withClient(trx)
+     await authz.assignRole(ref, 'editor')
+     const n = await authz.countUsersForRole('admin') // the last-admin guard
+     if (n === 0) throw new Error('cannot empty the admins')
+   })
+   ```
+
+3. **`resolveClient`** (config, above) — an ambient AsyncLocalStorage read, so
+   *plain* store calls auto-join the active transaction with no per-call work.
+
+<Callout type="warn">
+  A scoped view (and any call carrying a client) never runs DDL and never
+  touches the root connection: ensure the schema at boot — or use the migration —
+  **before** opening the transaction. On a single-connection pool (SQLite) a
+  root DDL mid-transaction would wait on it; that is what this rule avoids.
+</Callout>
 
 </Tab>
 <Tab value="Memory">
@@ -235,6 +276,9 @@ export default class extends BaseSchema {
 
 - `createAuthzTables(db, { tables? })` — idempotent (`CREATE TABLE IF NOT EXISTS`),
   dialect-aware (Postgres / MySQL / SQLite). Safe to call from a migration `up()`.
+  MySQL 8 has no `CREATE INDEX IF NOT EXISTS` (a MariaDB-only extension), so there
+  the index DDL drops the clause and swallows the duplicate-key error — same
+  idempotency, no version-sniffing. Verified against a real MySQL 8.
 - `dropAuthzTables(db, { tables? })` — idempotent (`DROP TABLE IF EXISTS`),
   child-first, for the migration `down()`.
 - `AUTHZ_TABLES` — the default table names (`authz_roles`, `authz_permissions`,

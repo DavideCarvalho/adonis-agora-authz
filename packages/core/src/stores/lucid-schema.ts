@@ -122,8 +122,36 @@ export async function createAuthzTables(
   options: { tables?: AuthzTableNames } = {},
 ): Promise<void> {
   const t = resolveTables(options.tables);
-  const ts = isPostgres(detectDialect(db)) ? 'TIMESTAMP' : 'DATETIME';
+  const dialect = detectDialect(db);
+  const ts = isPostgres(dialect) ? 'TIMESTAMP' : 'DATETIME';
+  const mysql = isMysql(dialect);
   const run = (sql: string) => db.rawQuery(sql);
+
+  /**
+   * MySQL has NO `CREATE INDEX IF NOT EXISTS` (MariaDB added it; MySQL 8 rejects
+   * the syntax outright). So on MySQL the index DDL drops the guard and re-runs
+   * are made idempotent by swallowing the duplicate-key error (ER_DUP_KEYNAME /
+   * 1061) — the same outcome, reachable without version-sniffing the server.
+   * Every other dialect keeps the plain `IF NOT EXISTS` form.
+   */
+  const createIndex = async (name: string, unique: boolean, table: string, columns: string) => {
+    const guard = mysql ? '' : ' IF NOT EXISTS';
+    const sql = `CREATE ${unique ? 'UNIQUE' : ''} INDEX${guard} ${name} ON ${table} (${columns})`;
+    if (!mysql) {
+      await run(sql);
+      return;
+    }
+    try {
+      await run(sql);
+    } catch (err) {
+      const e = err as { code?: string; errno?: number; message?: string };
+      const dup =
+        e.code === 'ER_DUP_KEYNAME' ||
+        e.errno === 1061 ||
+        /duplicate key name/i.test(e.message ?? '');
+      if (!dup) throw err;
+    }
+  };
 
   await run(
     `CREATE TABLE IF NOT EXISTS ${t.roles} (
@@ -133,7 +161,7 @@ export async function createAuthzTables(
       created_at ${ts}
     )`,
   );
-  await run(`CREATE UNIQUE INDEX IF NOT EXISTS ${t.roles}_name_uq ON ${t.roles} (name)`);
+  await createIndex(`${t.roles}_name_uq`, true, t.roles, 'name');
 
   await run(
     `CREATE TABLE IF NOT EXISTS ${t.permissions} (
@@ -143,9 +171,7 @@ export async function createAuthzTables(
       created_at ${ts}
     )`,
   );
-  await run(
-    `CREATE UNIQUE INDEX IF NOT EXISTS ${t.permissions}_name_uq ON ${t.permissions} (name)`,
-  );
+  await createIndex(`${t.permissions}_name_uq`, true, t.permissions, 'name');
 
   await run(
     `CREATE TABLE IF NOT EXISTS ${t.rolePermission} (
@@ -164,9 +190,7 @@ export async function createAuthzTables(
       PRIMARY KEY (user_type, user_id, role_id, tenant_id)
     )`,
   );
-  await run(
-    `CREATE INDEX IF NOT EXISTS ${t.userRole}_user_idx ON ${t.userRole} (user_type, user_id)`,
-  );
+  await createIndex(`${t.userRole}_user_idx`, false, t.userRole, 'user_type, user_id');
 
   await run(
     `CREATE TABLE IF NOT EXISTS ${t.userPermission} (
@@ -176,9 +200,7 @@ export async function createAuthzTables(
       PRIMARY KEY (user_type, user_id, permission_id)
     )`,
   );
-  await run(
-    `CREATE INDEX IF NOT EXISTS ${t.userPermission}_user_idx ON ${t.userPermission} (user_type, user_id)`,
-  );
+  await createIndex(`${t.userPermission}_user_idx`, false, t.userPermission, 'user_type, user_id');
 }
 
 /**

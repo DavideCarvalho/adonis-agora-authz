@@ -3,13 +3,15 @@ name: authz-route-guards
 description: >
   Guard AdonisJS routes with @adonis-agora/authz — AuthzRoleMiddleware
   registered as the named middleware requireRole from the
-  @adonis-agora/authz/middleware subpath, any-of roles matching against
-  AuthzService.effectiveRoles (global token claim ∪ resolveRoles ∪ store),
-  RequireRoleOptions (roles, scope, guestRedirect, deniedRedirect,
-  deniedMessage), and where permission checks belong instead (Bouncer can in
-  the action, accessibleBy for collections). Use when keeping route trees
-  behind a role, redirecting unauthenticated or unauthorized requests in SSR /
-  Inertia apps, or wiring start/kernel.ts middleware.
+  @adonis-agora/authz/middleware subpath, any-of roles or permissions matching
+  against AuthzService.effectiveRoles (global token claim ∪ resolveRoles ∪
+  store) and effectivePermissions (wildcard-aware), RequireRoleOptions (roles,
+  permissions, scope, guestRedirect, deniedRedirect, deniedMessage, onDenied),
+  and where per-record checks belong instead (Bouncer can in the action,
+  accessibleBy for collections). Use when keeping route trees behind a role or
+  a permission, redirecting unauthenticated or unauthorized requests in SSR /
+  Inertia apps, letting the host decide the denial response, or wiring
+  start/kernel.ts middleware.
 metadata:
   type: core
   library: "@adonis-agora/authz"
@@ -25,7 +27,9 @@ sources:
 `AuthzRoleMiddleware` is the "require role X" guard every app otherwise
 rewrites by hand. It gates on **effective** roles (global ∪ app ∪ store), so a
 token claim, a domain-table role, and a store assignment all satisfy the same
-guard. It is deliberately role-only.
+guard. It gates routes on **either** dimension: role names (`roles`) or
+permissions with wildcards (`permissions`) — the coarse gate; per-record
+decisions stay with Bouncer abilities and query scopes.
 
 ## Setup
 
@@ -81,9 +85,28 @@ router
   )
 ```
 
-Options: `roles` (required), `scope` (`TenantScope` forwarded to
-`effectiveRoles`), `guestRedirect`, `deniedRedirect`, `deniedMessage` (default
-`'Forbidden'`).
+Options: `roles` / `permissions` (at least one must be non-empty), `scope`
+(`TenantScope` forwarded to `effectiveRoles`/`effectivePermissions`),
+`guestRedirect`, `deniedRedirect`, `deniedMessage` (default `'Forbidden'`),
+`onDenied(ctx, { roles, permissions })` — the host decides the denial response
+(flash + redirect per area, custom 403); it overrides `deniedRedirect`/
+`deniedMessage` and must respond.
+
+Source: `docs/middleware.mdx`
+
+### Open a route by permission (wildcards either side)
+
+A route listed `permissions: ['admin.*']` admits anyone holding ANY `admin.*`
+permission — roles created at runtime included. The wildcard may sit on the
+grant (`admin.*` opens route `admin.users`) or on the route (route `admin.*`
+opens for a grant of `admin.users`). Permissions are only read when `roles`
+did not match — a role pass costs no permission query.
+
+```ts
+router
+  .get('/admin', [AdminController, 'dashboard'])
+  .use(middleware.requireRole({ permissions: ['admin.*'] }))
+```
 
 Source: `docs/middleware.mdx`
 
@@ -104,34 +127,35 @@ Source: `docs/middleware.mdx`, `docs/roles.mdx`
 
 ## Common mistakes
 
-### MEDIUM Using requireRole as a permission gate
+### MEDIUM Listing a permission in the `roles` option
 
-There is no permission option — the middleware reads roles only. Forcing
-permission checks through it means a hand-rolled duplicate that skips the
-effective-role union.
+`roles` matches **role names exactly**; permissions are a separate option. A
+permission name in `roles` never matches, and the route denies a user who does
+hold the permission — silently, because both are just strings.
 
 Wrong:
 
 ```ts
-router.get('/posts', [PostsController, 'index']).use(
-  // permissions are not part of RequireRoleOptions
-  middleware.requireRole({ roles: [], permission: 'posts.view' } as never),
-)
+router.get('/posts', [PostsController, 'index'])
+  .use(middleware.requireRole({ roles: ['posts.view'] })) // never matches a role
 ```
 
 Correct:
 
 ```ts
 router.get('/posts', [PostsController, 'index'])
-  .use(middleware.requireRole({ roles: ['EDITOR'] }))
-// permission checks live inside the action:
-// await ctx.bouncer.authorize('can', 'posts.view')
+  .use(middleware.requireRole({ permissions: ['posts.view'] }))
+// and when the user is an EDITOR by role:
+//   .use(middleware.requireRole({ roles: ['EDITOR'] }))
 ```
 
-Mechanism: the docs fix the division of labor — roles gate routes, `can`
-abilities check permissions in actions, query scopes filter collections.
+Mechanism: route-level permission checks go through `effectivePermissions`
+(the wildcard-aware `permissions` option); action-level, resource-specific
+decisions still belong in a Bouncer ability or a query scope, which can see
+the record being acted on. The `roles` gate and the `permissions` gate are both
+coarse; the division of labor is *coarse vs. per-record*, not role vs. permission.
 
-Source: `docs/middleware.mdx` (closing Callout: "deliberately role-only")
+Source: `docs/middleware.mdx`, `docs/bouncer-integration.mdx`
 
 ### LOW Seeding store roles to satisfy a token-claim guard
 

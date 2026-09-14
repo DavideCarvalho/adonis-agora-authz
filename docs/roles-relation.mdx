@@ -90,7 +90,7 @@ So the returned object is:
 | Key                                | Value                                                |
 | ---------------------------------- | ---------------------------------------------------- |
 | `pivotTable`                       | `authz_user_role`                                    |
-| `localKey` / `relatedKey`          | `id` on the user model / `id` on the role model      |
+| `localKey` / `relatedKey`          | `id` on the user model (or `localKey`, below) / `id` on the role model |
 | `pivotForeignKey`                  | `user_id`                                            |
 | `pivotRelatedForeignKey`           | `role_id`                                            |
 | `onQuery`                          | `wherePivot('user_type', …)` plus the tenant filter below |
@@ -98,7 +98,7 @@ So the returned object is:
 ## Options
 
 ```ts
-authzRolesRelation({ tables, userType, tenantId })
+authzRolesRelation({ tables, userType, tenantId, localKey })
 ```
 
 | Option     | Default              | When you need it                                                                                          |
@@ -106,6 +106,30 @@ authzRolesRelation({ tables, userType, tenantId })
 | `tables`   | the default names    | The store was configured with [table overrides](/docs/authz/config#stores). Only `userRole` is read here — the roles table name lives on the model's `static table`. |
 | `userType` | `'user'`             | This model is not the default subject kind — i.e. `resolveUserRef` returns another `type` for it. It must match what `assignRole` wrote. |
 | `tenantId` | `''` (global)        | The relation should read a tenant's assignments as well as the global ones.                                |
+| `localKey` | `'id'`               | The model's `id` is not a string — integer `increments()` ids need this. See below. |
+
+<Callout type="warn">
+  **The pivot stores `user_id` as TEXT** (the authz is polymorphic — UUID hosts
+  included), and Lucid distributes preloaded pivot rows back to their parents
+  with **strict JS equality**. An `increments()` user has `id: 42` (number)
+  where the pivot holds `'42'` (string) — the SQL `whereIn` coerces and finds
+  the rows, the JS match drops every one, and `preload('roles')` answers `[]`
+  **with no error**. With integer ids, expose the same column as text and point
+  `localKey` at it:
+
+```ts
+export default class User extends BaseModel {
+  @column({ isPrimary: true })
+  declare id: number
+
+  @column({ columnName: 'id', consume: String, serializeAs: null })
+  declare idAsText: string
+
+  @manyToMany(() => AuthzRole, authzRolesRelation({ localKey: 'idAsText' }))
+  declare roles: ManyToMany<typeof AuthzRole>
+}
+```
+</Callout>
 
 The tenant filter mirrors the store's, so the relation and
 `getRolesForUser(user, scope)` agree: a **global** read sees global rows only,

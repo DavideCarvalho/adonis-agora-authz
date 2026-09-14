@@ -107,7 +107,8 @@ const scoped = await authz.effectivePermissions(user, { tenantId: 'acme' })
 
 It is the union of the store's grants for the user (role-derived ∪ direct) and
 every permission `roleGrants` maps onto their effective roles. Anonymous users
-get `[]`.
+get `[]`. Both reads go through the request's cache when one is passed as the
+third argument's `{ cache }`.
 
 <Callout type="info">
   The set contains the **granted** patterns, wildcards and all — `posts.*` stays
@@ -163,8 +164,9 @@ await authz.hasAnyRole(user, ['admin', 'editor'], { scope: { tenantId: 'acme' } 
 roles **once** and intersects, so it costs one resolution regardless of how many
 roles you pass, and it can never disagree with `hasRole` on the same input.
 
-Both take a single `{ scope }` option and both honour the super-admin verdict, so
-a super-admin answers `true` for any role name.
+Both take a `{ scope, cache }` options object and both honour the super-admin
+verdict, so a super-admin answers `true` for any role name — and with the
+request's `cache`, neither re-reads the roles the request already resolved.
 
 ## Super-admin resolution
 
@@ -204,10 +206,11 @@ for how the global-role half is fed.
 
 ## The per-request permission cache
 
-Every check reads the user's granted permissions from the store. A request that
-runs a dozen checks would issue a dozen reads; a `PermissionCache` collapses them
-into one read per `(user, tenant)` pair, including for checks that run
-concurrently.
+Every check reads the user's **effective roles** and **granted permissions**
+from the store (plus the `resolveRoles` seam). A request that runs a dozen
+checks would issue two dozen reads; a `PermissionCache` collapses them into one
+role resolution and one permission read per `(user, tenant)` pair, including for
+checks that run concurrently.
 
 ```ts
 import { AuthzService } from '@adonis-agora/authz'
@@ -218,14 +221,16 @@ const cache = service.createCache()
 await service.can(user, 'posts.edit', { cache })
 await service.can(user, 'posts.delete', { cache })   // no second read
 await service.scope(user, Post, { cache })           // still no second read
+await service.hasRole(user, 'ADMIN', { cache })      // role read memoized too
+await service.effectiveRoles(user, undefined, { cache })
 ```
 
 Create one cache per request (or per job) and let it fall out of scope with it.
 A cache is a **snapshot**: it never expires and never invalidates, so a grant
 written after the cache warmed is not visible to it. That is exactly what you
 want inside one request — every check in it decides against the same
-authorization state — and exactly what you do not want in a long-lived process.
-Never hoist a cache to module scope.
+authorization state (roles included) — and exactly what you do not want in a
+long-lived process. Never hoist a cache to module scope.
 
 ```ts title="app/controllers/posts_controller.ts"
 export default class PostsController {
@@ -244,12 +249,23 @@ export default class PostsController {
 
 `PermissionCache` is exported from the package barrel if you want to build one
 against a store yourself (`new PermissionCache(store)`), and exposes
-`getPermissions(user, scope?)` for the raw memoized set plus
-`satisfies(user, ability, scope?)` for a wildcard-aware check off it.
+`getRoles(user, scope?)` and `getPermissions(user, scope?)` for the raw memoized
+reads, plus `satisfies(user, ability, scope?)` for a wildcard-aware check off
+the permission set.
+
+<Callout type="info">
+  The cache memoizes **both** dimensions a check reads — roles and permissions —
+  once per `(user, tenant)` per request. `can()` resolves the effective-role
+  union (the token's global roles, the `resolveRoles` seam **and**
+  `store.getRolesForUser`) and the permission grants; with a cache the eight
+  `can()` calls of a request are one role resolution and one permission read,
+  not sixteen. A host that derives roles from domain tables via `resolveRoles`
+  no longer pays those queries per check.
+</Callout>
 
 <Callout type="warn">
-  The cache memoizes `store.getPermissionsForUser` only. Roles are never cached:
-  the token's global roles, the `resolveRoles` seam **and** `store.getRolesForUser`
-  are all consulted on every check — so a cache never makes a role stale, and a
-  cached check still costs that role read.
+  The cache is a per-request snapshot and never invalidates: a grant made
+  mid-request does not flip a cached check (the next request's cache sees it).
+  That is the point — every decision in one request is made against one state.
+  Do not keep a cache across requests.
 </Callout>

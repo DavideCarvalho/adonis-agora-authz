@@ -20,6 +20,7 @@ export default defineConfig({
     lucid: stores.lucid({
       // connection: 'pg',          // defaults to the app's default connection
       // autoCreateSchema: false,   // set false when using the published migration
+      // resolveClient: () => authzClient.getStore(), // ambient db.transaction seam
     }),
   },
 

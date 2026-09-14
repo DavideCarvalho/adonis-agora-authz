@@ -132,8 +132,8 @@ Source: `docs/service.mdx`, `docs/config.mdx`
 
 ### Coalesce reads with a per-request PermissionCache
 
-One cache per request collapses N checks into one store read per
-`(user, tenant)` — including concurrent ones.
+One cache per request collapses N checks into one role resolution and one
+permission read per `(user, tenant)` — including concurrent ones.
 
 ```ts title="app/controllers/posts_controller.ts"
 export default class PostsController {
@@ -226,10 +226,13 @@ export async function check(user: unknown, perm: string) {
 }
 ```
 
-Mechanism: `createCache()` memoizes `store.getPermissionsForUser` per
-`(user, tenant)` forever by design — correct inside one request, wrong across
-requests. Context roles and `resolveRoles` stay live because they bypass the
-cache.
+Mechanism: `createCache()` memoizes BOTH dimensions a check reads per
+`(user, tenant)` forever by design — the role resolution (context roles, the
+`resolveRoles` seam **and** `store.getRolesForUser`) and the permission read
+(`store.getPermissionsForUser`) — correct inside one request, wrong across
+requests. Pass `{ cache }` to `can`, `hasRole`, `hasAnyRole`, `scope`, and
+`effectiveRoles`/`effectivePermissions` (third argument) so they share the
+snapshot.
 
 Source: `docs/service.mdx` ("per-request permission cache")
 
