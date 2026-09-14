@@ -1,6 +1,6 @@
 ---
 title: Route middleware
-description: AuthzRoleMiddleware — an any-of requireRole route guard on the user's effective roles (global ∪ app ∪ store), with guest and denied redirects.
+description: AuthzRoleMiddleware — an any-of route guard on the user's effective roles (global ∪ app ∪ store) or permissions, with guest/denied redirects and a host-owned onDenied hook.
 icon: Route
 ---
 
@@ -30,8 +30,9 @@ export const middleware = router.named({
 
 ## Guard routes
 
-Pass the accepted roles per route. It is **any-of**: the request passes if the
-user holds at least one.
+Pass the accepted roles (and/or permissions) per route. Both lists are
+**any-of**: the request passes if the user holds at least one role, or at least
+one permission. Provide at least one of `roles` / `permissions`.
 
 ```ts title="start/routes.ts"
 import router from '@adonisjs/core/services/router'
@@ -47,6 +48,14 @@ router
   .get('/reports', [ReportsController, 'index'])
   .use(middleware.requireRole({ roles: ['COORDINATOR', 'DIRECTOR'] }))
 
+// Open by PERMISSION — `admin.*` admits a role created at runtime without any
+// route listing it. The wildcard may sit on either side: the user's granted
+// `admin.*` opens `admin.users`, and a route listed `admin.*` opens for a user
+// who only holds `admin.users`.
+router
+  .get('/admin', [AdminController, 'dashboard'])
+  .use(middleware.requireRole({ permissions: ['admin.*'] }))
+
 // Redirect instead of 401/403 (server-rendered / Inertia apps).
 router
   .group(() => {
@@ -59,17 +68,32 @@ router
       deniedRedirect: '/unauthorized',
     }),
   )
+
+// Or let the HOST decide the denial response (redirect per area, flash message).
+router
+  .get('/painel', [PanelController, 'index'])
+  .use(
+    middleware.requireRole({
+      roles: ['ADMIN'],
+      onDenied: (ctx, { roles }) => {
+        ctx.session.flash('error', 'Sem acesso ao painel')
+        return ctx.response.redirect(roles.includes('COORDINATOR') ? '/coordenador' : '/')
+      },
+    }),
+  )
 ```
 
 ## `RequireRoleOptions`
 
 | Option           | Type           | Default | Behavior |
 | ---------------- | -------------- | ------- | -------- |
-| `roles`          | `string[]`     | —       | **Required.** Accepted roles (any-of). |
-| `scope`          | `TenantScope?` | —       | Tenant scope forwarded to `effectiveRoles`. |
+| `roles`          | `string[]?`    | —       | Accepted roles (any-of). Provide at least one of `roles` / `permissions`. |
+| `permissions`    | `string[]?`    | —       | Accepted permissions (any-of), wildcard-aware. Only read if no `roles` matched. |
+| `scope`          | `TenantScope?` | —       | Tenant scope forwarded to `effectiveRoles` / `effectivePermissions`. |
 | `guestRedirect`  | `string?`      | —       | Where to send an **unauthenticated** request. Without it → `401 { message: 'Unauthenticated' }`. |
-| `deniedRedirect` | `string?`      | —       | Where to send a request that is authenticated but lacks the role. Without it → `403`. |
-| `deniedMessage`  | `string?`      | `'Forbidden'` | The `403` body's `message` when there is no `deniedRedirect`. |
+| `deniedRedirect` | `string?`      | —       | Where to send a request that is authenticated but lacks the role/permission. Without it → `403`. |
+| `deniedMessage`  | `string?`      | `'Forbidden'` | The `403` body's `message` when there is no `deniedRedirect` / `onDenied`. |
+| `onDenied`       | `(ctx, { roles, permissions }) => unknown` | — | **The host decides the denial response** (redirect, flash, 403). Receives the resolved effective roles, and the permissions — resolved lazily, only when `permissions` is set and no role matched, so it can be `[]` on a role-gated route. Overrides `deniedRedirect`/`deniedMessage`. |
 
 ### How it decides
 
@@ -77,10 +101,14 @@ router
   1. Resolve the user from `ctx.auth.getUser()` (authkit) or `ctx.auth.user`
      (a `@adonisjs/auth` guard) — either works, and neither is required.
   2. No user → `guestRedirect` if set, else `401 Unauthenticated`.
-  3. Compute `authz.effectiveRoles(user, options.scope)` and check that at least
-     one of `options.roles` is present.
-  4. No matching role → `deniedRedirect` if set, else `403` with `deniedMessage`.
-  5. Otherwise call `next()`.
+  3. Compute `authz.effectiveRoles(user, scope)`; if `options.roles` is given,
+     it passes when at least one role is present.
+  4. If `options.permissions` is given and no role matched, compute
+     `authz.effectivePermissions(user, scope)` and pass when any required
+     permission is satisfied (wildcard-aware, either side).
+  5. Still denied → `onDenied(ctx, { roles, permissions })` if set, else
+     `deniedRedirect` if set, else `403` with `deniedMessage`.
+  6. Otherwise call `next()`.
 </Callout>
 
 Because it reads **effective** roles, `effectiveRoles` populates the request's
@@ -209,9 +237,11 @@ anonymous/unmappable user yields `[]`. This is the exact set `hasRole` /
 UI never disagree.
 
 <Callout type="info">
-  Need a **permission** guard on a route rather than a role? Check the
-  permission inside the action with a [Bouncer ability](/docs/authz/bouncer-integration)
-  (`ctx.bouncer.authorize('can', 'posts.edit')`), or filter a collection with a
-  [query scope](/docs/authz/query-scopes). `AuthzRoleMiddleware` is deliberately
-  role-only — the coarse gate that keeps whole route trees behind a role.
+  A route can gate on a **permission** too — `requireRole({ permissions:
+  ['admin.*'] })` reads `effectivePermissions` and opens for any wildcard match,
+  so an area admits roles created at runtime without editing routes. That is the
+  coarse gate. The *fine* checks still belong in the action — a [Bouncer
+  ability](/docs/authz/bouncer-integration) (`ctx.bouncer.authorize('can',
+  'posts.edit')`) or a [query scope](/docs/authz/query-scopes) for a collection —
+  which can see the per-resource context the route guard cannot.
 </Callout>
