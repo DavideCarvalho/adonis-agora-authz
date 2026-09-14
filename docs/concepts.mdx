@@ -30,7 +30,8 @@ await authz.store.deleteRole('editor')              // grants + memberships + ro
 Every store method can run **inside the host's database transaction** — per call
 with `{ client: trx }`, or once with `store.withClient(trx)` — so a grant made
 next to `User.create(...)` commits or rolls back with it. See
-[config → Joining a transaction](/docs/authz/config#joining-a-transaction).
+[config → Joining a transaction](/docs/authz/config#joining-a-transaction), and
+[The store API](#the-store-api) below for the full surface.
 
 ## Wildcard matching
 
@@ -139,6 +140,63 @@ normalizeTenant({})                   // ''
 
 Use them when you write code that keys or groups by tenant alongside authz, so
 "no tenant" is spelled the same way on both sides.
+
+## The store API
+
+`authz.store` (the `PermissionStore` from [config](/docs/authz/config#stores)) is
+the full admin surface — everything below works identically on the `lucid` and
+`memory` stores, and it is what a roles screen uses instead of SQL against the
+five RBAC tables. Every data method also takes a trailing `{ client }` to join a
+host transaction — see [Joining a transaction](/docs/authz/config#joining-a-transaction).
+
+**Definition**
+
+| Method | Contract |
+| ------ | -------- |
+| `createRole(name)` → `id` | Idempotent — assigning an unknown role creates it, so seeding is always re-runnable. |
+| `createPermission(name)` → `id` | Idempotent, same rule. |
+| `givePermissionToRole(role, permission)` | Attach; creates either side by name when missing. |
+| `revokePermissionFromRole(role, permission)` | Detach; no-op when either side is absent. |
+| `getRolePermissions(role)` | The permission names attached to a role. |
+| `listRoles()` / `listPermissions()` | Every known name (what `node ace authz:list` reads). |
+| `deleteRole(name)` | Deletes the role outright — revokes its grants, removes every user assignment, deletes the row. Idempotent (an unknown name is a no-op). Whether to refuse a still-populated role is **your** decision: count first. |
+
+**Assignments & direct grants**
+
+| Method | Contract |
+| ------ | -------- |
+| `assignRole(user, role, scope?)` | Idempotent; creates the role when it does not exist. `scope` defaults to global. |
+| `removeRole(user, role, scope?)` | Removes the assignment matching the **exact** tenant scope. |
+| `giveUserPermission(user, permission)` / `revokeUserPermission(...)` | Direct grants — tenant-independent by design. |
+
+**Reads**
+
+| Method | Contract |
+| ------ | -------- |
+| `getRolesForUser(user, scope?)` | Role names, with the tenant-visibility rules above. |
+| `getUsersForRole(role, scope?)` | The reverse: every `{ type, id }` holding the role. |
+| `countUsersForRole(role, scope?)` | Same visibility, reduced to a number — the "N users" KPI of a roles screen without transferring one ref per member. |
+| `countUsersByRole(scope?)` | Every role → member count in one `GROUP BY` pass; roles nobody holds come back as `0` (a complete matrix, not just rows with members). |
+| `getPermissionsForUser(user, scope?)` | The raw granted names — role-derived ∪ direct. Wildcards are **not** expanded (the service's matcher does that). |
+| `userHasPermission(user, permission, scope?)` | Exact-name membership, no wildcards — prefer `authz.can()`. |
+
+For a roles administration screen the pair `countUsersByRole()` (the table) and
+`countUsersForRole(role)` (the delete guard) covers the KPIs; when a delete must
+also check-and-act atomically, run both reads and the write on one client:
+
+```ts
+await db.transaction(async (trx) => {
+  const authz = store.withClient(trx)
+  if ((await authz.countUsersForRole('editor')) > 0) {
+    throw new Error('role still has members') // the tx rolls back the check itself
+  }
+  await authz.deleteRole('editor')
+})
+```
+
+A store implementation for a different backend must satisfy the same contract —
+see [Testing → Writing your own store](/docs/authz/testing#writing-your-own-store),
+whose method tables are the implementer's view of exactly this list.
 
 ## Query scopes (`accessibleBy`)
 

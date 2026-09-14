@@ -101,7 +101,8 @@ await authz.hasRole(user, 'admin')
 await authz.hasAnyRole(user, ['admin', 'editor'])
 ```
 
-For a request that runs many checks, share a cache so the grant set is read once:
+For a request that runs many checks, share a cache so the role resolution and
+the grant set are each read once:
 
 ```ts
 import { AuthzService } from '@adonis-agora/authz'
