@@ -1,5 +1,50 @@
 # @adonis-agora/authz
 
+## 0.14.0
+
+### Minor Changes
+
+- [#80](https://github.com/DavideCarvalho/adonis-agora-authz/pull/80) [`74e8ccb`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/74e8ccb8d56bc14374e616539a4cfe2dc581ffbf) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `PermissionCache` now memoizes the ROLE resolution too, not just the permission read (closes [#75](https://github.com/DavideCarvalho/adonis-agora-authz/issues/75)). `can()` consulted `effectiveRoles` — the token's global roles, the `resolveRoles` seam **and** `store.getRolesForUser` — on every call, so a page with eight checks paid sixteen membership queries and `{ cache }` changed nothing for them.
+  
+  `service.createCache()` binds the service's own effective-roles union as the cache's role source; `effectiveRoles`, `effectivePermissions`, `hasRole`, `hasAnyRole` (and `scope`) now accept `{ cache }`. Snapshot semantics preserved — the cache still never invalidates, so every check in a request decides against the same state, now for roles too.
+
+- [#80](https://github.com/DavideCarvalho/adonis-agora-authz/pull/80) [`74e8ccb`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/74e8ccb8d56bc14374e616539a4cfe2dc581ffbf) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `authzRolesRelation()` gains `localKey` (closes [#74](https://github.com/DavideCarvalho/adonis-agora-authz/issues/74)). The pivot stores `user_id` as TEXT (the authz is polymorphic — UUID hosts included), but Lucid distributes preloaded pivot rows with STRICT JS equality: an `increments()` user (`id: 42`) never matched the pivot (`'42'`), so `preload('roles')` returned `[]` **with no error** for every integer-id host — the silent failure the function exists to prevent.
+  
+  Integer-id recipe: expose the id as text (`@column({ columnName: 'id', consume: String, serializeAs: null })`) and pass `authzRolesRelation({ localKey: 'idAsText' })`. Default `localKey: 'id'` — string/UUID hosts change nothing. New runtime specs preload through real Lucid models with integer and text ids, and a tripwire documents the un-patched silent-empty behavior.
+
+- [#80](https://github.com/DavideCarvalho/adonis-agora-authz/pull/80) [`74e8ccb`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/74e8ccb8d56bc14374e616539a4cfe2dc581ffbf) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `AuthzRoleMiddleware` (`requireRole`) opens by permission and lets the host decide the denial response (closes [#76](https://github.com/DavideCarvalho/adonis-agora-authz/issues/76)):
+  
+  - `permissions: ['admin.*']` — any-of, wildcard-aware in either direction (a granted `admin.*` opens route `admin.users`; a route `admin.*` opens for a grant of `admin.users`), so an area admits roles created at runtime without any route listing them. Only consulted when `roles` did not match — a role pass costs no extra query.
+  - `onDenied: (ctx, { roles, permissions }) => unknown` — redirect to the user's own area with a flash, custom 403, anything; receives what was already resolved, overrides `deniedRedirect`/`deniedMessage`.
+  - `roles` is no longer required — at least one of `roles`/`permissions` must be given; neither (or two empty lists) throws a configuration error at request time.
+  
+  Defaults are unchanged when neither new option is passed.
+
+- [#80](https://github.com/DavideCarvalho/adonis-agora-authz/pull/80) [`74e8ccb`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/74e8ccb8d56bc14374e616539a4cfe2dc581ffbf) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `PermissionStore` gains the two operations a roles administration screen always needed (closes [#78](https://github.com/DavideCarvalho/adonis-agora-authz/issues/78)), so it no longer writes host SQL against the library's tables:
+  
+  - `deleteRole(name)` — revokes the role's permission grants, removes every user assignment and deletes the role row; idempotent. Whether to refuse a still-populated role stays the host's decision (`countUsersForRole` first).
+  - `countUsersForRole(role, scope?)` — the "N users" KPI with `getUsersForRole`'s tenant visibility, without transferring one ref per member.
+  - `countUsersByRole(scope?)` — every role with its member count in one pass (unheld roles count as `0`), for a whole matrix.
+  
+  All three are in the shared `runPermissionStoreContract` suite, so the memory store and any custom store follow the same semantics, and accept the [#77](https://github.com/DavideCarvalho/adonis-agora-authz/issues/77) transaction seam.
+
+- [#80](https://github.com/DavideCarvalho/adonis-agora-authz/pull/80) [`74e8ccb`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/74e8ccb8d56bc14374e616539a4cfe2dc581ffbf) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `PermissionStore` gains a transaction seam so a grant can join a `db.transaction` the host already opened (closes [#77](https://github.com/DavideCarvalho/adonis-agora-authz/issues/77)), in three layers with the most local winning per call:
+  
+  - every data method accepts a trailing `opts?: { client }` — the Lucid-style per-call escape hatch;
+  - `store.withClient(trx)` returns a view that IS a `PermissionStore` bound to the client — bind once, every call on it joins the transaction (Kysely's `trx`-is-the-db idiom);
+  - `stores.lucid({ resolveClient })` (config) reads an ambient client (the host's idiom: a tiny `AsyncLocalStorage` around `db.transaction`) so plain calls auto-join.
+  
+  A client-bound call never touches the root connection — no DDL, no pool waits — so `ensureSchema`/auto-create must have run before the transaction opened. The memory store ignores the client and `withClient` returns `this`. `AuthzService.can`/`hasRole` and the check APIs are untouched; purely additive.
+
+### Patch Changes
+
+- [#80](https://github.com/DavideCarvalho/adonis-agora-authz/pull/80) [`74e8ccb`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/74e8ccb8d56bc14374e616539a4cfe2dc581ffbf) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The schema and store now run against a real MySQL 8, which they previously did not — the new testcontainers suite (`pnpm --filter @adonis-agora/authz test:db`, also on CI) executes the full contract on Postgres 16 and MySQL 8 and immediately found two MySQL-only defects:
+  
+  - `createAuthzTables` emitted `CREATE [UNIQUE] INDEX IF NOT EXISTS`, which MySQL 8 rejects outright (a MariaDB extension). Index DDL now drops the guard on MySQL and swallows the duplicate-key error, preserving idempotency; every other dialect keeps `IF NOT EXISTS`.
+  - MySQL raw `SELECT`s resolve to the node-mysql `[rows, fields]` pair, so the store read every result as one bogus row. The row normalizer now unwraps that shape (it is also more correct for empty result sets on any driver).
+  
+  No behavior change on SQLite/Postgres; custom stores are unaffected.
+
 ## 0.13.4
 
 ### Patch Changes
