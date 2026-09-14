@@ -31,10 +31,39 @@ class AuthzRoleModel extends BaseModel {
 class IntegerUser extends BaseModel {
   static table = 'users_int';
 
+  // The WORKING recipe (issue #84): a `@column`-registered GETTER on the same
+  // column, declared BEFORE `id`. Lucid keeps one hydration mapping per column
+  // and the LAST declaration wins it — here that is `id`, which stays correct.
+  // The getter still registers idAsText as an attribute (what the relation's
+  // KeysExtractor reads), computing it off the hydrated id on access.
+  @column({ columnName: 'id' })
+  get idAsText(): string {
+    return String(this.id);
+  }
+
   @column({ isPrimary: true })
   declare id: number;
 
-  // The recipe from the option docblock: the same column, exposed as text.
+  @column()
+  declare email: string;
+
+  @manyToMany(() => AuthzRoleModel, authzRolesRelation({ localKey: 'idAsText' }))
+  declare roles: ManyToMany<typeof AuthzRoleModel>;
+}
+
+/**
+ * The 0.14.0-documented recipe — TWO `@column` definitions over the same
+ * column, the second one stealing the hydration slot. Kept as a HAZARD
+ * TRIPWIRE for issue #84: the relation works, but the model's own `id`
+ * hydrates `undefined`. If a future Lucid changes per-column hydration so this
+ * stops breaking, that test fails and the warning can be relaxed.
+ */
+class HijackedIdUser extends BaseModel {
+  static table = 'users_int';
+
+  @column({ isPrimary: true })
+  declare id: number;
+
   @column({ columnName: 'id', consume: String, serializeAs: null })
   declare idAsText: string;
 
@@ -86,8 +115,12 @@ describe('authzRolesRelation — runtime preload (issue #74)', () => {
 
     const users = await IntegerUser.query().preload('roles');
     expect(users).toHaveLength(1);
-    // The silent-failure fix: the pivot row reaches its parent.
+    // The silent-failure fix: the pivot row reaches its parent...
     expect(users[0]!.roles.map((r) => r.name)).toEqual(['COORDINATOR']);
+    // ...and the model's own id SURVIVES hydration (#84 — the 0.14.0 recipe
+    // made the first assertion true and this one undefined).
+    expect(users[0]!.id).toBe(42);
+    expect(users[0]!.idAsText).toBe('42');
   });
 
   it('string (uuid-style) ids keep working with the default localKey', async () => {
@@ -100,6 +133,34 @@ describe('authzRolesRelation — runtime preload (issue #74)', () => {
 
     const users = await UuidUser.query().preload('roles');
     expect(users[0]!.roles.map((r) => r.name)).toEqual(['ADMIN']);
+  });
+
+  it('the getter recipe keeps normal writes working (find/save round-trip)', async () => {
+    await db.rawQuery(`INSERT INTO users_int (id, email) VALUES (?, ?)`, [42, 'a@b.c']);
+    const store = new LucidPermissionStore(asLucidDatabase(db));
+    await store.assignRole({ type: 'user', id: '42' }, 'COORDINATOR');
+
+    const user = await IntegerUser.findOrFail(42);
+    expect(user.id).toBe(42);
+    user.email = 'b@b.c';
+    await user.save();
+
+    const again = await IntegerUser.query().where('id', 42).preload('roles').firstOrFail();
+    expect(again.id).toBe(42);
+    expect(again.email).toBe('b@b.c');
+    expect(again.roles.map((r) => r.name)).toEqual(['COORDINATOR']);
+  });
+
+  it('tripwire (#84): the double-@column recipe preloads fine but leaves id undefined', async () => {
+    await db.rawQuery(`INSERT INTO users_int (id, email) VALUES (?, ?)`, [42, 'a@b.c']);
+    const store = new LucidPermissionStore(asLucidDatabase(db));
+    await store.assignRole({ type: 'user', id: '42' }, 'COORDINATOR');
+
+    const users = await HijackedIdUser.query().preload('roles');
+    // The relation looks CORRECT — this is what made the recipe ship.
+    expect(users[0]!.roles.map((r) => r.name)).toEqual(['COORDINATOR']);
+    // The model is broken: the later @column won the id hydration slot.
+    expect(users[0]!.id).toBeUndefined();
   });
 
   it('documents why localKey exists: an integer model without it preloads empty', async () => {
