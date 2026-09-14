@@ -238,25 +238,41 @@ export class AuthzService {
   /**
    * As roles efetivas do usuário para decisão: as globais do contexto (token) unidas às do app
    * (o seam `resolveRoles`) e às do STORE. Público: o `buildAuthzShare` do authz-react o usa para o
-   * gating de UI casar com a decisão de servidor.
+   * gating de UI casar com a decisão de servidor. Passa `cache` para partilhar a leitura única do
+   * request (o seam e o store correm uma só vez por usuário+tenant).
    */
-  async effectiveRoles(user: unknown, scope?: TenantScope): Promise<string[]> {
+  async effectiveRoles(
+    user: unknown,
+    scope?: TenantScope,
+    options: { cache?: PermissionCache } = {},
+  ): Promise<string[]> {
     const ref = this.refOf(user);
     if (!ref) return [];
     const tenant = this.currentScope(scope);
-    return this.#effectiveRolesFor(ref, tenant);
+    return options.cache
+      ? options.cache.getRoles(ref, tenant)
+      : this.#effectiveRolesFor(ref, tenant);
   }
 
   /**
    * Todas as permissões efetivas do usuário: as do store unidas às concedidas por `roleGrants` sobre
    * as roles efetivas. Público — a fonte da verdade que `can()` e o `buildAuthzShare` compartilham.
+   * Com `cache`, as duas leituras (roles e permissões) saem do memo do request.
    */
-  async effectivePermissions(user: unknown, scope?: TenantScope): Promise<string[]> {
+  async effectivePermissions(
+    user: unknown,
+    scope?: TenantScope,
+    options: { cache?: PermissionCache } = {},
+  ): Promise<string[]> {
     const ref = this.refOf(user);
     if (!ref) return [];
     const tenant = this.currentScope(scope);
-    const granted = await this.store.getPermissionsForUser(ref, tenant);
-    const roles = await this.#effectiveRolesFor(ref, tenant);
+    const granted = options.cache
+      ? [...(await options.cache.getPermissions(ref, tenant))]
+      : await this.store.getPermissionsForUser(ref, tenant);
+    const roles = options.cache
+      ? await options.cache.getRoles(ref, tenant)
+      : await this.#effectiveRolesFor(ref, tenant);
     return [...new Set([...granted, ...this.rolePermissionGrants(roles)])];
   }
 
@@ -271,9 +287,15 @@ export class AuthzService {
     return grants;
   }
 
-  /** A fresh per-request permission cache bound to the active store. */
+  /**
+   * A fresh per-request cache bound to the active store. The service injects its
+   * own effective-roles union (context ∪ `resolveRoles` ∪ store) so the cache
+   * memoizes BOTH dimensions a check reads — one role resolution and one
+   * permission read per (user, tenant) per request, no matter how many
+   * `can()`/`hasRole()` calls the request makes.
+   */
   createCache(): PermissionCache {
-    return new PermissionCache(this.store);
+    return new PermissionCache(this.store, (ref, tenant) => this.#effectiveRolesFor(ref, tenant));
   }
 
   /**
@@ -294,7 +316,11 @@ export class AuthzService {
     const scope = this.currentScope(options.scope);
     // Single permission-union site: store grants ∪ roleGrants over the effective roles
     // (context ∪ resolveRoles ∪ store — feature C generalized by the resolveRoles seam).
-    const roles = await this.#effectiveRolesFor(ref, scope);
+    // Both reads go through the cache when one is passed: one role resolution and
+    // one permission read per (user, tenant) per request.
+    const roles = options.cache
+      ? await options.cache.getRoles(ref, scope)
+      : await this.#effectiveRolesFor(ref, scope);
     const granted = options.cache
       ? await options.cache.getPermissions(ref, scope)
       : await this.store.getPermissionsForUser(ref, scope);
@@ -338,7 +364,9 @@ export class AuthzService {
     const granted = options.cache
       ? await options.cache.getPermissions(ref, tenant)
       : await this.store.getPermissionsForUser(ref, tenant);
-    const effective = await this.#effectiveRolesFor(ref, tenant);
+    const effective = options.cache
+      ? await options.cache.getRoles(ref, tenant)
+      : await this.#effectiveRolesFor(ref, tenant);
     const permissions = [...granted, ...this.rolePermissionGrants(effective)];
 
     // 2. A wildcard permission grant for the scope action → allow-all.
@@ -358,12 +386,12 @@ export class AuthzService {
    * Does the user have the named role (exact match, tenant-aware)? Checks the
    * EFFECTIVE roles — context (token) ∪ app (`resolveRoles`) ∪ store — so a role
    * asserted by the token or the app's resolver is recognized exactly like a
-   * store-assigned one.
+   * store-assigned one. Pass `cache` to share the request's single role read.
    */
   async hasRole(
     user: unknown,
     role: string,
-    options: { scope?: TenantScope } = {},
+    options: { scope?: TenantScope; cache?: PermissionCache } = {},
   ): Promise<boolean> {
     const ref = this.refOf(user);
     if (!ref) return false;
@@ -372,19 +400,22 @@ export class AuthzService {
     if (superAdmin !== undefined) return superAdmin;
 
     const scope = this.currentScope(options.scope);
-    const roles = await this.#effectiveRolesFor(ref, scope);
+    const roles = options.cache
+      ? await options.cache.getRoles(ref, scope)
+      : await this.#effectiveRolesFor(ref, scope);
     return roles.includes(role);
   }
 
   /**
    * Does the user have ANY of the named roles? Checks the same EFFECTIVE roles
    * as {@link hasRole} — context (token) ∪ app (`resolveRoles`) ∪ store — so
-   * `hasAnyRole` never disagrees with `hasRole` for the same input.
+   * `hasAnyRole` never disagrees with `hasRole` for the same input. Honors
+   * `cache` like {@link hasRole}.
    */
   async hasAnyRole(
     user: unknown,
     roles: string[],
-    options: { scope?: TenantScope } = {},
+    options: { scope?: TenantScope; cache?: PermissionCache } = {},
   ): Promise<boolean> {
     const ref = this.refOf(user);
     if (!ref) return false;
@@ -393,7 +424,11 @@ export class AuthzService {
     if (superAdmin !== undefined) return superAdmin;
 
     const scope = this.currentScope(options.scope);
-    const owned = new Set(await this.#effectiveRolesFor(ref, scope));
+    const owned = new Set(
+      options.cache
+        ? await options.cache.getRoles(ref, scope)
+        : await this.#effectiveRolesFor(ref, scope),
+    );
     return roles.some((r) => owned.has(r));
   }
 
