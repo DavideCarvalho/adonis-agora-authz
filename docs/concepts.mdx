@@ -20,7 +20,17 @@ await authz.store.givePermissionToRole('editor', 'posts.edit')
 await authz.store.assignRole({ type: 'user', id: '1' }, 'editor')
 
 await authz.store.giveUserPermission({ type: 'user', id: '1' }, 'billing.view') // direct
+
+// Administration, without any host SQL against the store's tables:
+await authz.store.countUsersForRole('editor')       // the "N users" KPI
+await authz.store.countUsersByRole()                // whole matrix: { editor: 1, ... }
+await authz.store.deleteRole('editor')              // grants + memberships + row, idempotent
 ```
+
+Every store method can run **inside the host's database transaction** — per call
+with `{ client: trx }`, or once with `store.withClient(trx)` — so a grant made
+next to `User.create(...)` commits or rolls back with it. See
+[config → Joining a transaction](/docs/authz/config#joining-a-transaction).
 
 ## Wildcard matching
 

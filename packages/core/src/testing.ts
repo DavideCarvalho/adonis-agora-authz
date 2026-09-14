@@ -178,5 +178,81 @@ export function runPermissionStoreContract(name: string, factory: StoreFactory):
       expect(t2).toEqual([{ type: 'user', id: '1' }]);
       expect(t2).not.toContainEqual({ type: 'user', id: '2' });
     });
+
+    it('counts the users holding a role (countUsersForRole)', async () => {
+      const store = await factory();
+      expect(await store.countUsersForRole('editor')).toBe(0);
+      await store.assignRole(alice, 'editor');
+      await store.assignRole(bob, 'editor');
+      // Same user twice → one distinct member.
+      await store.assignRole(alice, 'editor');
+      expect(await store.countUsersForRole('editor')).toBe(2);
+      // Unknown role → 0, not an error.
+      expect(await store.countUsersForRole('nobody')).toBe(0);
+    });
+
+    it('counts members with the same tenant visibility as getUsersForRole', async () => {
+      const store = await factory();
+      // Global assignment for alice; tenant t1 assignment for bob.
+      await store.assignRole(alice, 'editor');
+      await store.assignRole(bob, 'editor', { tenantId: 't1' });
+
+      expect(await store.countUsersForRole('editor')).toBe(1);
+      expect(await store.countUsersForRole('editor', { tenantId: 't1' })).toBe(2);
+      expect(await store.countUsersForRole('editor', { tenantId: 't2' })).toBe(1);
+    });
+
+    it('counts members per role in one pass, empty roles included (countUsersByRole)', async () => {
+      const store = await factory();
+      await store.assignRole(alice, 'editor');
+      await store.assignRole(bob, 'editor');
+      await store.assignRole({ type: 'admin', id: '1' }, 'superuser');
+      await store.createRole('abandoned');
+
+      const counts = await store.countUsersByRole();
+      expect(counts.editor).toBe(2);
+      expect(counts.superuser).toBe(1);
+      // A role nobody holds still shows up — a matrix row with 0, not a missing key.
+      expect(counts.abandoned).toBe(0);
+    });
+
+    it('honors tenant scope in countUsersByRole', async () => {
+      const store = await factory();
+      await store.assignRole(alice, 'editor');
+      await store.assignRole(bob, 'editor', { tenantId: 't1' });
+
+      const global = await store.countUsersByRole();
+      expect(global.editor).toBe(1);
+      const t1 = await store.countUsersByRole({ tenantId: 't1' });
+      expect(t1.editor).toBe(2);
+      const t2 = await store.countUsersByRole({ tenantId: 't2' });
+      expect(t2.editor).toBe(1);
+    });
+
+    it('deletes a role and everything hanging off it (deleteRole)', async () => {
+      const store = await factory();
+      await store.givePermissionToRole('editor', 'posts.edit');
+      await store.assignRole(alice, 'editor');
+      await store.assignRole(bob, 'editor', { tenantId: 't1' });
+
+      await store.deleteRole('editor');
+
+      expect(await store.listRoles()).not.toContain('editor');
+      expect(await store.getRolesForUser(alice)).not.toContain('editor');
+      expect(await store.getRolesForUser(alice, { tenantId: 't1' })).not.toContain('editor');
+      expect(await store.getUsersForRole('editor')).toEqual([]);
+      expect(await store.getRolePermissions('editor')).toEqual([]);
+      expect(await store.userHasPermission(alice, 'posts.edit')).toBe(false);
+      // Another role's grants survive.
+      await store.givePermissionToRole('viewer', 'posts.view');
+      await store.assignRole(alice, 'viewer');
+      await store.deleteRole('editor');
+      expect(await store.userHasPermission(alice, 'posts.view')).toBe(true);
+    });
+
+    it('deleteRole is idempotent on an unknown role', async () => {
+      const store = await factory();
+      await expect(store.deleteRole('ghost')).resolves.toBeUndefined();
+    });
   });
 }

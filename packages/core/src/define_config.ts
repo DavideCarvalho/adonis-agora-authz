@@ -83,6 +83,7 @@ export function defineConfig(config: AuthzConfig): AuthzConfig {
   return config;
 }
 
+export type { PermissionStore, StoreOptions, StoreQueryClient } from './store.js';
 export type {
   LucidStoreConfig,
   MemoryStoreConfig,

@@ -42,7 +42,7 @@ await bouncer.denies('can', 'posts.edit')  // true (no grant)
 ## Writing your own store
 
 `PermissionStore` is the whole surface authz asks of a backend — Redis, Mongo, a
-remote authorization service, an in-house table layout. Implement these sixteen
+remote authorization service, an in-house table layout. Implement these twenty
 methods and every feature in the package works against it unchanged:
 
 ```ts title="app/authz/redis_store.ts"
@@ -70,6 +70,7 @@ export class RedisPermissionStore implements PermissionStore {
 | `getRolePermissions(role)` | The permission names attached to a role. |
 | `listRoles()` | Every role name known to the store. |
 | `listPermissions()` | Every permission name known to the store. |
+| `deleteRole(role)` | Remove a role outright — revokes its grants, every user assignment, and the role row. Idempotent; an unknown name is a no-op. Whether to refuse a still-populated role is the host's call (`countUsersForRole` first). |
 
 **Assignments & grants**
 
@@ -86,8 +87,16 @@ export class RedisPermissionStore implements PermissionStore {
 | ------ | -------- |
 | `getRolesForUser(user, scope?)` | The user's role names, tenant-filtered. |
 | `getUsersForRole(role, scope?)` | The reverse: every `{ type, id }` holding the role, tenant-filtered the same way. |
+| `countUsersForRole(role, scope?)` | The same visibility as `getUsersForRole`, reduced to a count — the "N users" KPI without transferring one ref per member. |
+| `countUsersByRole(scope?)` | Every role mapped to its member count in one pass (unheld roles count as `0`), for a whole roles matrix. |
 | `getPermissionsForUser(user, scope?)` | The user's effective permission names — role-derived ∪ direct. |
 | `userHasPermission(user, permission, scope?)` | Exact-name membership check. |
+
+**Transaction seam**
+
+| Method | Contract |
+| ------ | -------- |
+| `withClient(client)` | A view of the store whose SQL runs on `client` (see [config → Joining a transaction](/docs/authz/config#joining-a-transaction)). A store with no connection to scope to — like the memory store — returns `this`. |
 
 Four invariants hold across all of them, and a store that breaks any one of them
 will pass casual testing and fail in production:
@@ -119,7 +128,9 @@ runPermissionStoreContract('RedisPermissionStore', () => new RedisPermissionStor
 ```
 
 The suite covers idempotency, role/permission grants and revokes, direct grants,
-per-user isolation, tenant visibility and polymorphic user types.
+per-user isolation, tenant visibility, polymorphic user types, role deletion,
+member counts (per role and per matrix, tenant-scoped), and a trailing
+`{ client }` option accepted by every data method.
 
 <Callout type="info">
   The contract factory must return a **fresh, isolated** store per call so cases
