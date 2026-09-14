@@ -38,6 +38,13 @@ export interface LucidPermissionStoreOptions {
 }
 
 function toRows(result: unknown): Record<string, unknown>[] {
+  // MySQL-family drivers resolve raw SELECTs to the node-mysql pair
+  // `[rows, fields]` — the rows are the FIRST element, not the array itself.
+  // Row objects are never arrays, so an array as the first element is the
+  // unmistakable signature of that shape. Verified only by a real MySQL run.
+  if (Array.isArray(result) && Array.isArray(result[0])) {
+    return result[0] as Record<string, unknown>[];
+  }
   if (Array.isArray(result)) return result as Record<string, unknown>[];
   if (result && typeof result === 'object' && 'rows' in result) {
     const rows = (result as { rows: unknown }).rows;

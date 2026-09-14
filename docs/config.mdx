@@ -276,6 +276,9 @@ export default class extends BaseSchema {
 
 - `createAuthzTables(db, { tables? })` — idempotent (`CREATE TABLE IF NOT EXISTS`),
   dialect-aware (Postgres / MySQL / SQLite). Safe to call from a migration `up()`.
+  MySQL 8 has no `CREATE INDEX IF NOT EXISTS` (a MariaDB-only extension), so there
+  the index DDL drops the clause and swallows the duplicate-key error — same
+  idempotency, no version-sniffing. Verified against a real MySQL 8.
 - `dropAuthzTables(db, { tables? })` — idempotent (`DROP TABLE IF EXISTS`),
   child-first, for the migration `down()`.
 - `AUTHZ_TABLES` — the default table names (`authz_roles`, `authz_permissions`,

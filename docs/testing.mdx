@@ -1,6 +1,6 @@
 ---
 title: Testing
-description: Use the memory store and the shared store contract suite to test authorization deterministically.
+description: Use the memory store and the shared store contract suite to test authorization deterministically — and run that same suite against real Postgres and MySQL via testcontainers.
 icon: FlaskConical
 ---
 
@@ -135,4 +135,35 @@ member counts (per role and per matrix, tenant-scoped), and a trailing
 <Callout type="info">
   The contract factory must return a **fresh, isolated** store per call so cases
   do not bleed into one another.
+</Callout>
+
+## The same suite on real databases
+
+`test/lucid_store_testcontainers.spec.ts` runs the **full contract suite** — plus
+the transaction-seam scenarios — against ephemeral **Postgres 16** and **MySQL 8**
+containers ([Testcontainers](https://testcontainers.com)). These are the things
+only a real backend can prove:
+
+- **the write path per dialect** — MySQL exercises `INSERT IGNORE`, SQLite and
+  Postgres the `ON CONFLICT` form;
+- **the DDL per dialect** — MySQL 8 has no `CREATE INDEX IF NOT EXISTS`, so the
+  schema builder must make re-runs idempotent a different way;
+- **the result shape per driver** — MySQL resolves raw `SELECT`s to the
+  node-mysql `[rows, fields]` pair; Postgres yields `{ rows }`;
+- **reads across connections** — a host transaction is invisible to the store's
+  own connection until it commits. sqlite's single pooled connection physically
+  cannot make this assertion, so every concurrency claim about
+  `withClient` / `opts.client` / `resolveClient` rests on this file.
+
+It needs a Docker daemon and **skips itself without one** — `pnpm test` stays
+runnable everywhere, and CI (which has Docker) runs it. To run it alone:
+
+```bash
+pnpm --filter @adonis-agora/authz test:db
+```
+
+<Callout type="info">
+  A downstream store for MySQL/Postgres should wire the same pattern into its
+  own CI — `runPermissionStoreContract(name, freshStore)` needs only a
+  `PermissionStore` factory; the containers are yours to launch.
 </Callout>
