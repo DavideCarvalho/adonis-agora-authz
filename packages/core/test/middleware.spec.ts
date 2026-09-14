@@ -11,15 +11,20 @@ function fakeAuthz(roles: string[]): AuthzService {
 function fakeAuthzFull(
   roles: string[],
   permissions: string[] = [],
-): { authz: AuthzService; calls: { roles: number; permissions: number } } {
-  const calls = { roles: 0, permissions: 0 };
+): {
+  authz: AuthzService;
+  calls: { roles: number; permissions: number; scopes: unknown[] };
+} {
+  const calls = { roles: 0, permissions: 0, scopes: [] as unknown[] };
   const authz = {
-    effectiveRoles: async () => {
+    effectiveRoles: async (_user: unknown, scope?: unknown) => {
       calls.roles += 1;
+      calls.scopes.push(scope);
       return roles;
     },
-    effectivePermissions: async () => {
+    effectivePermissions: async (_user: unknown, scope?: unknown) => {
       calls.permissions += 1;
+      calls.scopes.push(scope);
       return permissions;
     },
   } as unknown as AuthzService;
@@ -198,6 +203,20 @@ describe('AuthzRoleMiddleware — abertura por permissão (issue #76)', () => {
     );
     expect(nexted).toBe(true);
     expect(calls.permissions).toBe(1);
+  });
+
+  it('o scope do tenant chega às duas resoluções', async () => {
+    const { authz, calls } = fakeAuthzFull(['VISITOR'], ['admin.panel']);
+    const mw = new AuthzRoleMiddleware(authz);
+    const { ctx } = fakeCtx({ id: '1' });
+    await mw.handle(ctx, noopNext, {
+      roles: ['ADMIN'],
+      permissions: ['admin.*'],
+      scope: { tenantId: 'acme' },
+    });
+    // Roles e permissões decidem no MESMO tenant — se uma das duas esquecesse
+    // o scope, a rota abriria por estado de outro tenant.
+    expect(calls.scopes).toEqual([{ tenantId: 'acme' }, { tenantId: 'acme' }]);
   });
 
   it('onDenied decide a resposta e recebe o que foi resolvido', async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AuthzService } from './authz_service.js';
 import { PermissionCache } from './permission_cache.js';
+import { ScopeRegistry, scopeAll, scopeNone } from './scope.js';
 import type { PermissionStore } from './store.js';
 import { MemoryPermissionStore } from './stores/memory.js';
 
@@ -320,6 +321,26 @@ describe('AuthzService caching (issue #75)', () => {
     expect(counts.roles).toBe(1);
     // Permissions memoize on the same key.
     expect([...(await cache.getPermissions({ type: 'user', id: '1' }))]).toEqual([]);
+    expect(counts.perms).toBe(1);
+  });
+
+  it('scope() shares the role resolution through the cache', async () => {
+    const store = new MemoryPermissionStore();
+    await store.givePermissionToRole('editor', 'posts.edit');
+    await store.assignRole({ type: 'user', id: '1' }, 'editor');
+    const { spy, counts } = countingStore(store);
+    const scopes = new ScopeRegistry().register('posts', (ctx) =>
+      ctx.roles.includes('editor') ? scopeAll : scopeNone,
+    );
+    const service = new AuthzService({ store: spy, scopes });
+    const user = new User('1');
+    const cache = service.createCache();
+
+    expect(await service.can(user, 'posts.edit', { cache })).toBe(true);
+    // The filter decision reads the SAME memoized role resolution — a request
+    // that gates a collection after gating an action costs one read, not two.
+    expect(await service.scope(user, 'posts', { cache })).toEqual(scopeAll);
+    expect(counts.roles).toBe(1);
     expect(counts.perms).toBe(1);
   });
 });
