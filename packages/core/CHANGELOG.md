@@ -1,5 +1,18 @@
 # @adonis-agora/authz
 
+## 0.14.1
+
+### Patch Changes
+
+- [#85](https://github.com/DavideCarvalho/adonis-agora-authz/pull/85) [`9ddcc97`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/9ddcc97af2124e531ab489e4ea65ff6feee42312) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Correct the integer-id `localKey` recipe from 0.14.0 ([#84](https://github.com/DavideCarvalho/adonis-agora-authz/issues/84)): a second plain
+  `@column` over the same column steals `id`'s hydration slot — roles preload
+  fine so the recipe *looked* right, but the model hydrated with `id: undefined`.
+  The documented recipe is now a `@column`-registered getter on the same column,
+  declared before `id`, so `id` keeps the slot and the getter feeds the
+  relation's key extractor. No runtime changes; `lucid_relation_models.spec.ts`
+  now asserts both `id` and `roles` for the working shape, plus a tripwire
+  documenting the broken shape.
+
 ## 0.14.0
 
 ### Minor Changes
