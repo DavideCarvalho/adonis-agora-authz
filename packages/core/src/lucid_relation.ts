@@ -34,8 +34,12 @@ export interface AuthzRolesRelationOptions {
    * `id` do host é `increments()` — número — o `whereIn` no SQL até casa (o banco coerce
    * `'42' = 42`), mas na volta o Lucid compara em JS `pivot.user_id` (`'42'`) com
    * `user.id` (`42`) em igualdade estrita: cada linha do pivô cai fora e `preload('roles')`
-   * devolve `[]` SEM ERRO. Com ids numéricos passe um atributo que exponha o id como
+   * devolve `[]` SEM ERRO. Com ids numéricos passe um getter que exponha o id como
    * string (ver a receita no docblock de {@link authzRolesRelation}), ex.: `localKey: 'idAsText'`.
+   *
+   * NÃO duplique o `@column` sobre a mesma coluna (`@column({ columnName: 'id' })`
+   * num segundo atributo): o Lucid mantém UM mapeamento de hidratação por coluna e o
+   * segundo rouba o lugar — `idAsText` hidrata certo e o `id` do modelo vem `undefined`.
    */
   localKey?: string;
 }
@@ -66,17 +70,28 @@ export interface AuthzRolesRelationOptions {
  *
  * **Ids numéricos (`increments()`)** — o `id` do pivô é texto; comparar `'42'` (pivô) com
  * `42` (modelo) em JS não casa e o `preload` devolve `[]` em silêncio. Aponte `localKey`
- * para um atributo que exponha o mesmo id como string:
+ * para um GETTER registrado com `@column` sobre a mesma coluna, **declarado antes do
+ * `id`** — assim o `id` mantém o lugar de hidratação e o getter alimenta o
+ * KeysExtractor da relação computando a partir do `id` já hidratado:
  *
  * ```ts
  * export default class User extends BaseModel {
- *   \@column({ columnName: 'id', consume: String, serializeAs: null })
- *   declare idAsText: string
+ *   \@column({ columnName: 'id' })
+ *   get idAsText(): string {
+ *     return String(this.id)
+ *   }
+ *
+ *   \@column({ isPrimary: true })
+ *   declare id: number
  *
  *   \@manyToMany(() => AuthzRole, authzRolesRelation({ localKey: 'idAsText' }))
  *   declare roles: ManyToMany<typeof AuthzRole>
  * }
  * ```
+ *
+ * ⚠️ Um segundo `@column` PLANO (`declare idAsText` com `columnName: 'id'`) PARECE
+ * funcionar — os papéis chegam — mas rouba o lugar de hidratação do `id`: o modelo
+ * volta com `id: undefined`. É o tripwire de `lucid_relation_models.spec.ts` (#84).
  *
  * Serve para LER. Escrita continua pelo store (`assignRole`/`removeRole`), que é quem
  * garante idempotência e a criação do papel quando ele ainda não existe.

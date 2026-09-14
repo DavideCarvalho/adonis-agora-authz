@@ -114,21 +114,29 @@ authzRolesRelation({ tables, userType, tenantId, localKey })
   with **strict JS equality**. An `increments()` user has `id: 42` (number)
   where the pivot holds `'42'` (string) — the SQL `whereIn` coerces and finds
   the rows, the JS match drops every one, and `preload('roles')` answers `[]`
-  **with no error**. With integer ids, expose the same column as text and point
-  `localKey` at it:
+  **with no error**. With integer ids, expose the same column as text through a
+  `@column`-registered **getter declared before `id`** (so `id` keeps the
+  hydration slot) and point `localKey` at it:
 
 ```ts
 export default class User extends BaseModel {
+  @column({ columnName: 'id' })
+  get idAsText(): string {
+    return String(this.id)
+  }
+
   @column({ isPrimary: true })
   declare id: number
-
-  @column({ columnName: 'id', consume: String, serializeAs: null })
-  declare idAsText: string
 
   @manyToMany(() => AuthzRole, authzRolesRelation({ localKey: 'idAsText' }))
   declare roles: ManyToMany<typeof AuthzRole>
 }
 ```
+
+  Do **not** use a second plain `@column` on the same column (`declare idAsText`
+  with `columnName: 'id'`): Lucid keeps one hydration mapping per column and the
+  later declaration steals it — the roles arrive, so the recipe *looks* right,
+  but the model hydrates with `id: undefined` (#84).
 </Callout>
 
 The tenant filter mirrors the store's, so the relation and
