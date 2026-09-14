@@ -353,11 +353,19 @@ export class LucidPermissionStore implements PermissionStore {
   async countUsersForRole(role: string, scope?: TenantScope, opts?: StoreOptions): Promise<number> {
     await this.ready(opts);
     const tenant = this.tenantClause(scope);
+    // DISTINCT over (user_type, user_id) in a subquery, NOT COUNT(DISTINCT
+    // user_id): the store is polymorphic, and two subject TYPES sharing one id
+    // string are two members — a type-blind count would disagree with
+    // getUsersForRole. The dialects differ on row-value distinct support, so
+    // the derived table is the portable form.
     const rows = await this.query(
-      `SELECT COUNT(DISTINCT ur.user_id) AS total
-       FROM ${this.t.userRole} ur
-       JOIN ${this.t.roles} r ON r.id = ur.role_id
-       WHERE r.name = ? AND ${tenant.sql}`,
+      `SELECT COUNT(*) AS total
+       FROM (
+         SELECT DISTINCT ur.user_type AS ut, ur.user_id AS uid
+         FROM ${this.t.userRole} ur
+         JOIN ${this.t.roles} r ON r.id = ur.role_id
+         WHERE r.name = ? AND ${tenant.sql}
+       ) AS counted`,
       [role, ...tenant.bindings],
       opts,
     );
@@ -370,14 +378,18 @@ export class LucidPermissionStore implements PermissionStore {
   ): Promise<Record<string, number>> {
     await this.ready(opts);
     const tenant = this.tenantClause(scope);
-    // LEFT JOIN from the roles side so a role nobody holds still appears — with
-    // 0. The tenant filter lives in the ON clause for the same reason: a WHERE
-    // on `ur` would turn the outer join back into an inner one.
+    // LEFT JOIN from the roles side (tenant filter in the ON clause) so a role
+    // nobody holds still appears — with 0: the inner DISTINCT leaves ut/uid
+    // NULL for it and COUNT(ut) skips nulls. Members are counted per
+    // (user_type, user_id) subject — the same polymorphic key as getUsersForRole.
     const rows = await this.query(
-      `SELECT r.name AS name, COUNT(DISTINCT ur.user_id) AS total
-       FROM ${this.t.roles} r
-       LEFT JOIN ${this.t.userRole} ur ON ur.role_id = r.id AND ${tenant.sql}
-       GROUP BY r.name`,
+      `SELECT d.name AS name, COUNT(d.ut) AS total
+       FROM (
+         SELECT DISTINCT r.name AS name, ur.user_type AS ut, ur.user_id AS uid
+         FROM ${this.t.roles} r
+         LEFT JOIN ${this.t.userRole} ur ON ur.role_id = r.id AND ${tenant.sql}
+       ) AS d
+       GROUP BY d.name`,
       tenant.bindings,
       opts,
     );

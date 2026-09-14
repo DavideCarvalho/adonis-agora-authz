@@ -202,6 +202,22 @@ export function runPermissionStoreContract(name: string, factory: StoreFactory):
       expect(await store.countUsersForRole('editor', { tenantId: 't2' })).toBe(1);
     });
 
+    it('counts distinct SUBJECTS: two types sharing an id are two members', async () => {
+      // The polymorphic key is (type, id). A count that forgets the type
+      // undercounts exactly the setup this library targets — and drifts from
+      // getUsersForRole, which never forgets it. This case keeps the stores
+      // honest: it must equal getUsersForRole(...).length in both.
+      const store = await factory();
+      await store.assignRole(alice, 'superuser');
+      await store.assignRole({ type: 'admin', id: '1' }, 'superuser');
+      expect(await store.countUsersForRole('superuser')).toBe(2);
+      expect(await store.countUsersForRole('superuser')).toBe(
+        (await store.getUsersForRole('superuser')).length,
+      );
+      const counts = await store.countUsersByRole();
+      expect(counts.superuser).toBe(2);
+    });
+
     it('counts members per role in one pass, empty roles included (countUsersByRole)', async () => {
       const store = await factory();
       await store.assignRole(alice, 'editor');
