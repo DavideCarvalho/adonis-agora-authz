@@ -207,7 +207,7 @@ describe('LucidPermissionStore (sqlite)', () => {
   });
 });
 
-describe('LucidPermissionStore with userIdType integer (sqlite)', () => {
+describe('LucidPermissionStore with subjectIdType integer (sqlite)', () => {
   let db: Database;
 
   beforeEach(() => {
@@ -218,7 +218,7 @@ describe('LucidPermissionStore with userIdType integer (sqlite)', () => {
   });
 
   function integerStore() {
-    return new LucidPermissionStore(asLucidDatabase(db), { userIdType: 'integer' });
+    return new LucidPermissionStore(asLucidDatabase(db), { subjectIdType: 'integer' });
   }
 
   it('round-trips integer ids as native values, refs stay strings', async () => {
@@ -231,16 +231,25 @@ describe('LucidPermissionStore with userIdType integer (sqlite)', () => {
     expect(await store.countUsersForRole('editor')).toBe(1);
   });
 
+  it('bigint mode guards the same way and names itself in the error', async () => {
+    const store = new LucidPermissionStore(asLucidDatabase(db), { subjectIdType: 'bigint' });
+    await store.assignRole({ type: 'user', id: '4294967342' }, 'editor');
+    expect(await store.getRolesForUser({ type: 'user', id: '4294967342' })).toContain('editor');
+    await expect(store.assignRole({ type: 'user', id: 'nope' }, 'editor')).rejects.toThrow(
+      /subjectIdType 'bigint'/,
+    );
+  });
+
   it('refuses non-integer ids LOUDLY instead of silently matching nothing', async () => {
     const store = integerStore();
     await expect(store.assignRole({ type: 'user', id: 'not-an-id' }, 'editor')).rejects.toThrow(
-      /userIdType 'integer'.*non-integer user id/,
+      /subjectIdType 'integer'.*non-integer user id/,
     );
     await expect(store.giveUserPermission({ type: 'user', id: '3f0c1b2a' }, 'x')).rejects.toThrow(
-      /userIdType 'integer'/,
+      /subjectIdType 'integer'/,
     );
     await expect(store.getRolesForUser({ type: 'user', id: 'abc' })).rejects.toThrow(
-      /userIdType 'integer'/,
+      /subjectIdType 'integer'/,
     );
   });
 

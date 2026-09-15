@@ -21,8 +21,10 @@ export default defineConfig({
       // connection: 'pg',          // defaults to the app's default connection
       // autoCreateSchema: false,   // set false when using the published migration
       // resolveClient: () => authzClient.getStore(), // ambient db.transaction seam
-      // userIdType: 'integer',     // native integer-id subjects (all subjects must
-                                    // hold integer ids; mixed/uuid apps keep TEXT default)
+      // subjectIdType: 'integer',  // pivot key type: 'text' (default, any id kind),
+                                    // 'integer' (increments) or 'bigint' (bigIncrements);
+                                    // must match the migration. The roles relation works
+                                    // on every mode — this is storage, not correctness.
     }),
   },
 

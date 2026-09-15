@@ -76,8 +76,8 @@ export type {
   StoreProvider,
 } from './stores/factory.js';
 export type {
+  AuthzSubjectIdType,
   AuthzTableNames,
-  AuthzUserIdType,
   LucidDatabase,
   LucidPermissionStoreOptions,
   LucidQueryBindings,

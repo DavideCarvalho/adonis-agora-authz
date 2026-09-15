@@ -64,6 +64,15 @@ node ace migration:run
 Both paths emit identical DDL (`CREATE TABLE IF NOT EXISTS`), so switching
 later is safe — the migration finds the tables already there and does nothing.
 
+The subject pivots store `user_id` as TEXT by default (polymorphic: integer ids
+and UUIDs share one table) and `authzRolesRelation()` preloads correctly on it
+with any host key type — no model ceremony. Optionally, when every subject has an
+integer id, give the pivots the host's native type with
+`subjectIdType: 'integer'` (`increments()`) or `'bigint'` (`bigIncrements()`) —
+pass the same value to `stores.lucid()` and `createAuthzTables()` in the
+migration. Do it on Postgres if you use `whereHas('roles')` with an integer PK
+(the real columns are compared there and Postgres rejects `integer = varchar`).
+
 ## Core patterns
 
 ### Seed roles and permissions from the CLI or a catalog

@@ -19,15 +19,17 @@ function nextTables(): Required<AuthzTableNames> {
 // The contract is behavior — and behavior must be identical on both user_id
 // column types. Each case gets a fresh in-memory sqlite db; the integer run
 // auto-creates INTEGER pivots through the store (which exercises the
-// ensureSchema → userIdType forwarding too).
+// ensureSchema → subjectIdType forwarding too).
 runPermissionStoreContract(
   'LucidPermissionStore (text user_id)',
   () => new LucidPermissionStore(asLucidDatabase(makeMemoryDatabase())),
 );
 
-runPermissionStoreContract('LucidPermissionStore (integer user_id)', () => {
-  return new LucidPermissionStore(asLucidDatabase(makeMemoryDatabase()), {
-    tables: nextTables(),
-    userIdType: 'integer',
+for (const subjectIdType of ['integer', 'bigint'] as const) {
+  runPermissionStoreContract(`LucidPermissionStore (${subjectIdType} user_id)`, () => {
+    return new LucidPermissionStore(asLucidDatabase(makeMemoryDatabase()), {
+      tables: nextTables(),
+      subjectIdType,
+    });
   });
-});
+}

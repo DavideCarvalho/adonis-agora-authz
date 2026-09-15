@@ -3,8 +3,8 @@ import type { PermissionStore, StoreOptions, StoreQueryClient } from '../store.j
 import { GLOBAL_TENANT, normalizeTenant, type TenantScope, type UserRef } from '../user_ref.js';
 import {
   AUTHZ_TABLES,
+  type AuthzSubjectIdType,
   type AuthzTableNames,
-  type AuthzUserIdType,
   assertSafeIdentifier,
   createAuthzTables,
   detectDialect,
@@ -17,8 +17,8 @@ import {
 // schema was extracted into `lucid-schema.ts`. Consumers (and `factory.ts`) import
 // them from `./lucid.js`.
 export type {
+  AuthzSubjectIdType,
   AuthzTableNames,
-  AuthzUserIdType,
   LucidDatabase,
   LucidQueryBindings,
   LucidQueryClient,
@@ -30,16 +30,16 @@ export interface LucidPermissionStoreOptions {
   autoCreateSchema?: boolean;
   /**
    * The `user_id` column type of the subject pivots. `'text'` (default) fits
-   * every subject kind in one table; `'integer'` makes the pivot respect an
-   * integer-id host natively — Lucid then binds the model's numeric id against
-   * an INTEGER column, so `preload` matches with the DEFAULT relation (no
-   * getter, no `localKey`). All subjects in the store must hold integer ids in
-   * that mode (validated on every `user_id` binding — a non-integer fails LOUD
-   * instead of silently matching nothing). Mixed apps keep `'text'`.
+   * every subject kind in one table; `'integer'` / `'bigint'` give the pivot
+   * the host's native key type (`increments()` / `bigIncrements()`). All
+   * subjects in the store must hold integer ids in those modes (validated on
+   * every `user_id` binding — a non-integer fails LOUD instead of silently
+   * matching nothing). Mixed apps keep `'text'`. The relation helper works on
+   * every mode, so this is a storage choice, not a correctness one.
    * Must agree with the tables: pass the same value to {@link createAuthzTables}
    * (or the migration) that created them. Choose at setup.
    */
-  userIdType?: AuthzUserIdType;
+  subjectIdType?: AuthzSubjectIdType;
   /**
    * Ambient transaction seam (the config-level wiring): called before each data
    * method, a non-nullish return runs that call's SQL on it — typically a tiny
@@ -83,7 +83,7 @@ function toRows(result: unknown): Record<string, unknown>[] {
 export class LucidPermissionStore implements PermissionStore {
   private readonly t: Required<AuthzTableNames>;
   private readonly autoCreate: boolean;
-  private readonly userIdType: AuthzUserIdType;
+  private readonly subjectIdType: AuthzSubjectIdType;
   private readonly resolveClientFn: (() => StoreQueryClient | undefined) | undefined;
   private scopedClient: StoreQueryClient | undefined;
   private schemaReady: Promise<void> | undefined;
@@ -96,7 +96,7 @@ export class LucidPermissionStore implements PermissionStore {
     this.t = { ...AUTHZ_TABLES, ...options.tables };
     for (const name of Object.values(this.t)) assertSafeIdentifier(name);
     this.autoCreate = options.autoCreateSchema !== false;
-    this.userIdType = options.userIdType ?? 'text';
+    this.subjectIdType = options.subjectIdType ?? 'text';
     this.resolveClientFn = options.resolveClient;
     this.dialect = detectDialect(db);
   }
@@ -109,7 +109,7 @@ export class LucidPermissionStore implements PermissionStore {
       // transaction is open, DDL there would wait on it (single-connection
       // sqlite) or escape it (everywhere else). Ensure the schema before.
       autoCreateSchema: false,
-      userIdType: this.userIdType,
+      subjectIdType: this.subjectIdType,
       ...(this.resolveClientFn ? { resolveClient: this.resolveClientFn } : {}),
     });
     scoped.scopedClient = client;
@@ -128,18 +128,18 @@ export class LucidPermissionStore implements PermissionStore {
 
   /**
    * The `user_id` binding value. Refs always arrive as strings (the contract
-   * speaks `{ type, id: string }`); on INTEGER pivots the driver coerces the
-   * digit string on write and returns natives on read (normalized back with
+   * speaks `{ type, id: string }`); on INTEGER/BIGINT pivots the driver coerces
+   * the digit string on write and returns natives on read (normalized back with
    * `String()` at the boundary), so no conversion is needed — only a guard:
-   * a non-integer id against an INTEGER pivot can never match anything, and on
+   * a non-integer id against an integer pivot can never match anything, and on
    * MySQL/SQLite it would do so SILENTLY. Fail loud instead, pointing at the
    * TEXT default for mixed/uuid subjects.
    */
-  private uid(id: string): string {
-    if (this.userIdType !== 'integer') return id;
+  private subjectId(id: string): string {
+    if (this.subjectIdType === 'text') return id;
     if (!/^-?\d+$/.test(id)) {
       throw new Error(
-        `@adonis-agora/authz: store configured with userIdType 'integer' but got non-integer user id ${JSON.stringify(id)}. ` +
+        `@adonis-agora/authz: store configured with subjectIdType '${this.subjectIdType}' but got non-integer user id ${JSON.stringify(id)}. ` +
           `Use the default TEXT columns for mixed/uuid subjects (see docs).`,
       );
     }
@@ -190,7 +190,7 @@ export class LucidPermissionStore implements PermissionStore {
    * on the root connection: DDL does not belong in a transaction.
    */
   async ensureSchema(): Promise<void> {
-    await createAuthzTables(this.db, { tables: this.t, userIdType: this.userIdType });
+    await createAuthzTables(this.db, { tables: this.t, subjectIdType: this.subjectIdType });
   }
 
   private async findRoleId(name: string, opts?: StoreOptions): Promise<string | undefined> {
@@ -281,7 +281,7 @@ export class LucidPermissionStore implements PermissionStore {
         ['user_type', 'user_id', 'role_id', 'tenant_id'],
         '?, ?, ?, ?',
       ),
-      [user.type, this.uid(user.id), roleId, tenantId],
+      [user.type, this.subjectId(user.id), roleId, tenantId],
       opts,
     );
   }
@@ -298,7 +298,7 @@ export class LucidPermissionStore implements PermissionStore {
     const tenantId = normalizeTenant(scope);
     await this.run(
       `DELETE FROM ${this.t.userRole} WHERE user_type = ? AND user_id = ? AND role_id = ? AND tenant_id = ?`,
-      [user.type, this.uid(user.id), roleId, tenantId],
+      [user.type, this.subjectId(user.id), roleId, tenantId],
       opts,
     );
   }
@@ -325,7 +325,7 @@ export class LucidPermissionStore implements PermissionStore {
         ['user_type', 'user_id', 'permission_id'],
         '?, ?, ?',
       ),
-      [user.type, this.uid(user.id), permissionId],
+      [user.type, this.subjectId(user.id), permissionId],
       opts,
     );
   }
@@ -340,7 +340,7 @@ export class LucidPermissionStore implements PermissionStore {
     if (!permissionId) return;
     await this.run(
       `DELETE FROM ${this.t.userPermission} WHERE user_type = ? AND user_id = ? AND permission_id = ?`,
-      [user.type, this.uid(user.id), permissionId],
+      [user.type, this.subjectId(user.id), permissionId],
       opts,
     );
   }
@@ -370,7 +370,7 @@ export class LucidPermissionStore implements PermissionStore {
        FROM ${this.t.userRole} ur
        JOIN ${this.t.roles} r ON r.id = ur.role_id
        WHERE ur.user_type = ? AND ur.user_id = ? AND ${tenant.sql}`,
-      [user.type, this.uid(user.id), ...tenant.bindings],
+      [user.type, this.subjectId(user.id), ...tenant.bindings],
       opts,
     );
     return rows.map((r) => r.name as string);
@@ -457,7 +457,7 @@ export class LucidPermissionStore implements PermissionStore {
        JOIN ${this.t.rolePermission} rp ON rp.role_id = ur.role_id
        JOIN ${this.t.permissions} p ON p.id = rp.permission_id
        WHERE ur.user_type = ? AND ur.user_id = ? AND ${tenant.sql}`,
-      [user.type, this.uid(user.id), ...tenant.bindings],
+      [user.type, this.subjectId(user.id), ...tenant.bindings],
       opts,
     );
     for (const row of roleDerived) result.add(row.name as string);
@@ -490,7 +490,7 @@ export class LucidPermissionStore implements PermissionStore {
        JOIN ${this.t.permissions} p ON p.id = rp.permission_id
        WHERE ur.user_type = ? AND ur.user_id = ? AND p.name = ? AND ${tenant.sql}
        LIMIT 1`,
-      [user.type, this.uid(user.id), permission, ...tenant.bindings],
+      [user.type, this.subjectId(user.id), permission, ...tenant.bindings],
       opts,
     );
     if (roleHit.length > 0) return true;
@@ -501,7 +501,7 @@ export class LucidPermissionStore implements PermissionStore {
        JOIN ${this.t.permissions} p ON p.id = up.permission_id
        WHERE up.user_type = ? AND up.user_id = ? AND p.name = ?
        LIMIT 1`,
-      [user.type, this.uid(user.id), permission],
+      [user.type, this.subjectId(user.id), permission],
       opts,
     );
     return directHit.length > 0;

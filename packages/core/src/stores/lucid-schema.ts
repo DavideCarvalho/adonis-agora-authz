@@ -114,14 +114,25 @@ function resolveTables(tables: AuthzTableNames | undefined): Required<AuthzTable
  *
  * - `'text'` (default) fits every subject kind in ONE table — integer ids,
  *   UUIDs, ULIDs — because the store is polymorphic. Required for mixed apps.
- * - `'integer'` makes the pivot respect an integer-id host natively: Lucid
- *   binds the model's numeric id against an INTEGER column, so `preload`
- *   matches with the DEFAULT relation — no getter, no `localKey`, no ceremony.
- *   All subjects in the store must then hold integer ids (validated on write).
+ *   `authzRolesRelation()` works on it with any host key type, so this is
+ *   never a correctness choice — only a storage one.
+ * - `'integer'` / `'bigint'` give the pivot the host's native key type
+ *   (`increments()` → `'integer'`, `bigIncrements()` → `'bigint'`): same
+ *   storage and index shape as the host PK, and a foreign key to it becomes
+ *   possible (MySQL requires the exact integer size for that — hence two
+ *   values, not one). All subjects in the store must then hold integer ids
+ *   (validated on write).
  *
  * Choose at setup: switching later is a data migration, not a flag flip.
  */
-export type AuthzUserIdType = 'text' | 'integer';
+export type AuthzSubjectIdType = 'text' | 'integer' | 'bigint';
+
+/** The DDL type behind each {@link AuthzSubjectIdType}. */
+const SUBJECT_ID_COLUMN: Record<AuthzSubjectIdType, string> = {
+  text: 'VARCHAR(191)',
+  integer: 'INTEGER',
+  bigint: 'BIGINT',
+};
 
 /**
  * Create the RBAC tables (idempotent — `CREATE TABLE IF NOT EXISTS`). Safe to call
@@ -130,15 +141,15 @@ export type AuthzUserIdType = 'text' | 'integer';
  *
  * @param db a Lucid `Database` or connection client
  * @param options.tables optional table-name overrides (defaults to {@link AUTHZ_TABLES})
- * @param options.userIdType `'text'` (default, fits every subject kind) or
- * `'integer'` (native integer-id hosts — see {@link AuthzUserIdType})
+ * @param options.subjectIdType `'text'` (default, fits every subject kind),
+ * `'integer'` or `'bigint'` (the host's native key type — see {@link AuthzSubjectIdType})
  */
 export async function createAuthzTables(
   db: LucidDatabase,
-  options: { tables?: AuthzTableNames; userIdType?: AuthzUserIdType } = {},
+  options: { tables?: AuthzTableNames; subjectIdType?: AuthzSubjectIdType } = {},
 ): Promise<void> {
   const t = resolveTables(options.tables);
-  const userId = options.userIdType === 'integer' ? 'INTEGER' : 'VARCHAR(191)';
+  const subjectId = SUBJECT_ID_COLUMN[options.subjectIdType ?? 'text'];
   const dialect = detectDialect(db);
   const ts = isPostgres(dialect) ? 'TIMESTAMP' : 'DATETIME';
   const mysql = isMysql(dialect);
@@ -201,7 +212,7 @@ export async function createAuthzTables(
   await run(
     `CREATE TABLE IF NOT EXISTS ${t.userRole} (
       user_type VARCHAR(191) NOT NULL,
-      user_id ${userId} NOT NULL,
+      user_id ${subjectId} NOT NULL,
       role_id VARCHAR(191) NOT NULL,
       tenant_id VARCHAR(191) NOT NULL DEFAULT '',
       PRIMARY KEY (user_type, user_id, role_id, tenant_id)
@@ -212,7 +223,7 @@ export async function createAuthzTables(
   await run(
     `CREATE TABLE IF NOT EXISTS ${t.userPermission} (
       user_type VARCHAR(191) NOT NULL,
-      user_id ${userId} NOT NULL,
+      user_id ${subjectId} NOT NULL,
       permission_id VARCHAR(191) NOT NULL,
       PRIMARY KEY (user_type, user_id, permission_id)
     )`,

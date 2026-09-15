@@ -38,7 +38,7 @@ stores.lucid({
     roles: 'authz_roles',
   },
   resolveClient: () => authzClient.getStore(), // optional; see "Joining a transaction"
-  userIdType: 'integer',   // optional; see "Integer-id hosts" below
+  subjectIdType: 'integer',   // optional; see "Native key-type pivots" below
 })
 ```
 
@@ -56,30 +56,34 @@ happening on whichever request happens to arrive first.
 Both paths emit the same DDL, so it is safe to start with the default and switch
 later: the migration finds the tables already there and does nothing.
 
-### Integer-id hosts
+### Native key-type pivots
 
 The subject pivots (`user_role`, `user_permission`) default to a TEXT `user_id`,
 which fits every subject kind in one table — integer ids, UUIDs, ULIDs, even in
-the same app. When **all** your subjects hold integer ids (`increments()`, the
-Adonis default), declare it once and the pivot respects your key type natively:
+the same app. The [roles relation](/docs/authz/roles-relation#any-key-type-any-pivot-type)
+works on it with any host key type, so this is a storage choice, not a
+correctness one — with one exception: `has` / `whereHas('roles')` on
+**Postgres** with an integer PK compares the real columns and errors on
+`integer = character varying` (see the [relation page](/docs/authz/roles-relation#any-key-type-any-pivot-type)).
+When **all** your subjects hold integer ids, the pivot can carry the host's
+native type instead —
 
 ```ts
 stores.lucid({
-  userIdType: 'integer',
+  subjectIdType: 'integer', // increments()   → INTEGER
+  // subjectIdType: 'bigint', // bigIncrements() → BIGINT
 })
 ```
 
-With INTEGER pivots Lucid binds the model's numeric id against an INTEGER
-column, so `preload('roles')` matches with the **default** relation — no getter,
-no `localKey`, on any table, with any PK name (`localKey` still covers names,
-`userType` the subject kind). Non-integer ids fail LOUD on write instead of
-silently matching nothing. Mixed apps (integer users *and* UUID subjects in one
-store) keep the TEXT default and use the `localKey` recipe in
-[roles-relation](/docs/authz/roles-relation).
+— which gives the pivot the same storage and index shape as your primary key and
+makes a foreign key to it possible (MySQL needs the exact integer size for that,
+which is why there are two values). Non-integer ids then fail LOUD on write
+instead of silently matching nothing. Mixed apps (integer users *and* UUID
+subjects in one store) keep the TEXT default; nothing else changes for them.
 
 Choose at setup: the store, `createAuthzTables` and the published migration all
 take the same option, and they must agree. Switching an existing install later
-is a data migration, not a flag flip:
+is a data migration, not a flag flip (`BIGINT` instead of `INTEGER` for `'bigint'`):
 
 ```sql
 -- Postgres (fails loudly on non-numeric rows — good)

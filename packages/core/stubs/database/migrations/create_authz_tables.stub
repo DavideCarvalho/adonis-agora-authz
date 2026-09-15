@@ -18,9 +18,10 @@ export default class extends BaseSchema {
   async up() {
     this.defer(async (db) => {
       await createAuthzTables(db)
-      // Integer-id hosts (all subjects hold integer ids): create INTEGER
-      // pivots instead — must match stores.lucid({ userIdType: 'integer' }).
-      // await createAuthzTables(db, { userIdType: 'integer' })
+      // Optional: give the pivots your host's native key type — 'integer'
+      // (increments) or 'bigint' (bigIncrements). All subjects must then hold
+      // integer ids, and config/authz.ts must pass the same subjectIdType.
+      // await createAuthzTables(db, { subjectIdType: 'integer' })
     })
   }
 

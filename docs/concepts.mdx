@@ -148,8 +148,9 @@ the full admin surface — everything below works identically on the `lucid` and
 `memory` stores, and it is what a roles screen uses instead of SQL against the
 five RBAC tables. Every data method also takes a trailing `{ client }` to join a
 host transaction — see [Joining a transaction](/docs/authz/config#joining-a-transaction).
-Integer-id hosts additionally set `userIdType: 'integer'` so the pivots respect
-their key type natively — see [config → Integer-id hosts](/docs/authz/config#integer-id-hosts).
+Hosts with integer ids may give the pivots their native key type
+(`subjectIdType: 'integer' | 'bigint'`) — a storage choice, not a correctness one; see
+[config → Native key-type pivots](/docs/authz/config#native-key-type-pivots).
 
 **Definition**
 
