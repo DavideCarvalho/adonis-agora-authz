@@ -41,14 +41,12 @@ describe('package root without the optional @adonisjs/bouncer peer', () => {
   it('keeps the abilities API importable from the root (stub/docs contract)', async () => {
     const root = await import('../src/index.js');
     expect(typeof root.defineAuthzAbilities).toBe('function');
-    expect(typeof root.authzAbilities).toBe('function');
   });
 
   it('throws an actionable error when the bouncer integration is used without the peer', async () => {
-    const { defineAuthzAbilities, authzAbilities } = await import('../src/bouncer/abilities.js');
+    const { defineAuthzAbilities } = await import('../src/bouncer/abilities.js');
     expect(() => defineAuthzAbilities({} as never)).toThrowError(
       /@adonisjs\/bouncer.*not installed.*node ace add @adonisjs\/bouncer/,
     );
-    await expect(authzAbilities(async () => ({}) as never)).rejects.toThrow(/@adonisjs\/bouncer/);
   });
 });

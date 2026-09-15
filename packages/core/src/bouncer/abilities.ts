@@ -1,4 +1,5 @@
 import type { Bouncer } from '@adonisjs/bouncer';
+import lazyService, { type AuthzQueryService } from '../../services/main.js';
 import type { AuthzService } from '../authz_service.js';
 
 /**
@@ -73,7 +74,7 @@ export interface AuthzAbilities {
 }
 
 /**
- * Build the static Bouncer abilities backed by an {@link AuthzService}.
+ * Build the static Bouncer abilities backed by the authz service.
  *
  * Bouncer has no runtime API to register one ability per DB row, so we register
  * a SMALL fixed set of abilities whose body consults the DB-backed store:
@@ -85,8 +86,21 @@ export interface AuthzAbilities {
  * - `hasRole(user, role)` — true when the user holds the named role.
  *
  * Both deny anonymous users (no `allowGuest`).
+ *
+ * With no argument the abilities use the library's lazy service singleton
+ * (`@adonis-agora/authz/services/main`): the container is consulted on the first
+ * check, never at import, so `app/abilities/authz.ts` is one line and needs no
+ * `app` import or top-level await. Pass a service to override (tests).
+ *
+ * ```ts
+ * // app/abilities/authz.ts
+ * import { defineAuthzAbilities } from '@adonis-agora/authz'
+ * export const { can, hasRole } = defineAuthzAbilities()
+ * ```
  */
-export function defineAuthzAbilities(service: AuthzService): AuthzAbilities {
+export function defineAuthzAbilities(
+  service: Pick<AuthzService | AuthzQueryService, 'can' | 'hasRole'> = lazyService,
+): AuthzAbilities {
   const { AuthorizationResponse, Bouncer } = requireBouncer();
   const can = Bouncer.ability(async (user: unknown, permission: string, _resource?: unknown) => {
     const allowed = await service.can(user, permission);
@@ -103,16 +117,4 @@ export function defineAuthzAbilities(service: AuthzService): AuthzAbilities {
   });
 
   return { can, hasRole };
-}
-
-/**
- * Convenience for apps that resolve the {@link AuthzService} from the container
- * at module-eval time. Prefer {@link defineAuthzAbilities} when you already hold
- * a service instance (e.g. in tests).
- */
-export async function authzAbilities(
-  resolve: () => Promise<AuthzService> | AuthzService,
-): Promise<AuthzAbilities> {
-  const service = await resolve();
-  return defineAuthzAbilities(service);
 }

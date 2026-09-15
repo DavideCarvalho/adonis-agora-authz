@@ -1,28 +1,21 @@
 ---
 title: Bouncer integration
-description: How @adonis-agora/authz registers static abilities backed by the store, and how to use them in controllers and Edge.
+description: The can / hasRole Bouncer abilities backed by the store, and how to use them in controllers and Edge.
 icon: Shield
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-## Why static abilities
+## The abilities
 
-Bouncer abilities are defined ahead of time:
-`Bouncer.ability((user, ...args) => boolean | AuthorizationResponse)`. There is
-no runtime API to register one ability per database row. So `@adonis-agora/authz`
-registers a **small fixed set** of abilities whose body consults the DB-backed
-store.
-
-`configure` publishes them to `app/abilities/authz.ts`:
+`@adonis-agora/authz` registers two Bouncer abilities whose body consults the
+store, so a permission granted in the database is a permission Bouncer knows
+about. `configure` publishes them to `app/abilities/authz.ts`:
 
 ```ts title="app/abilities/authz.ts"
-import app from '@adonisjs/core/services/app'
-import { AuthzService, defineAuthzAbilities } from '@adonis-agora/authz'
+import { defineAuthzAbilities } from '@adonis-agora/authz'
 
-const service = await app.container.make(AuthzService)
-
-export const { can, hasRole } = defineAuthzAbilities(service)
+export const { can, hasRole } = defineAuthzAbilities()
 ```
 
 - `can(user, permission, resource?)` — allows when the user's grants satisfy
@@ -41,21 +34,16 @@ Both deny anonymous users.
 
 ### Building the abilities yourself
 
-`defineAuthzAbilities(service)` takes a service instance — the form the published
-file uses, and the one you want in a test where you construct the service by
-hand. When you would rather hand it a resolver than await the container first,
-`authzAbilities` takes the thunk instead and awaits it for you:
+With no argument, `defineAuthzAbilities()` uses the app's authz service — the
+same one `import authz from '@adonis-agora/authz/services/main'` gives you — and
+reaches for it on the first check, so the file can be imported before the app
+has booted. Pass a service to use another one, which is what a test that
+constructs the service by hand does (see [Testing](/docs/authz/testing)):
 
-```ts title="app/abilities/authz.ts"
-import app from '@adonisjs/core/services/app'
-import { AuthzService, authzAbilities } from '@adonis-agora/authz'
-
-export const { can, hasRole } = await authzAbilities(() => app.container.make(AuthzService))
+```ts
+const service = new AuthzService({ store: new MemoryPermissionStore() })
+const { can, hasRole } = defineAuthzAbilities(service)
 ```
-
-Both return the same `{ can, hasRole }` pair. Prefer `defineAuthzAbilities` when
-you already hold a service (see [Testing](/docs/authz/testing)), `authzAbilities`
-when you only have a way to get one.
 
 ## Using them
 
@@ -104,14 +92,19 @@ await authz.hasAnyRole(user, ['admin', 'editor'])
 For a request that runs many checks, share a cache so the role resolution and
 the grant set are each read once:
 
-```ts
-import { AuthzService } from '@adonis-agora/authz'
+```ts title="app/controllers/posts_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import authz from '@adonis-agora/authz/services/main'
 
-const service = await app.container.make(AuthzService)
-const cache = service.createCache()
-
-await service.can(user, 'posts.edit', { cache })
-await service.can(user, 'posts.delete', { cache }) // reuses the same fetch
+export default class PostsController {
+  async show({ auth, params, inertia }: HttpContext) {
+    const cache = authz.createCache() // one per request
+    return inertia.render('posts/show', {
+      canEdit: await authz.can(auth.user!, 'posts.edit', { cache }),
+      canDelete: await authz.can(auth.user!, 'posts.delete', { cache }), // same fetch
+    })
+  }
+}
 ```
 
 See [The authz service](/docs/authz/service) for the full surface — the

@@ -32,8 +32,8 @@ interface CanRouter {
 }
 
 export interface RegisterCanEndpointOptions {
-  /** The authz engine to consult. */
-  service: AuthzService;
+  /** The authz engine to consult — the `services/main` singleton or an `AuthzService`. */
+  service: Pick<AuthzService, 'can'>;
   /** Route path (default `/authz/can`). */
   path?: string;
   /**

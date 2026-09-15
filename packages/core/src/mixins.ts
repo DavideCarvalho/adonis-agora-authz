@@ -1,3 +1,4 @@
+import { resolveAuthzService } from '../services/main.js';
 import type { AuthzService } from './authz_service.js';
 import type { SubjectRef, TenantScope } from './subject_ref.js';
 
@@ -21,18 +22,21 @@ export interface HasPermissions {
 
 /**
  * A Lucid model mixin adding `assignRole` / `can` / ... sugar that delegates to
- * the store. The {@link AuthzService} is supplied lazily so this module does not
- * eagerly import the container.
+ * the store. By default the {@link AuthzService} is the library's container-bound
+ * singleton, resolved lazily on the first call — never at import, so the model
+ * file needs no `app` import and can be loaded before boot. Pass a resolver to
+ * override (tests, or a second service instance).
  *
  * ```ts
  * import { compose } from '@adonisjs/core/helpers'
  * import { hasPermissions } from '@adonis-agora/authz/mixins'
- * import authz from '#services/authz' // your resolved AuthzService
  *
- * export default class User extends compose(BaseModel, hasPermissions(() => authz)) {}
+ * export default class User extends compose(BaseModel, hasPermissions()) {}
  * ```
  */
-export function hasPermissions(resolve: () => AuthzService | Promise<AuthzService>) {
+export function hasPermissions(
+  resolve: () => AuthzService | Promise<AuthzService> = resolveAuthzService,
+) {
   const authzService = (): Promise<AuthzService> => Promise.resolve(resolve());
 
   // TypeScript requires `any[]` for a class expression that extends a generic constructor.

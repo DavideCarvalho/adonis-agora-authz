@@ -222,13 +222,14 @@ export class AuthzService {
   /**
    * The effective roles for an ALREADY-RESOLVED ref: the global roles from the
    * context (token) ∪ the app's roles (the {@link resolveRoles} seam) ∪ the
-   * store's roles. Private — {@link can}, {@link scope} and {@link hasRole}
-   * already hold a resolved `ref` and call this directly, so they never run
-   * `refOf` twice. The public {@link effectiveRoles}/{@link effectivePermissions}
-   * (consumed by `buildAuthzShare` in authz-react, which only has the host
-   * user object) resolve `ref` once and delegate here.
+   * store's roles. {@link can}, {@link scope} and {@link hasRole} already hold a
+   * resolved `ref` and call this directly, so they never run `refOf` twice; the
+   * public {@link effectiveRoles}/{@link effectivePermissions} (consumed by
+   * `buildAuthzShare` in authz-react, which only has the host user object)
+   * resolve `ref` once and delegate here. Public so the lazy service singleton
+   * (`services/main`) can build a {@link PermissionCache} over it.
    */
-  async #effectiveRolesFor(ref: SubjectRef, tenant?: TenantScope): Promise<string[]> {
+  async effectiveRolesForRef(ref: SubjectRef, tenant?: TenantScope): Promise<string[]> {
     const contextRoles = globalRolesFromContext();
     const appRoles = this.resolveRolesFn ? await this.resolveRolesFn(ref, tenant) : [];
     const storeRoles = await this.store.getRolesForSubject(ref, tenant);
@@ -251,7 +252,7 @@ export class AuthzService {
     const tenant = this.currentScope(scope);
     return options.cache
       ? options.cache.getRoles(ref, tenant)
-      : this.#effectiveRolesFor(ref, tenant);
+      : this.effectiveRolesForRef(ref, tenant);
   }
 
   /**
@@ -272,7 +273,7 @@ export class AuthzService {
       : await this.store.getPermissionsForSubject(ref, tenant);
     const roles = options.cache
       ? await options.cache.getRoles(ref, tenant)
-      : await this.#effectiveRolesFor(ref, tenant);
+      : await this.effectiveRolesForRef(ref, tenant);
     return [...new Set([...granted, ...this.rolePermissionGrants(roles)])];
   }
 
@@ -295,7 +296,7 @@ export class AuthzService {
    * `can()`/`hasRole()` calls the request makes.
    */
   createCache(): PermissionCache {
-    return new PermissionCache(this.store, (ref, tenant) => this.#effectiveRolesFor(ref, tenant));
+    return new PermissionCache(this.store, (ref, tenant) => this.effectiveRolesForRef(ref, tenant));
   }
 
   /**
@@ -320,7 +321,7 @@ export class AuthzService {
     // one permission read per (user, tenant) per request.
     const roles = options.cache
       ? await options.cache.getRoles(ref, scope)
-      : await this.#effectiveRolesFor(ref, scope);
+      : await this.effectiveRolesForRef(ref, scope);
     const granted = options.cache
       ? await options.cache.getPermissions(ref, scope)
       : await this.store.getPermissionsForSubject(ref, scope);
@@ -366,7 +367,7 @@ export class AuthzService {
       : await this.store.getPermissionsForSubject(ref, tenant);
     const effective = options.cache
       ? await options.cache.getRoles(ref, tenant)
-      : await this.#effectiveRolesFor(ref, tenant);
+      : await this.effectiveRolesForRef(ref, tenant);
     const permissions = [...granted, ...this.rolePermissionGrants(effective)];
 
     // 2. A wildcard permission grant for the scope action → allow-all.
@@ -402,7 +403,7 @@ export class AuthzService {
     const scope = this.currentScope(options.scope);
     const roles = options.cache
       ? await options.cache.getRoles(ref, scope)
-      : await this.#effectiveRolesFor(ref, scope);
+      : await this.effectiveRolesForRef(ref, scope);
     return roles.includes(role);
   }
 
@@ -427,7 +428,7 @@ export class AuthzService {
     const owned = new Set(
       options.cache
         ? await options.cache.getRoles(ref, scope)
-        : await this.#effectiveRolesFor(ref, scope),
+        : await this.effectiveRolesForRef(ref, scope),
     );
     return roles.some((r) => owned.has(r));
   }

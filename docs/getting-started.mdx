@@ -64,12 +64,19 @@ node ace authz:assign editor 42          # role → user (id 42)
 …or programmatically:
 
 ```ts
-import { AuthzService } from '@adonis-agora/authz'
-import app from '@adonisjs/core/services/app'
+import { BaseCommand } from '@adonisjs/core/ace'
+import authz from '@adonis-agora/authz/services/main'
+import User from '#models/user'
 
-const service = await app.container.make(AuthzService)
-await service.store.givePermissionToRole('editor', 'posts.edit')
-await service.store.assignRole({ type: 'user', id: '42' }, 'editor')
+export default class SeedRoles extends BaseCommand {
+  static commandName = 'seed:roles'
+
+  async run() {
+    await authz.store.givePermissionToRole('editor', 'posts.edit')
+    const first = await User.firstOrFail()
+    await authz.store.assignRole({ type: 'user', id: String(first.id) }, 'editor')
+  }
+}
 ```
 
 Writing to the store needs the service instance. For *reading* a decision
