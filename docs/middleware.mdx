@@ -227,7 +227,7 @@ const scoped = await authz.effectiveRoles(user, { tenantId: 'acme' })
 - The **store** roles are those assigned via `store.assignRole(...)`.
 
 The reverse lookup — *who* holds a role — is
-[`subjectsWithRole`](/docs/authz/roles#the-reverse-question-userswithrole), which
+[`subjectsWithRole`](/docs/authz/roles#the-reverse-question-subjectswithrole), which
 reads the same three sources.
 
 It returns a de-duplicated union, tenant-filtered by `scope`. An

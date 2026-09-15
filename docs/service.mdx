@@ -46,25 +46,31 @@ export default defineConfig({
 })
 ```
 
-It exposes the asynchronous decision surface — `can`, `scope`, `hasRole`,
-`hasAnyRole`, `effectiveRoles`, `effectivePermissions` and `subjectsWithRole`. For
-the synchronous members (`store`, `scopes`, `createCache`) resolve the class
-itself from the container:
+It carries the whole service: the decisions (`can`, `scope`, `hasRole`,
+`hasAnyRole`, `effectiveRoles`, `effectivePermissions`, `subjectsWithRole`),
+the `store` for writes and admin reads, and `createCache()`. A controller that
+grants a role, for instance:
 
-```ts
-import { AuthzService } from '@adonis-agora/authz'
-import app from '@adonisjs/core/services/app'
+```ts title="app/controllers/memberships_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import authz from '@adonis-agora/authz/services/main'
+import User from '#models/user'
 
-const service = await app.container.make(AuthzService)
-await service.store.assignRole({ type: 'user', id: '42' }, 'editor')
-const cache = service.createCache()
+export default class MembershipsController {
+  async promote({ params, auth, response }: HttpContext) {
+    if (!(await authz.can(auth.user!, 'members.promote'))) {
+      return response.forbidden()
+    }
+    const member = await User.findOrFail(params.id)
+    await authz.store.assignRole({ type: 'user', id: String(member.id) }, 'editor')
+    return response.noContent()
+  }
+}
 ```
 
-<Callout type="info">
-  Both forms are the **same** instance: the provider registers `AuthzService` as
-  a container singleton built from `config/authz.ts`, and the service singleton
-  forwards to it.
-</Callout>
+The only members it leaves out are the synchronous `refOf`, `currentScope` and
+`scopes`; for those, resolve the class from the container
+(`await app.container.make(AuthzService)`) — it is the same instance.
 
 ## `can(user, permission, options?)`
 
@@ -212,17 +218,25 @@ checks would issue two dozen reads; a `PermissionCache` collapses them into one
 role resolution and one permission read per `(user, tenant)` pair, including for
 checks that run concurrently.
 
-```ts
-import { AuthzService } from '@adonis-agora/authz'
+```ts title="app/controllers/posts_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import authz from '@adonis-agora/authz/services/main'
+import Post from '#models/post'
 
-const service = await app.container.make(AuthzService)
-const cache = service.createCache()
+export default class PostsController {
+  async index({ auth, inertia }: HttpContext) {
+    const user = auth.user!
+    const cache = authz.createCache() // one per request
 
-await service.can(user, 'posts.edit', { cache })
-await service.can(user, 'posts.delete', { cache })   // no second read
-await service.scope(user, Post, { cache })           // still no second read
-await service.hasRole(user, 'ADMIN', { cache })      // role read memoized too
-await service.effectiveRoles(user, undefined, { cache })
+    const posts = await authz.scope(user, Post, { cache }) // rows this user may see
+    return inertia.render('posts/index', {
+      posts,
+      canCreate: await authz.can(user, 'posts.create', { cache }), // no second read
+      canPublish: await authz.can(user, 'posts.publish', { cache }),
+      isAdmin: await authz.hasRole(user, 'admin', { cache }), // role read memoized too
+    })
+  }
+}
 ```
 
 Create one cache per request (or per job) and let it fall out of scope with it.

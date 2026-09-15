@@ -3,7 +3,7 @@ name: authz-decisions
 description: >
   Answer may-I questions with @adonis-agora/authz — the Bouncer abilities can
   and hasRole published to #abilities/authz via defineAuthzAbilities /
-  authzAbilities, ctx.bouncer.allows/authorize/denies and Edge @can, the
+  ctx.bouncer.allows/authorize/denies and Edge @can, the
   AuthzService decision surface (can, hasRole, hasAnyRole,
   effectivePermissions) from the services/main singleton or the container
   class, wildcard matching with permissionSatisfied / permissionMatches over
@@ -36,12 +36,9 @@ calls `AuthzService` directly.
 ## Setup
 
 ```ts title="app/abilities/authz.ts"
-import app from '@adonisjs/core/services/app'
-import { AuthzService, defineAuthzAbilities } from '@adonis-agora/authz'
+import { defineAuthzAbilities } from '@adonis-agora/authz'
 
-const service = await app.container.make(AuthzService)
-
-export const { can, hasRole } = defineAuthzAbilities(service)
+export const { can, hasRole } = defineAuthzAbilities()
 ```
 
 ```ts title="start/routes.ts (or a controller)"
@@ -68,9 +65,10 @@ router.put('/posts/:id', async (ctx) => {
 
 ### Call the engine directly outside HTTP
 
-The singleton exposes only the async decision surface and is safe at
-config-load time. Writes, `store`, `scopes`, and `createCache()` need the class
-from the container — both forms are the same instance.
+The `services/main` singleton carries the decisions, the `store` and
+`createCache()`, and is safe to import at config-load time (it reaches the
+container on the first call). Only the sync `refOf` / `currentScope` / `scopes`
+need the class from the container — same instance.
 
 ```ts title="app/jobs/publish_post.ts"
 import authz from '@adonis-agora/authz/services/main'
@@ -84,12 +82,19 @@ export default class PublishPost {
 }
 ```
 
-```ts
-import { AuthzService } from '@adonis-agora/authz'
-import app from '@adonisjs/core/services/app'
+```ts title="app/controllers/posts_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import authz from '@adonis-agora/authz/services/main'
 
-const service = await app.container.make(AuthzService)
-const cache = service.createCache() // sync members live on the class
+export default class PostsController {
+  async show({ auth, inertia }: HttpContext) {
+    const cache = authz.createCache() // one per request
+    return inertia.render('posts/show', {
+      canEdit: await authz.can(auth.user!, 'posts.edit', { cache }),
+      canDelete: await authz.can(auth.user!, 'posts.delete', { cache }),
+    })
+  }
+}
 ```
 
 Source: `docs/service.mdx`
@@ -214,15 +219,23 @@ Wrong:
 
 ```ts
 // module scope — shared across requests, never invalidated
-export const cache = (await app.container.make(AuthzService)).createCache();
+const cache = authz.createCache()
+
+export default class PostsController {
+  async show({ auth }: HttpContext) {
+    return authz.can(auth.user!, 'posts.edit', { cache })
+  }
+}
 ```
 
 Correct:
 
 ```ts
-export async function check(user: unknown, perm: string) {
-  const service = await app.container.make(AuthzService);
-  return service.can(user, perm, { cache: service.createCache() });
+export default class PostsController {
+  async show({ auth }: HttpContext) {
+    const cache = authz.createCache() // lives and dies with the request
+    return authz.can(auth.user!, 'posts.edit', { cache })
+  }
 }
 ```
 

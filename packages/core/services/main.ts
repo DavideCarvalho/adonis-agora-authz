@@ -1,13 +1,17 @@
 import { AuthzService } from '../src/authz_service.js';
+import { PermissionCache } from '../src/permission_cache.js';
+import type { PermissionStore, StoreQueryClient } from '../src/store.js';
 import { getBootedApp } from './booted_app.js';
 
 /**
- * The async authorization-query surface of {@link AuthzService} this service singleton forwards.
- * Typed with `Pick` so the forwards below stay in lockstep with the class: if a method's signature
- * changes, the delegating object stops compiling instead of drifting. The sync members
- * (`store`, `scopes`, `createCache`) are intentionally omitted — they cannot be exposed without
- * resolving the container synchronously, and a config-time consumer (e.g. the agent tool authorizer)
- * only needs the async decision API. Resolve {@link AuthzService} directly for the rest.
+ * The surface of {@link AuthzService} this singleton forwards — everything an app reaches for
+ * from routes, commands, abilities, models or config: the async decision API, the `store` (every
+ * method of it is async, so it forwards lazily too) and `createCache()`. Typed with `Pick` so the
+ * forwards stay in lockstep with the class: a signature change stops compiling instead of drifting.
+ *
+ * Omitted on purpose: the SYNC members `refOf`, `currentScope` and `scopes`. They cannot be
+ * forwarded without resolving the container synchronously; resolve {@link AuthzService} from the
+ * container when you need one of them (the mixin does that internally).
  */
 export type AuthzQueryService = Pick<
   AuthzService,
@@ -17,8 +21,10 @@ export type AuthzQueryService = Pick<
   | 'hasAnyRole'
   | 'effectiveRoles'
   | 'effectivePermissions'
+  | 'effectiveRolesForRef'
   | 'subjectsWithRole'
->;
+  | 'createCache'
+> & { readonly store: PermissionStore };
 
 /**
  * Resolve the container-bound {@link AuthzService} ONCE and reuse it. Resolution is deferred to the
@@ -30,35 +36,82 @@ export type AuthzQueryService = Pick<
  * is resolvable.
  */
 let servicePromise: Promise<AuthzService> | undefined;
-const resolve = (): Promise<AuthzService> => {
+export const resolveAuthzService = (): Promise<AuthzService> => {
   servicePromise ??= getBootedApp().container.make(AuthzService);
   return servicePromise;
 };
 
 /**
+ * A lazy {@link PermissionStore}: every method forwards to the resolved service's store. The one
+ * sync member, `withClient`, returns another lazy view bound to the given client, so a transaction
+ * seam works through the singleton exactly like through the class.
+ */
+function lazyStore(pick: () => Promise<PermissionStore>): PermissionStore {
+  const forward =
+    <K extends keyof PermissionStore>(method: K) =>
+    async (...args: Parameters<Extract<PermissionStore[K], (...a: never[]) => unknown>>) =>
+      ((await pick())[method] as unknown as (...a: typeof args) => Promise<unknown>)(...args);
+
+  return {
+    ensureSchema: forward('ensureSchema'),
+    createRole: forward('createRole'),
+    createPermission: forward('createPermission'),
+    givePermissionToRole: forward('givePermissionToRole'),
+    revokePermissionFromRole: forward('revokePermissionFromRole'),
+    assignRole: forward('assignRole'),
+    removeRole: forward('removeRole'),
+    deleteRole: forward('deleteRole'),
+    giveSubjectPermission: forward('giveSubjectPermission'),
+    revokeSubjectPermission: forward('revokeSubjectPermission'),
+    getRolesForSubject: forward('getRolesForSubject'),
+    getSubjectsForRole: forward('getSubjectsForRole'),
+    countSubjectsForRole: forward('countSubjectsForRole'),
+    countSubjectsByRole: forward('countSubjectsByRole'),
+    getPermissionsForSubject: forward('getPermissionsForSubject'),
+    subjectHasPermission: forward('subjectHasPermission'),
+    listRoles: forward('listRoles'),
+    listPermissions: forward('listPermissions'),
+    getRolePermissions: forward('getRolePermissions'),
+    withClient: (client: StoreQueryClient) =>
+      lazyStore(async () => (await pick()).withClient(client)),
+  } as PermissionStore;
+}
+
+const store = lazyStore(async () => (await resolveAuthzService()).store);
+
+/**
  * The `@adonis-agora/authz` service singleton — a lazy, container-backed {@link AuthzService}.
- * Import it wherever a resolved `AuthzService` is needed without hand-rolling
- * `await app.container.make(AuthzService)`, including at config-load time:
+ * Import it wherever the service is needed instead of hand-rolling
+ * `await app.container.make(AuthzService)` — routes, commands, abilities, models, and config
+ * (where the container does not exist yet at import time):
  *
  * ```ts
  * import authz from '@adonis-agora/authz/services/main'
- * import { authzToolAuthorizer } from '@adonis-agora/agent/authz'
  *
- * export default defineConfig({
- *   authorizer: authzToolAuthorizer({ authz }),
- * })
+ * await authz.can(user, 'posts.edit')
+ * await authz.store.assignRole({ type: 'user', id: '42' }, 'editor')
+ * const cache = authz.createCache()
  * ```
  */
 // `async` forwards so a synchronous failure in `resolve()` (e.g. the provider not yet registered)
 // surfaces as a rejected promise, not a sync throw — these methods are typed as returning promises.
 const service: AuthzQueryService = {
-  can: async (...args) => (await resolve()).can(...args),
-  scope: async (...args) => (await resolve()).scope(...args),
-  hasRole: async (...args) => (await resolve()).hasRole(...args),
-  hasAnyRole: async (...args) => (await resolve()).hasAnyRole(...args),
-  effectiveRoles: async (...args) => (await resolve()).effectiveRoles(...args),
-  effectivePermissions: async (...args) => (await resolve()).effectivePermissions(...args),
-  subjectsWithRole: async (...args) => (await resolve()).subjectsWithRole(...args),
+  can: async (...args) => (await resolveAuthzService()).can(...args),
+  scope: async (...args) => (await resolveAuthzService()).scope(...args),
+  hasRole: async (...args) => (await resolveAuthzService()).hasRole(...args),
+  hasAnyRole: async (...args) => (await resolveAuthzService()).hasAnyRole(...args),
+  effectiveRoles: async (...args) => (await resolveAuthzService()).effectiveRoles(...args),
+  effectivePermissions: async (...args) =>
+    (await resolveAuthzService()).effectivePermissions(...args),
+  effectiveRolesForRef: async (...args) =>
+    (await resolveAuthzService()).effectiveRolesForRef(...args),
+  subjectsWithRole: async (...args) => (await resolveAuthzService()).subjectsWithRole(...args),
+  store,
+  // Sync by contract; the cache memoizes PROMISES, so a lazily-resolved roles source is fine.
+  createCache: () =>
+    new PermissionCache(store, async (ref, tenant) =>
+      (await resolveAuthzService()).effectiveRolesForRef(ref, tenant),
+    ),
 };
 
 export default service;

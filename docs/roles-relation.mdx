@@ -97,34 +97,20 @@ const teams = await Team.query().preload('roles')
 
 The pivot stores `subject_id` as TEXT by default — it is
 [polymorphic](/docs/authz/concepts#polymorphic-subjects), so integer ids and UUIDs
-share one table. Lucid, on its own, uses your model's key **as-is** in two
-places: the `WHERE subject_id IN (…)` it binds (SQLite does not coerce a numeric
-binding to match a TEXT column — it returns nothing), and the distribution of
-the result back to each parent, done with strict JS equality (`'42' !== 42`).
-An `increments()` model therefore preloaded `[]` **with no error** (#74).
-
-`authzRolesRelation()` closes both gaps itself, on the first query, without
-touching your model's columns: it points the relation's `localKey` at a plain
-getter it defines on the model's prototype (`$authz_<key>`, the key as a
-string — not a `@column`, so it never enters `$attributes`, hydration,
-`serialize()` or `save()`), and it distributes preloaded rows by comparing
-both sides as strings.
-
-The upshot: `preload`, `load` and `related('roles').query()` work with the key
-as you declared it, on TEXT pivots (the default) and on
-[`integer` / `bigint` pivots](/docs/authz/config#native-key-type-pivots) alike —
-including the Postgres case where a `bigint` PK arrives as a string. Nothing to
-declare, nothing to configure.
+share one table — and the relation matches your model's key against it whatever
+the key's type: `increments()`, `bigIncrements()`, UUID. `preload`, `load` and
+`related('roles').query()` work with the key as you declared it, on the default
+TEXT pivot and on [`integer` / `bigint` pivots](/docs/authz/config#native-key-type-pivots)
+alike. Nothing to declare, nothing to configure.
 
 <Callout type="warn">
   **`has` / `whereHas('roles')` on Postgres with an integer PK needs a native
-  pivot.** Those compile to a correlated subquery comparing the **real** columns
-  (`users.id = authz_subject_role.subject_id`), which the relation cannot rewrite.
-  MySQL and SQLite coerce; Postgres refuses `integer = character varying` —
-  loudly, as a query error, never as a silent `[]`. On Postgres, set
+  pivot.** Those compare the real columns in SQL (`users.id =
+  authz_subject_role.subject_id`), and Postgres refuses `integer = character
+  varying` — as a query error, never as a silent `[]`. On Postgres, set
   [`subjectIdType: 'integer'` / `'bigint'`](/docs/authz/config#native-key-type-pivots)
-  to match your PK, or answer that question through the store
-  (`getSubjectsForRole`). `preload` is unaffected.
+  to match your PK, or ask the store instead (`getSubjectsForRole`). `preload`
+  is unaffected.
 </Callout>
 
 ## What the function spells for you
@@ -163,14 +149,7 @@ authzRolesRelation({ tables, subjectType, tenantId, localKey })
 | `tables`   | the default names    | The store was configured with [table overrides](/docs/authz/config#stores). Only `subjectRole` is read here — the roles table name lives on the model's `static table`. |
 | `subjectType` | `'user'`          | This model is not the default subject kind — i.e. `resolveSubjectRef` returns another `type` for it. It must match what `assignRole` wrote. |
 | `tenantId` | `''` (global)        | The relation should read a tenant's assignments as well as the global ones.                                |
-| `localKey` | the model's primary key | The pivot references an attribute that is **not** the primary key. Key *type* never matters — see above. |
-
-<Callout type="info">
-  **Upgrading from 0.14.x?** The `@column` getter + `localKey: 'idAsText'` recipe
-  is no longer needed. It still works (an explicit `localKey` is honored), but you
-  can delete the getter and the option: the default relation now covers integer
-  ids on its own.
-</Callout>
+| `localKey` | the model's primary key | The pivot references an attribute that is **not** the primary key. |
 
 The tenant filter mirrors the store's, so the relation and
 `getRolesForSubject(user, scope)` agree: a **global** read sees global rows only,

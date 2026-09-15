@@ -27,7 +27,7 @@ export type {
 export { AuthzService } from './authz_service.js';
 export type { AuthzAbilities } from './bouncer/abilities.js';
 // Bouncer integration helpers.
-export { authzAbilities, defineAuthzAbilities } from './bouncer/abilities.js';
+export { defineAuthzAbilities } from './bouncer/abilities.js';
 export type { AuthzConfig } from './define_config.js';
 // Drivers-in-core config idiom.
 export { defineConfig, stores } from './define_config.js';

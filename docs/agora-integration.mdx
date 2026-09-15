@@ -114,8 +114,7 @@ missing diagnostics package is a no-op.
 
 ```ts title="start/authz_provisioning.ts"
 import { defineAuthzProvisioning } from '@adonis-agora/authz/provisioning'
-
-const authz = await app.container.make(AuthzService)
+import authz from '@adonis-agora/authz/services/main'
 
 await defineAuthzProvisioning({
   store: authz.store,
@@ -158,8 +157,8 @@ active user. Optional peer: `@adonisjs/core` (router types — already a peer).
 ```ts title="start/routes.ts"
 import router from '@adonisjs/core/services/router'
 import { registerCanEndpoint } from '@adonis-agora/authz/http'
+import authz from '@adonis-agora/authz/services/main'
 
-const authz = await app.container.make(AuthzService)
 registerCanEndpoint(router, { service: authz }) // default path: /authz/can
 ```
 

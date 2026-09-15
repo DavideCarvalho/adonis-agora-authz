@@ -14,22 +14,16 @@ subpath) adds RBAC sugar to a Lucid model. Every method delegates to the
 import { compose } from '@adonisjs/core/helpers'
 import { BaseModel } from '@adonisjs/lucid/orm'
 import { hasPermissions } from '@adonis-agora/authz/mixins'
-import { AuthzService } from '@adonis-agora/authz'
-import app from '@adonisjs/core/services/app'
 
-export default class User extends compose(
-  BaseModel,
-  hasPermissions(() => app.container.make(AuthzService)),
-) {
+export default class User extends compose(BaseModel, hasPermissions()) {
   // ...your columns
 }
 ```
 
-The factory takes a resolver (sync or async) for the `AuthzService`. It needs the
-service **class** rather than the
-[`services/main` singleton](/docs/authz/service#the-service-singleton), because
-the write helpers (`assignRole`, `givePermission`, …) go through `service.store`,
-which the singleton does not carry.
+That is all the wiring. The mixin uses the app's authz service, reached on the
+first call — never when the model file loads. To use another service (a test
+that builds one by hand, for instance), pass a resolver:
+`hasPermissions(() => service)`.
 
 ## Methods
 

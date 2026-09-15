@@ -49,3 +49,58 @@ describe('authz service singleton', () => {
     await expect(service.effectivePermissions({ id: 'u1' })).resolves.toEqual(['metrics.read']);
   });
 });
+
+describe('authz service singleton — store and cache', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('forwards every store method lazily, including a withClient view', async () => {
+    const view = { assignRole: vi.fn().mockResolvedValue(undefined) };
+    const store = {
+      assignRole: vi.fn().mockResolvedValue(undefined),
+      listRoles: vi.fn().mockResolvedValue(['editor']),
+      withClient: vi.fn().mockReturnValue(view),
+    };
+    const make = vi.fn().mockResolvedValue({ store });
+    const { setBootedApp } = await import('./booted_app.js');
+    setBootedApp({ container: { make } } as never);
+    const { default: service } = await import('./main.js');
+
+    expect(make).not.toHaveBeenCalled(); // touching `.store` resolves nothing yet
+    const s = service.store;
+    expect(make).not.toHaveBeenCalled();
+
+    await s.assignRole({ type: 'user', id: '1' }, 'editor');
+    await expect(s.listRoles()).resolves.toEqual(['editor']);
+    expect(store.assignRole).toHaveBeenCalledWith({ type: 'user', id: '1' }, 'editor');
+
+    const trx = { rawQuery: vi.fn() };
+    await s.withClient(trx).assignRole({ type: 'user', id: '2' }, 'editor');
+    expect(store.withClient).toHaveBeenCalledWith(trx);
+    expect(view.assignRole).toHaveBeenCalledWith({ type: 'user', id: '2' }, 'editor');
+    expect(make).toHaveBeenCalledTimes(1);
+  });
+
+  it('createCache() is sync and memoizes over the lazily-resolved service', async () => {
+    const store = {
+      getRolesForSubject: vi.fn().mockResolvedValue(['editor']),
+      getPermissionsForSubject: vi.fn().mockResolvedValue(['posts.edit']),
+      getRolePermissions: vi.fn().mockResolvedValue([]),
+    };
+    const authz = {
+      store,
+      effectiveRolesForRef: vi.fn().mockResolvedValue(['editor', 'from-token']),
+    };
+    const { setBootedApp } = await import('./booted_app.js');
+    setBootedApp({ container: { make: vi.fn().mockResolvedValue(authz) } } as never);
+    const { default: service } = await import('./main.js');
+
+    const cache = service.createCache();
+    const ref = { type: 'user', id: '1' };
+    await expect(cache.getRoles(ref)).resolves.toEqual(['editor', 'from-token']);
+    await cache.getRoles(ref);
+    // The service's union (not the raw store) is what the cache memoizes — once.
+    expect(authz.effectiveRolesForRef).toHaveBeenCalledTimes(1);
+  });
+});

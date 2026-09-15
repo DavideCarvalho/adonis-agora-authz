@@ -52,3 +52,27 @@ describe('Bouncer integration', () => {
     expect(await bouncer.allows('can', 'posts.edit')).toBe(false);
   });
 });
+
+describe('defineAuthzAbilities() with no argument', () => {
+  it('resolves the container-bound service lazily — on the first check, not at definition', async () => {
+    const { setBootedApp } = await import('../services/booted_app.js');
+    const store = new MemoryPermissionStore();
+    await store.assignRole({ type: 'user', id: '7' }, 'admin');
+    const service = new AuthzService({ store });
+    let resolved = 0;
+    setBootedApp({
+      container: {
+        make: async () => {
+          resolved += 1;
+          return service;
+        },
+      },
+    } as never);
+
+    const abilities = defineAuthzAbilities();
+    expect(resolved).toBe(0);
+    const bouncer = new Bouncer(new User('7'), abilities);
+    expect(await bouncer.allows('hasRole', 'admin')).toBe(true);
+    expect(await bouncer.allows('hasRole', 'editor')).toBe(false);
+  });
+});
