@@ -137,13 +137,13 @@ for (const backend of backends) {
     }, STOP_TIMEOUT_MS);
 
     async function freshStore(
-      userIdType: 'text' | 'integer' = 'text',
+      subjectIdType: 'text' | 'integer' = 'text',
     ): Promise<LucidPermissionStore> {
       const tables = nextTables();
-      await createAuthzTables(db, { tables, userIdType });
+      await createAuthzTables(db, { tables, subjectIdType });
       return new LucidPermissionStore(db as unknown as LucidDatabase, {
         tables,
-        userIdType,
+        subjectIdType,
         autoCreateSchema: false,
       });
     }
@@ -238,7 +238,7 @@ for (const backend of backends) {
           userRole: 'rel_user_role',
           userPermission: 'rel_user_permission',
         },
-        userIdType: 'integer',
+        subjectIdType: 'integer',
       });
       await db.rawQuery(
         'CREATE TABLE IF NOT EXISTS rel_users (id INTEGER PRIMARY KEY, email TEXT)',
@@ -253,7 +253,7 @@ for (const backend of backends) {
           userRole: 'rel_user_role',
           userPermission: 'rel_user_permission',
         },
-        userIdType: 'integer',
+        subjectIdType: 'integer',
         autoCreateSchema: false,
       });
       await s.assignRole({ type: 'user', id: '42' }, 'COORDINATOR');
@@ -262,8 +262,139 @@ for (const backend of backends) {
       expect(users).toHaveLength(1);
       expect(users[0]!.id).toBe(42);
       expect(users[0]!.roles.map((r) => r.name)).toEqual(['COORDINATOR']);
+      // Native-typed pivot: `whereHas` compares integer to integer on every dialect.
+      const has = await RelIntUser.query().whereHas('roles', (q) => q.where('name', 'COORDINATOR'));
+      expect(has.map((u) => u.id)).toEqual([42]);
+    });
+
+    it('an integer model preloads through the DEFAULT relation on TEXT (default) pivots', async () => {
+      // The zero-config path every fresh install lands on: increments() host,
+      // polymorphic TEXT pivot, nothing declared on the model. The relation
+      // normalizes both the bound key and the distribution — on every dialect.
+      const tables = {
+        roles: 'txt_roles',
+        permissions: 'txt_permissions',
+        rolePermission: 'txt_role_permission',
+        userRole: 'txt_user_role',
+        userPermission: 'txt_user_permission',
+      };
+      await createAuthzTables(db, { tables });
+      await db.rawQuery(
+        'CREATE TABLE IF NOT EXISTS txt_users (id INTEGER PRIMARY KEY, email TEXT)',
+      );
+      await db.rawQuery(`INSERT INTO txt_users (id, email) VALUES (7, 'a@b.c'), (42, 'b@b.c')`);
+      BaseModel.$adapter = new Adapter(db);
+      const s = new LucidPermissionStore(db as unknown as LucidDatabase, {
+        tables,
+        autoCreateSchema: false,
+      });
+      await s.assignRole({ type: 'user', id: '42' }, 'COORDINATOR');
+      await s.assignRole({ type: 'user', id: '7' }, 'VIEWER');
+      await s.assignRole({ type: 'team', id: '7' }, 'LEAK'); // other subject kind, same id
+
+      const users = await TxtIntUser.query().orderBy('id').preload('roles');
+      expect(users.map((u) => [u.id, u.roles.map((r) => r.name)])).toEqual([
+        [7, ['VIEWER']],
+        [42, ['COORDINATOR']],
+      ]);
+      // And the single-instance paths.
+      const one = await TxtIntUser.findOrFail(42);
+      await one.load('roles');
+      expect(one.roles.map((r) => r.name)).toEqual(['COORDINATOR']);
+      expect((await one.related('roles').query()).map((r) => r.name)).toEqual(['COORDINATOR']);
+
+      // The one thing the relation cannot normalize: `has`/`whereHas` compare
+      // the REAL columns in SQL (`users.id = user_role.user_id`). MySQL
+      // coerces; Postgres refuses `integer = character varying` — LOUDLY, which
+      // is the documented reason to pick `subjectIdType` on Postgres.
+      const whereHas = TxtIntUser.query().whereHas('roles', (q) => q.where('name', 'VIEWER'));
+      if (backend.dialectPattern.test('postgres')) {
+        await expect(whereHas).rejects.toThrow(
+          /operator does not exist: integer = character varying/,
+        );
+      } else {
+        expect((await whereHas).map((u) => u.id)).toEqual([7]);
+      }
+    });
+
+    it('a bigint model preloads through the DEFAULT relation on BIGINT pivots', async () => {
+      // Postgres hands `bigint` back as a STRING, so a bigIncrements() host
+      // would compare `'42' === 42` in Lucid's own distribution — and an id
+      // beyond int4 would not even fit an INTEGER pivot. `'bigint'` sizes the
+      // column like the host; the relation's normalization does the rest.
+      // (The id stays below 2^53: mysql2 returns BIGINT as a JS number.)
+      const tables = {
+        roles: 'big_roles',
+        permissions: 'big_permissions',
+        rolePermission: 'big_role_permission',
+        userRole: 'big_user_role',
+        userPermission: 'big_user_permission',
+      };
+      await createAuthzTables(db, { tables, subjectIdType: 'bigint' });
+      await db.rawQuery('CREATE TABLE IF NOT EXISTS big_users (id BIGINT PRIMARY KEY, email TEXT)');
+      await db.rawQuery(`INSERT INTO big_users (id, email) VALUES (4294967342, 'a@b.c')`);
+      BaseModel.$adapter = new Adapter(db);
+      const s = new LucidPermissionStore(db as unknown as LucidDatabase, {
+        tables,
+        subjectIdType: 'bigint',
+        autoCreateSchema: false,
+      });
+      await s.assignRole({ type: 'user', id: '4294967342' }, 'COORDINATOR');
+
+      const users = await BigIntUser.query().preload('roles');
+      expect(users).toHaveLength(1);
+      expect(String(users[0]!.id)).toBe('4294967342');
+      expect(users[0]!.roles.map((r) => r.name)).toEqual(['COORDINATOR']);
     });
   });
+}
+
+/** TEXT-pivot integer host: nothing but the PK and the relation. */
+class TxtIntUser extends BaseModel {
+  static table = 'txt_users';
+
+  @column({ isPrimary: true })
+  declare id: number;
+
+  @column()
+  declare email: string;
+
+  @manyToMany(() => TxtRole, authzRolesRelation({ tables: { userRole: 'txt_user_role' } }))
+  declare roles: ManyToMany<typeof TxtRole>;
+}
+
+class TxtRole extends BaseModel {
+  static table = 'txt_roles';
+
+  @column({ isPrimary: true })
+  declare id: string;
+
+  @column()
+  declare name: string;
+}
+
+/** bigIncrements() host over BIGINT pivots. */
+class BigIntUser extends BaseModel {
+  static table = 'big_users';
+
+  @column({ isPrimary: true })
+  declare id: number | string;
+
+  @column()
+  declare email: string;
+
+  @manyToMany(() => BigRole, authzRolesRelation({ tables: { userRole: 'big_user_role' } }))
+  declare roles: ManyToMany<typeof BigRole>;
+}
+
+class BigRole extends BaseModel {
+  static table = 'big_roles';
+
+  @column({ isPrimary: true })
+  declare id: string;
+
+  @column()
+  declare name: string;
 }
 
 /**

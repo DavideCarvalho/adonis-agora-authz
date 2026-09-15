@@ -63,8 +63,9 @@ describe('authzRolesRelation', () => {
     expect(capture(authzRolesRelation())[1]).toEqual(['tenant_id', '']);
   });
 
-  it('localKey default é id; um override muda só a chave local', () => {
-    expect(authzRolesRelation().localKey).toBe('id');
+  it('sem localKey o Lucid usa a PK do modelo; um override muda só a chave local', () => {
+    // Não fixar 'id': a PK do host pode chamar-se `teamId`, e é o Lucid quem sabe.
+    expect(authzRolesRelation()).not.toHaveProperty('localKey');
     const relation = authzRolesRelation({ localKey: 'idAsText' });
     expect(relation.localKey).toBe('idAsText');
     // As restantes chaves do pivô não mudam com o override.

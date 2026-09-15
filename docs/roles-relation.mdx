@@ -12,9 +12,10 @@ request that already has a user in hand, and the wrong shape for a list: a
 paginated screen of 20 users costs 20 extra round trips, and the cost grows with
 the page.
 
-`authzRolesRelation()` returns the options of a Lucid `manyToMany` joining your
-user model to the authz roles through the `authz_user_role` pivot, so roles
-arrive over a JOIN with `preload` instead:
+`authzRolesRelation()` returns the options of a Lucid `manyToMany` joining **any**
+model of yours — users, teams, organizations, whatever holds a primary key — to
+the authz roles through the `authz_user_role` pivot, so roles arrive over a JOIN
+with `preload` instead:
 
 ```ts
 import { authzRolesRelation } from '@adonis-agora/authz'
@@ -70,6 +71,54 @@ const users = await User.query().preload('roles').paginate(page, 20)
 // one query for the users, one for every role of every user on the page
 ```
 
+That is the whole declaration. The primary key can be an `increments()` number,
+a `bigIncrements()`, a UUID — and it can be called something other than `id`:
+
+```ts title="app/models/team.ts"
+export default class Team extends BaseModel {
+  @column({ isPrimary: true, columnName: 'team_id' })
+  declare teamId: number
+
+  // `userType` is the subject kind the store wrote for teams (see resolveUserRef).
+  @manyToMany(() => AuthzRole, authzRolesRelation({ userType: 'team' }))
+  declare roles: ManyToMany<typeof AuthzRole>
+}
+```
+
+## Any key type, any pivot type
+
+The pivot stores `user_id` as TEXT by default — it is
+[polymorphic](/docs/authz/concepts#polymorphic-users), so integer ids and UUIDs
+share one table. Lucid, on its own, uses your model's key **as-is** in two
+places: the `WHERE user_id IN (…)` it binds (SQLite does not coerce a numeric
+binding to match a TEXT column — it returns nothing), and the distribution of
+the result back to each parent, done with strict JS equality (`'42' !== 42`).
+An `increments()` model therefore preloaded `[]` **with no error** (#74).
+
+`authzRolesRelation()` closes both gaps itself, on the first query, without
+touching your model's columns: it points the relation's `localKey` at a plain
+getter it defines on the model's prototype (`$authz_<key>`, the key as a
+string — not a `@column`, so it never enters `$attributes`, hydration,
+`serialize()` or `save()`), and it distributes preloaded rows by comparing
+both sides as strings.
+
+The upshot: `preload`, `load` and `related('roles').query()` work with the key
+as you declared it, on TEXT pivots (the default) and on
+[`integer` / `bigint` pivots](/docs/authz/config#native-key-type-pivots) alike —
+including the Postgres case where a `bigint` PK arrives as a string. Nothing to
+declare, nothing to configure.
+
+<Callout type="warn">
+  **`has` / `whereHas('roles')` on Postgres with an integer PK needs a native
+  pivot.** Those compile to a correlated subquery comparing the **real** columns
+  (`users.id = authz_user_role.user_id`), which the relation cannot rewrite.
+  MySQL and SQLite coerce; Postgres refuses `integer = character varying` —
+  loudly, as a query error, never as a silent `[]`. On Postgres, set
+  [`subjectIdType: 'integer'` / `'bigint'`](/docs/authz/config#native-key-type-pivots)
+  to match your PK, or answer that question through the store
+  (`getUsersForRole`). `preload` is unaffected.
+</Callout>
+
 ## What the function spells for you
 
 The pivot's shape is an internal of this package, not of your app, and two of its
@@ -90,7 +139,7 @@ So the returned object is:
 | Key                                | Value                                                |
 | ---------------------------------- | ---------------------------------------------------- |
 | `pivotTable`                       | `authz_user_role`                                    |
-| `localKey` / `relatedKey`          | `id` on the user model (or `localKey`, below) / `id` on the role model |
+| `localKey` / `relatedKey`          | your model's primary key (whatever it is called) / `id` on the role model |
 | `pivotForeignKey`                  | `user_id`                                            |
 | `pivotRelatedForeignKey`           | `role_id`                                            |
 | `onQuery`                          | `wherePivot('user_type', …)` plus the tenant filter below |
@@ -106,47 +155,13 @@ authzRolesRelation({ tables, userType, tenantId, localKey })
 | `tables`   | the default names    | The store was configured with [table overrides](/docs/authz/config#stores). Only `userRole` is read here — the roles table name lives on the model's `static table`. |
 | `userType` | `'user'`             | This model is not the default subject kind — i.e. `resolveUserRef` returns another `type` for it. It must match what `assignRole` wrote. |
 | `tenantId` | `''` (global)        | The relation should read a tenant's assignments as well as the global ones.                                |
-| `localKey` | `'id'`               | The model's id lives under another attribute name (any table, any PK name). Only names — for integer *types*, see below. |
+| `localKey` | the model's primary key | The pivot references an attribute that is **not** the primary key. Key *type* never matters — see above. |
 
 <Callout type="info">
-  **Integer ids (`increments()`, the Adonis default)? Prefer INTEGER pivots.**
-  Set `userIdType: 'integer'` in `stores.lucid()` (and in `createAuthzTables` /
-  the migration — they must agree), and the pivot respects your key type
-  natively: Lucid binds the numeric id against an INTEGER column, so the
-  **default** relation just works — no getter, no `localKey`, on any table with
-  any PK name. See [config → Integer-id hosts](/docs/authz/config#integer-id-hosts).
-</Callout>
-
-<Callout type="warn">
-  **Mixed apps (integer *and* UUID subjects in one store) keep TEXT pivots**
-  (the default) — one column cannot be both types. There, an `increments()`
-  model needs a string view of its id, because the pivot holds `'42'` (string)
-  while the model holds `42` (number): the SQL `whereIn` may or may not match
-  depending on the dialect, and Lucid then distributes preloaded pivot rows back
-  to their parents with **strict JS equality** — each dropped row answers `[]`
-  **with no error**. Expose the same column as text through a
-  `@column`-registered **getter declared before `id`** (so `id` keeps the
-  hydration slot) and point `localKey` at it:
-
-```ts
-export default class User extends BaseModel {
-  @column({ columnName: 'id' })
-  get idAsText(): string {
-    return String(this.id)
-  }
-
-  @column({ isPrimary: true })
-  declare id: number
-
-  @manyToMany(() => AuthzRole, authzRolesRelation({ localKey: 'idAsText' }))
-  declare roles: ManyToMany<typeof AuthzRole>
-}
-```
-
-  Do **not** use a second plain `@column` on the same column (`declare idAsText`
-  with `columnName: 'id'`): Lucid keeps one hydration mapping per column and the
-  later declaration steals it — the roles arrive, so the recipe *looks* right,
-  but the model hydrates with `id: undefined` (#84).
+  **Upgrading from 0.14.x?** The `@column` getter + `localKey: 'idAsText'` recipe
+  is no longer needed. It still works (an explicit `localKey` is honored), but you
+  can delete the getter and the option: the default relation now covers integer
+  ids on its own.
 </Callout>
 
 The tenant filter mirrors the store's, so the relation and

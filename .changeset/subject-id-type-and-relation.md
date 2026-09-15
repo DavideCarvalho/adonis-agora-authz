@@ -2,13 +2,21 @@
 '@adonis-agora/authz': minor
 ---
 
-The Lucid pivot now respects integer-id hosts natively: `stores.lucid({ userIdType: 'integer' })`
-(and the same option on `createAuthzTables` / the published migration) creates INTEGER `user_id`
-columns, so Lucid binds the model's numeric id against a matching column type — `preload('roles')`
-matches with the DEFAULT relation on any table, any PK name, every dialect. No getter, no `localKey`.
+**`authzRolesRelation()` now works with any host key — integer, bigint or uuid, on any table, with
+any PK name — and nothing to declare on the model.** Lucid used the model's key as-is both in the
+`WHERE user_id IN (…)` it binds (SQLite does not coerce a numeric binding to a TEXT column) and in
+the strict-equality distribution of preloaded rows, so an `increments()` model preloaded `[]` with
+no error (#74). The relation now normalizes both on its first query: it points `localKey` at a
+plain string getter it defines on the model's prototype (not a `@column` — no hydration, serialize
+or save impact) and distributes rows comparing both sides as strings. `preload`, `load` and
+`related().query()` are covered on TEXT and INTEGER/BIGINT pivots, on SQLite, Postgres (including
+`bigint` PKs, which arrive as strings) and MySQL. `localKey` now defaults to the model's primary
+key instead of a hard-coded `'id'`. The 0.14.x `@column` getter + `localKey: 'idAsText'` recipe is
+no longer needed (an explicit `localKey` is still honored).
 
-Defaults are unchanged (`'text'`, which still fits every subject kind in one table); mixed apps
-(integer users *and* UUID subjects) keep TEXT plus the `localKey` recipe. Non-integer ids against
-INTEGER pivots fail LOUD on write instead of silently matching nothing. The shared contract suite
-runs on both column types, and the relation specs prove zero-ceremony preload (including a
-non-`users` table with a non-`id` PK) on SQLite, Postgres and MySQL.
+**Native key-type pivots:** `stores.lucid({ subjectIdType: 'integer' | 'bigint' })` (same option on
+`createAuthzTables` / the published migration) creates INTEGER / BIGINT `user_id` columns — the
+host's own key shape (`increments()` / `bigIncrements()`), enabling a foreign key to it. This is a
+storage choice, never a correctness one; the default stays `'text'`, which fits every subject kind
+in one table. Non-integer ids against integer pivots fail LOUD on write instead of silently matching
+nothing. The shared contract suite runs on all three column types.

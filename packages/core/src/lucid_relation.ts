@@ -8,6 +8,93 @@ import { GLOBAL_TENANT } from './user_ref.js';
 interface PivotQueryLike {
   wherePivot(column: string, value: unknown): unknown;
   whereInPivot(column: string, values: readonly unknown[]): unknown;
+  /** A instância `ManyToMany` dona desta query (todo builder de pivô do Lucid a expõe). */
+  relation?: unknown;
+}
+
+/**
+ * O que este módulo precisa da instância `ManyToMany` do Lucid. Tudo aqui é contrato
+ * público (`ManyToManyRelationContract` + `pivotAlias`), lido DEPOIS do `boot()`.
+ */
+interface ManyToManyLike {
+  model: { prototype: object; name: string };
+  localKey: string;
+  pivotForeignKey: string;
+  pivotAlias(key: string): string;
+  setRelated(parent: object, related: object[]): void;
+  setRelatedForMany(parents: object[], related: object[]): void;
+}
+
+type RowLike = Record<string, unknown> & { $extras: Record<string, unknown> };
+
+/** Marca a instância já normalizada — a relação é um singleton por modelo, patch uma vez. */
+const NORMALIZED = Symbol.for('@adonis-agora/authz/normalized-relation');
+
+/** O getter que expõe a chave do host como string, nomeado pela chave que espelha. */
+const subjectKeyOf = (localKey: string) => `$authz_${localKey}`;
+
+/**
+ * Faz a relação casar o pivô com a chave do host SEM depender do tipo dela.
+ *
+ * O pivô do authz é polimórfico (`user_id` TEXT por default) e o Lucid usa o valor do
+ * modelo tal-qual em dois lugares: no `WHERE user_id IN (...)` (SQLite não converte um
+ * binding numérico para casar uma coluna TEXT — devolve nada) e na distribuição do
+ * resultado (`pivot.user_id === parent[localKey]`, onde `'42' !== 42`). Um host
+ * `increments()` via `preload('roles')` devolver `[]` SEM ERRO (#74). Pivôs INTEGER
+ * têm o espelho: Postgres entrega `bigint` como string e `integer` como number.
+ *
+ * Os dois pontos são normalizados para STRING — a mesma comparação que o banco faz
+ * numa coluna TEXT e que todo dialeto coerce numa coluna INTEGER:
+ *
+ * 1. `localKey` passa a apontar para um getter na prototype do modelo do host
+ *    (`$authz_<chave>`) que devolve `String(chave)`. É só um acessor: não é `@column`,
+ *    não entra em `$attributes`, hidratação, `serialize()` nem `save()` — o que mata
+ *    o hijack do `id` da receita antiga (#84). `localKeyColumnName` fica intacto, então
+ *    `has`/`whereHas` continuam a referenciar a coluna real.
+ * 2. `setRelatedForMany` (o que o Preloader chama depois do `exec`) compara
+ *    `String(pivot) === String(chave)`.
+ *
+ * Acontece na primeira query (o `onQuery` corre antes de `addWhereConstraints` e de
+ * qualquer distribuição), na instância singleton que o modelo guarda. O tripwire em
+ * `lucid_relation_models.spec.ts` prova que a distribuição original do Lucid ainda
+ * precisa disto; quando o upstream (adonisjs/lucid#1197) coerçar, ele falha e este
+ * bloco sai.
+ */
+function normalizeRelation(relation: unknown): void {
+  if (!relation || typeof relation !== 'object' || NORMALIZED in relation) return;
+  const rel = relation as ManyToManyLike;
+  if (typeof rel.setRelatedForMany !== 'function' || typeof rel.pivotAlias !== 'function') return;
+
+  const hostKey = rel.localKey;
+  const subjectKey = subjectKeyOf(hostKey);
+  if (!(subjectKey in rel.model.prototype)) {
+    Object.defineProperty(rel.model.prototype, subjectKey, {
+      configurable: true,
+      get(this: Record<string, unknown>) {
+        const value = this[hostKey];
+        return value === undefined || value === null ? undefined : String(value);
+      },
+    });
+  }
+  rel.localKey = subjectKey;
+
+  rel.setRelatedForMany = (parents, related) => {
+    const alias = rel.pivotAlias(rel.pivotForeignKey);
+    for (const parent of parents as RowLike[]) {
+      const value = parent[subjectKey];
+      const own =
+        value === undefined
+          ? []
+          : (related as RowLike[]).filter((row) => {
+              const pivotValue = row.$extras[alias];
+              return (
+                pivotValue !== undefined && pivotValue !== null && String(pivotValue) === value
+              );
+            });
+      rel.setRelated(parent, own);
+    }
+  };
+  Object.defineProperty(rel, NORMALIZED, { value: true });
 }
 
 /** Opções de {@link authzRolesRelation}. */
@@ -28,25 +115,17 @@ export interface AuthzRolesRelationOptions {
    */
   tenantId?: string;
   /**
-   * O atributo do modelo do host que guarda o id de usuário COMUM AO PIVÔ. Default `'id'`.
-   *
-   * O pivô é polimórfico e grava `user_id` como TEXTO (o authz aceita UUIDs). Quando o
-   * `id` do host é `increments()` — número — o `whereIn` no SQL até casa (o banco coerce
-   * `'42' = 42`), mas na volta o Lucid compara em JS `pivot.user_id` (`'42'`) com
-   * `user.id` (`42`) em igualdade estrita: cada linha do pivô cai fora e `preload('roles')`
-   * devolve `[]` SEM ERRO. Com ids numéricos passe um getter que exponha o id como
-   * string (ver a receita no docblock de {@link authzRolesRelation}), ex.: `localKey: 'idAsText'`.
-   *
-   * NÃO duplique o `@column` sobre a mesma coluna (`@column({ columnName: 'id' })`
-   * num segundo atributo): o Lucid mantém UM mapeamento de hidratação por coluna e o
-   * segundo rouba o lugar — `idAsText` hidrata certo e o `id` do modelo vem `undefined`.
+   * O atributo do modelo do host que o pivô referencia em `user_id`. Default: a chave
+   * primária do próprio modelo (`Model.primaryKey`), seja ela `id`, `teamId` ou outra —
+   * o tipo (integer, bigint, uuid) não importa, ver {@link authzRolesRelation}.
+   * Só precisa disto quem liga o pivô a um atributo que NÃO é a PK.
    */
   localKey?: string;
 }
 
 /**
- * As opções de um `manyToMany` do Lucid ligando o modelo de usuário do host aos papéis
- * do authz.
+ * As opções de um `manyToMany` do Lucid ligando QUALQUER modelo do host aos papéis
+ * do authz — users, teams, organizations: o que tiver uma chave primária.
  *
  * Existe porque a alternativa é cada app redigitar os detalhes do pivô — e eles são
  * INTERNOS desta lib, não do app: o nome das colunas, o `user_type` (o authz é
@@ -63,35 +142,28 @@ export interface AuthzRolesRelationOptions {
  * import { authzRolesRelation } from '@adonis-agora/authz'
  *
  * export default class User extends BaseModel {
+ *   \@column({ isPrimary: true })
+ *   declare id: number            // ou string (uuid), ou bigint — tanto faz
+ *
  *   \@manyToMany(() => AuthzRole, authzRolesRelation())
  *   declare roles: ManyToMany<typeof AuthzRole>
  * }
- * ```
  *
- * **Ids numéricos (`increments()`)** — o `id` do pivô é texto; comparar `'42'` (pivô) com
- * `42` (modelo) em JS não casa e o `preload` devolve `[]` em silêncio. Aponte `localKey`
- * para um GETTER registrado com `@column` sobre a mesma coluna, **declarado antes do
- * `id`** — assim o `id` mantém o lugar de hidratação e o getter alimenta o
- * KeysExtractor da relação computando a partir do `id` já hidratado:
+ * export default class Team extends BaseModel {
+ *   \@column({ isPrimary: true, columnName: 'team_id' })
+ *   declare teamId: number
  *
- * ```ts
- * export default class User extends BaseModel {
- *   \@column({ columnName: 'id' })
- *   get idAsText(): string {
- *     return String(this.id)
- *   }
- *
- *   \@column({ isPrimary: true })
- *   declare id: number
- *
- *   \@manyToMany(() => AuthzRole, authzRolesRelation({ localKey: 'idAsText' }))
+ *   \@manyToMany(() => AuthzRole, authzRolesRelation({ userType: 'team' }))
  *   declare roles: ManyToMany<typeof AuthzRole>
  * }
  * ```
  *
- * ⚠️ Um segundo `@column` PLANO (`declare idAsText` com `columnName: 'id'`) PARECE
- * funcionar — os papéis chegam — mas rouba o lugar de hidratação do `id`: o modelo
- * volta com `id: undefined`. É o tripwire de `lucid_relation_models.spec.ts` (#84).
+ * **O tipo da chave do host não importa.** O pivô grava `user_id` como TEXTO por
+ * default (polimórfico: aceita integer e uuid na mesma tabela) e o Lucid distribui o
+ * resultado do preload por igualdade ESTRITA — `'42'` (pivô) nunca casaria `42`
+ * (modelo). Esta função normaliza o binding e a distribuição (ver `normalizeRelation`), então
+ * `preload`/`load` funcionam com a PK como ela é: integer, bigint ou uuid, em pivôs
+ * TEXT ou INTEGER (`subjectIdType`). Nada a declarar no modelo.
  *
  * Serve para LER. Escrita continua pelo store (`assignRole`/`removeRole`), que é quem
  * garante idempotência e a criação do papel quando ele ainda não existe.
@@ -103,11 +175,14 @@ export function authzRolesRelation(options: AuthzRolesRelationOptions = {}) {
 
   return {
     pivotTable: tables.userRole,
-    localKey: options.localKey ?? 'id',
+    // Sem `localKey` o Lucid usa a PK do modelo — o nome que o host escolheu.
+    ...(options.localKey ? { localKey: options.localKey } : {}),
     pivotForeignKey: 'user_id',
     relatedKey: 'id',
     pivotRelatedForeignKey: 'role_id',
     onQuery: (query: PivotQueryLike) => {
+      // Roda antes de qualquer `exec`, logo antes de qualquer distribuição.
+      normalizeRelation(query.relation);
       query.wherePivot('user_type', userType);
       // Espelha o `tenantClause` do store: pedido global vê só o global; pedido de um
       // tenant vê o dele MAIS o global. Uma igualdade simples aqui descartaria os
