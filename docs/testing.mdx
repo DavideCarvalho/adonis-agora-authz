@@ -131,8 +131,8 @@ The suite covers idempotency, role/permission grants and revokes, direct grants,
 per-user isolation, tenant visibility, polymorphic user types, role deletion,
 member counts (per role and per matrix, tenant-scoped), and a trailing
 `{ client }` option accepted by every data method. The Lucid store runs it
-twice — TEXT and INTEGER `user_id` columns — so behavior provably does not
-depend on the column type.
+three times — TEXT, INTEGER and BIGINT `user_id` columns — so behavior provably
+does not depend on the column type.
 
 <Callout type="info">
   The contract factory must return a **fresh, isolated** store per call so cases

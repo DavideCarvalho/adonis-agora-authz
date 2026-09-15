@@ -467,7 +467,7 @@ export class LucidPermissionStore implements PermissionStore {
        FROM ${this.t.userPermission} up
        JOIN ${this.t.permissions} p ON p.id = up.permission_id
        WHERE up.user_type = ? AND up.user_id = ?`,
-      [user.type, user.id],
+      [user.type, this.subjectId(user.id)],
       opts,
     );
     for (const row of direct) result.add(row.name as string);

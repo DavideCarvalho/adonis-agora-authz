@@ -251,6 +251,10 @@ describe('LucidPermissionStore with subjectIdType integer (sqlite)', () => {
     await expect(store.getRolesForUser({ type: 'user', id: 'abc' })).rejects.toThrow(
       /subjectIdType 'integer'/,
     );
+    // Every user_id binding — the direct-grant read included (Pullfrog caught it unguarded).
+    await expect(store.getPermissionsForUser({ type: 'user', id: 'abc' })).rejects.toThrow(
+      /subjectIdType 'integer'/,
+    );
   });
 
   it('a text store keeps accepting anything (mixed/uuid hosts unaffected)', async () => {
