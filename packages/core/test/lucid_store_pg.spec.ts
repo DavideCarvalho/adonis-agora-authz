@@ -9,7 +9,7 @@ import type { LucidDatabase } from '../src/stores/lucid.js';
 import { LucidPermissionStore } from '../src/stores/lucid.js';
 
 /**
- * Real-Postgres coverage for the reverse lookup `getUsersForRole`. Points at the
+ * Real-Postgres coverage for the reverse lookup `getSubjectsForRole`. Points at the
  * developer's local Postgres (the `adonis-filter-pg` container by default):
  *   host localhost, port 55432, user/pass postgres, db filter_test.
  * Override via PG_* env vars. Each run uses a UNIQUE table prefix so it is
@@ -73,15 +73,15 @@ async function probePostgres(): Promise<boolean> {
 
 const PG_AVAILABLE = await probePostgres();
 
-describe.skipIf(!PG_AVAILABLE)('LucidPermissionStore.getUsersForRole (real Postgres)', () => {
+describe.skipIf(!PG_AVAILABLE)('LucidPermissionStore.getSubjectsForRole (real Postgres)', () => {
   let db: Database;
   const prefix = `authz_pgtest_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
   const tables = {
     roles: `${prefix}_roles`,
     permissions: `${prefix}_permissions`,
     rolePermission: `${prefix}_role_permission`,
-    userRole: `${prefix}_user_role`,
-    userPermission: `${prefix}_user_permission`,
+    subjectRole: `${prefix}_subject_role`,
+    subjectPermission: `${prefix}_subject_permission`,
   };
   const store = () => new LucidPermissionStore(asLucid(db), { tables });
 
@@ -95,8 +95,8 @@ describe.skipIf(!PG_AVAILABLE)('LucidPermissionStore.getUsersForRole (real Postg
   afterAll(async () => {
     if (db) {
       for (const t of [
-        tables.userPermission,
-        tables.userRole,
+        tables.subjectPermission,
+        tables.subjectRole,
         tables.rolePermission,
         tables.permissions,
         tables.roles,
@@ -114,7 +114,7 @@ describe.skipIf(!PG_AVAILABLE)('LucidPermissionStore.getUsersForRole (real Postg
     await s.assignRole({ type: 'admin', id: '100' }, 'editor'); // same id, different type
     await s.assignRole({ type: 'user', id: '999' }, 'viewer'); // different role
 
-    const editors = await s.getUsersForRole('editor');
+    const editors = await s.getSubjectsForRole('editor');
     expect(editors).toEqual(
       expect.arrayContaining([
         { type: 'user', id: '100' },
@@ -124,7 +124,7 @@ describe.skipIf(!PG_AVAILABLE)('LucidPermissionStore.getUsersForRole (real Postg
     );
     expect(editors).toHaveLength(3);
     expect(editors).not.toContainEqual({ type: 'user', id: '999' });
-    expect(await s.getUsersForRole('nobody')).toEqual([]);
+    expect(await s.getSubjectsForRole('nobody')).toEqual([]);
   });
 
   it('isolates tenants: a t1 assignee never appears when querying t2', async () => {
@@ -134,10 +134,10 @@ describe.skipIf(!PG_AVAILABLE)('LucidPermissionStore.getUsersForRole (real Postg
     await s.assignRole({ type: 'user', id: '202' }, 'billing', { tenantId: 'B' });
 
     // Global request: only the global assignee.
-    expect(await s.getUsersForRole('billing')).toEqual([{ type: 'user', id: '200' }]);
+    expect(await s.getSubjectsForRole('billing')).toEqual([{ type: 'user', id: '200' }]);
 
     // Tenant A: global + A's own, NOT B's.
-    const a = await s.getUsersForRole('billing', { tenantId: 'A' });
+    const a = await s.getSubjectsForRole('billing', { tenantId: 'A' });
     expect(a).toEqual(
       expect.arrayContaining([
         { type: 'user', id: '200' },
@@ -148,7 +148,7 @@ describe.skipIf(!PG_AVAILABLE)('LucidPermissionStore.getUsersForRole (real Postg
     expect(a).not.toContainEqual({ type: 'user', id: '202' });
 
     // Tenant B: global + B's own, NOT A's.
-    const b = await s.getUsersForRole('billing', { tenantId: 'B' });
+    const b = await s.getSubjectsForRole('billing', { tenantId: 'B' });
     expect(b).toEqual(
       expect.arrayContaining([
         { type: 'user', id: '200' },

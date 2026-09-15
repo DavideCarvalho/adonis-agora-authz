@@ -79,9 +79,9 @@ describe('AuthzService', () => {
     expect(await service.can(user, 'reports.view')).toBe(true);
   });
 
-  it('honors a custom resolveUserRef', async () => {
+  it('honors a custom resolveSubjectRef', async () => {
     const { store, service } = makeService({
-      resolveUserRef: (u) => ({ type: 'account', id: (u as { uid: string }).uid }),
+      resolveSubjectRef: (u) => ({ type: 'account', id: (u as { uid: string }).uid }),
     });
     await store.givePermissionToRole('owner', 'org.manage');
     await store.assignRole({ type: 'account', id: 'abc' }, 'owner');
@@ -89,7 +89,7 @@ describe('AuthzService', () => {
   });
 });
 
-describe('AuthzService.usersWithRole', () => {
+describe('AuthzService.subjectsWithRole', () => {
   it('unions the store, domain seam, and global seam', async () => {
     const { store, service } = makeService({
       resolveRoleMembers: () => ['2'],
@@ -97,7 +97,7 @@ describe('AuthzService.usersWithRole', () => {
     });
     await store.assignRole({ type: 'user', id: '1' }, 'editor');
 
-    const users = await service.usersWithRole('editor');
+    const users = await service.subjectsWithRole('editor');
     expect(users).toEqual(
       expect.arrayContaining([
         { type: 'user', id: '1' },
@@ -115,7 +115,7 @@ describe('AuthzService.usersWithRole', () => {
     });
     await store.assignRole({ type: 'user', id: '1' }, 'editor');
 
-    const users = await service.usersWithRole('editor');
+    const users = await service.subjectsWithRole('editor');
     expect(users).toEqual([{ type: 'user', id: '1' }]);
   });
 
@@ -124,7 +124,7 @@ describe('AuthzService.usersWithRole', () => {
       resolveRoleMembers: () => ['42'],
       resolveGlobalRoleMembers: () => [7], // number id too
     });
-    const users = await service.usersWithRole('editor');
+    const users = await service.subjectsWithRole('editor');
     expect(users).toEqual(
       expect.arrayContaining([
         { type: 'user', id: '42' },
@@ -134,12 +134,12 @@ describe('AuthzService.usersWithRole', () => {
     expect(users).toHaveLength(2);
   });
 
-  it('normalizes UserRefInput objects (keeping their type)', async () => {
+  it('normalizes SubjectRefInput objects (keeping their type)', async () => {
     const { service } = makeService({
       resolveRoleMembers: () => [{ type: 'account', id: 'abc' }],
       resolveGlobalRoleMembers: () => [{ id: 9 }], // no type → default 'user'
     });
-    const users = await service.usersWithRole('editor');
+    const users = await service.subjectsWithRole('editor');
     expect(users).toEqual(
       expect.arrayContaining([
         { type: 'account', id: 'abc' },
@@ -153,7 +153,7 @@ describe('AuthzService.usersWithRole', () => {
     const { store, service } = makeService();
     await store.assignRole({ type: 'user', id: '1' }, 'editor');
     await store.assignRole({ type: 'user', id: '2' }, 'editor');
-    const users = await service.usersWithRole('editor');
+    const users = await service.subjectsWithRole('editor');
     expect(users).toEqual(
       expect.arrayContaining([
         { type: 'user', id: '1' },
@@ -165,7 +165,7 @@ describe('AuthzService.usersWithRole', () => {
 
   it('returns [] for a role nobody holds', async () => {
     const { service } = makeService();
-    expect(await service.usersWithRole('ghost')).toEqual([]);
+    expect(await service.subjectsWithRole('ghost')).toEqual([]);
   });
 
   it('runs the three sources in parallel', async () => {
@@ -182,7 +182,7 @@ describe('AuthzService.usersWithRole', () => {
       resolveRoleMembers: slow('domain', 30, ['2']),
       resolveGlobalRoleMembers: slow('global', 10, ['3']),
     });
-    const users = await service.usersWithRole('editor');
+    const users = await service.subjectsWithRole('editor');
     expect(users).toEqual(
       expect.arrayContaining([
         { type: 'user', id: '2' },
@@ -205,7 +205,7 @@ describe('AuthzService.usersWithRole', () => {
     });
     await store.assignRole({ type: 'user', id: '1' }, 'editor', { tenantId: 'acme' });
     // The store's tenant-visibility means the acme assignee shows only under acme scope.
-    const users = await service.usersWithRole('editor');
+    const users = await service.subjectsWithRole('editor');
     expect(users).toEqual([{ type: 'user', id: '1' }]);
     expect(seamScope).toBe('acme');
   });
@@ -215,13 +215,13 @@ describe('AuthzService.usersWithRole', () => {
 function countingStore(base: PermissionStore) {
   const counts = { roles: 0, perms: 0 };
   const spy = Object.create(base) as PermissionStore;
-  spy.getRolesForUser = (u, s) => {
+  spy.getRolesForSubject = (u, s) => {
     counts.roles += 1;
-    return base.getRolesForUser(u, s);
+    return base.getRolesForSubject(u, s);
   };
-  spy.getPermissionsForUser = (u, s) => {
+  spy.getPermissionsForSubject = (u, s) => {
     counts.perms += 1;
-    return base.getPermissionsForUser(u, s);
+    return base.getPermissionsForSubject(u, s);
   };
   return { spy, counts };
 }
@@ -289,7 +289,7 @@ describe('AuthzService caching (issue #75)', () => {
     const cache = service.createCache();
 
     expect(await service.can(user, 'posts.edit', { cache })).toBe(false);
-    await store.giveUserPermission({ type: 'user', id: '1' }, 'posts.edit');
+    await store.giveSubjectPermission({ type: 'user', id: '1' }, 'posts.edit');
     // Same request, same cache: the decision was made against one state.
     expect(await service.can(user, 'posts.edit', { cache })).toBe(false);
     // A fresh cache (next request) sees the grant.
@@ -311,7 +311,7 @@ describe('AuthzService caching (issue #75)', () => {
     expect(counts.roles).toBe(2);
   });
 
-  it('a standalone cache falls back to store.getRolesForUser', async () => {
+  it('a standalone cache falls back to store.getRolesForSubject', async () => {
     const store = new MemoryPermissionStore();
     await store.assignRole({ type: 'user', id: '1' }, 'admin');
     const { spy, counts } = countingStore(store);

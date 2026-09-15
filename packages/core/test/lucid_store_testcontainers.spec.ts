@@ -3,9 +3,12 @@ import { Emitter } from '@adonisjs/core/events';
 import { AppFactory } from '@adonisjs/core/factories/app';
 import { LoggerFactory } from '@adonisjs/core/factories/logger';
 import { Database } from '@adonisjs/lucid/database';
+import { Adapter, BaseModel, column, manyToMany } from '@adonisjs/lucid/orm';
+import type { ManyToMany } from '@adonisjs/lucid/types/relations';
 import { MySqlContainer, type StartedMySqlContainer } from '@testcontainers/mysql';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { authzRolesRelation } from '../src/lucid_relation.js';
 import type { StoreQueryClient } from '../src/store.js';
 import type { LucidDatabase } from '../src/stores/lucid.js';
 import { LucidPermissionStore } from '../src/stores/lucid.js';
@@ -109,8 +112,8 @@ function nextTables(): Required<AuthzTableNames> {
     roles: `${p}roles`,
     permissions: `${p}permissions`,
     rolePermission: `${p}role_permission`,
-    userRole: `${p}user_role`,
-    userPermission: `${p}user_permission`,
+    subjectRole: `${p}subject_role`,
+    subjectPermission: `${p}subject_permission`,
   };
 }
 
@@ -133,18 +136,27 @@ for (const backend of backends) {
       await stop?.();
     }, STOP_TIMEOUT_MS);
 
-    async function freshStore(): Promise<LucidPermissionStore> {
+    async function freshStore(
+      subjectIdType: 'text' | 'integer' = 'text',
+    ): Promise<LucidPermissionStore> {
       const tables = nextTables();
-      await createAuthzTables(db, { tables });
+      await createAuthzTables(db, { tables, subjectIdType });
       return new LucidPermissionStore(db as unknown as LucidDatabase, {
         tables,
+        subjectIdType,
         autoCreateSchema: false,
       });
     }
 
     // Every semantic — idempotency, tenants, polymorphic types, deleteRole,
-    // the (type,id)-distinct counts — runs against this real dialect too.
-    runPermissionStoreContract(`${backend.label} via testcontainers`, freshStore);
+    // the (type,id)-distinct counts — runs against this real dialect too, on
+    // BOTH subject_id column types: behavior must not depend on the column type.
+    runPermissionStoreContract(`${backend.label} via testcontainers (text)`, () =>
+      freshStore('text'),
+    );
+    runPermissionStoreContract(`${backend.label} via testcontainers (integer)`, () =>
+      freshStore('integer'),
+    );
 
     it('ensureSchema is idempotent on this dialect (MySQL: CREATE INDEX has no IF NOT EXISTS)', async () => {
       const tables = nextTables();
@@ -162,18 +174,18 @@ for (const backend of backends) {
       const trx = await db.transaction();
       await s.assignRole(alice, 'editor', undefined, { client: trx });
       // Through the transaction: visible...
-      expect(await s.getRolesForUser(alice, undefined, { client: trx })).toContain('editor');
+      expect(await s.getRolesForSubject(alice, undefined, { client: trx })).toContain('editor');
       // ...from a SECOND connection: NOT YET. sqlite cannot make this
       // assertion — this is the cross-connection proof the seam exists for.
-      expect(await s.getRolesForUser(alice)).not.toContain('editor');
+      expect(await s.getRolesForSubject(alice)).not.toContain('editor');
       await trx.rollback();
-      expect(await s.getRolesForUser(alice)).not.toContain('editor');
+      expect(await s.getRolesForSubject(alice)).not.toContain('editor');
 
       const trx2 = await db.transaction();
       await s.assignRole(alice, 'editor', undefined, { client: trx2 });
       await trx2.commit();
-      expect(await s.getRolesForUser(alice)).toContain('editor');
-      expect(await s.countUsersForRole('editor')).toBe(1);
+      expect(await s.getRolesForSubject(alice)).toContain('editor');
+      expect(await s.countSubjectsForRole('editor')).toBe(1);
     });
 
     it('the last-admin guard reads pending state while the root connection sees the old count', async () => {
@@ -184,11 +196,11 @@ for (const backend of backends) {
       const trx = await db.transaction();
       const scoped = s.withClient(trx);
       await scoped.removeRole({ type: 'user', id: '1' }, 'admin');
-      expect(await scoped.countUsersForRole('admin')).toBe(1);
+      expect(await scoped.countSubjectsForRole('admin')).toBe(1);
       // The concurrent-request view — two connections, two truths, one commit.
-      expect(await s.countUsersForRole('admin')).toBe(2);
+      expect(await s.countSubjectsForRole('admin')).toBe(2);
       await trx.commit();
-      expect(await s.countUsersForRole('admin')).toBe(1);
+      expect(await s.countSubjectsForRole('admin')).toBe(1);
     });
 
     it('the ambient resolveClient joins writes into the transaction, rollbacks included', async () => {
@@ -213,7 +225,202 @@ for (const backend of backends) {
 
       await trx.rollback();
       expect(await s.getRolePermissions('temp')).toContain('x.view');
-      expect(await s.countUsersForRole('temp')).toBe(1);
+      expect(await s.countSubjectsForRole('temp')).toBe(1);
+    });
+
+    it('a virgin integer model preloads through the DEFAULT relation on INTEGER pivots', async () => {
+      // Fixed names are safe: each backend owns a fresh container/database.
+      await createAuthzTables(db, {
+        tables: {
+          roles: 'rel_roles',
+          permissions: 'rel_permissions',
+          rolePermission: 'rel_role_permission',
+          subjectRole: 'rel_subject_role',
+          subjectPermission: 'rel_subject_permission',
+        },
+        subjectIdType: 'integer',
+      });
+      await db.rawQuery(
+        'CREATE TABLE IF NOT EXISTS rel_users (id INTEGER PRIMARY KEY, email TEXT)',
+      );
+      await db.rawQuery(`INSERT INTO rel_users (id, email) VALUES (42, 'a@b.c')`);
+      BaseModel.$adapter = new Adapter(db);
+      const s = new LucidPermissionStore(db as unknown as LucidDatabase, {
+        tables: {
+          roles: 'rel_roles',
+          permissions: 'rel_permissions',
+          rolePermission: 'rel_role_permission',
+          subjectRole: 'rel_subject_role',
+          subjectPermission: 'rel_subject_permission',
+        },
+        subjectIdType: 'integer',
+        autoCreateSchema: false,
+      });
+      await s.assignRole({ type: 'user', id: '42' }, 'COORDINATOR');
+
+      const users = await RelIntUser.query().preload('roles');
+      expect(users).toHaveLength(1);
+      expect(users[0]!.id).toBe(42);
+      expect(users[0]!.roles.map((r) => r.name)).toEqual(['COORDINATOR']);
+      // Native-typed pivot: `whereHas` compares integer to integer on every dialect.
+      const has = await RelIntUser.query().whereHas('roles', (q) => q.where('name', 'COORDINATOR'));
+      expect(has.map((u) => u.id)).toEqual([42]);
+    });
+
+    it('an integer model preloads through the DEFAULT relation on TEXT (default) pivots', async () => {
+      // The zero-config path every fresh install lands on: increments() host,
+      // polymorphic TEXT pivot, nothing declared on the model. The relation
+      // normalizes both the bound key and the distribution — on every dialect.
+      const tables = {
+        roles: 'txt_roles',
+        permissions: 'txt_permissions',
+        rolePermission: 'txt_role_permission',
+        subjectRole: 'txt_subject_role',
+        subjectPermission: 'txt_subject_permission',
+      };
+      await createAuthzTables(db, { tables });
+      await db.rawQuery(
+        'CREATE TABLE IF NOT EXISTS txt_users (id INTEGER PRIMARY KEY, email TEXT)',
+      );
+      await db.rawQuery(`INSERT INTO txt_users (id, email) VALUES (7, 'a@b.c'), (42, 'b@b.c')`);
+      BaseModel.$adapter = new Adapter(db);
+      const s = new LucidPermissionStore(db as unknown as LucidDatabase, {
+        tables,
+        autoCreateSchema: false,
+      });
+      await s.assignRole({ type: 'user', id: '42' }, 'COORDINATOR');
+      await s.assignRole({ type: 'user', id: '7' }, 'VIEWER');
+      await s.assignRole({ type: 'team', id: '7' }, 'LEAK'); // other subject kind, same id
+
+      const users = await TxtIntUser.query().orderBy('id').preload('roles');
+      expect(users.map((u) => [u.id, u.roles.map((r) => r.name)])).toEqual([
+        [7, ['VIEWER']],
+        [42, ['COORDINATOR']],
+      ]);
+      // And the single-instance paths.
+      const one = await TxtIntUser.findOrFail(42);
+      await one.load('roles');
+      expect(one.roles.map((r) => r.name)).toEqual(['COORDINATOR']);
+      expect((await one.related('roles').query()).map((r) => r.name)).toEqual(['COORDINATOR']);
+
+      // The one thing the relation cannot normalize: `has`/`whereHas` compare
+      // the REAL columns in SQL (`users.id = subject_role.subject_id`). MySQL
+      // coerces; Postgres refuses `integer = character varying` — LOUDLY, which
+      // is the documented reason to pick `subjectIdType` on Postgres.
+      const whereHas = TxtIntUser.query().whereHas('roles', (q) => q.where('name', 'VIEWER'));
+      if (backend.dialectPattern.test('postgres')) {
+        await expect(whereHas).rejects.toThrow(
+          /operator does not exist: integer = character varying/,
+        );
+      } else {
+        expect((await whereHas).map((u) => u.id)).toEqual([7]);
+      }
+    });
+
+    it('a bigint model preloads through the DEFAULT relation on BIGINT pivots', async () => {
+      // Postgres hands `bigint` back as a STRING, so a bigIncrements() host
+      // would compare `'42' === 42` in Lucid's own distribution — and an id
+      // beyond int4 would not even fit an INTEGER pivot. `'bigint'` sizes the
+      // column like the host; the relation's normalization does the rest.
+      // (The id stays below 2^53: mysql2 returns BIGINT as a JS number.)
+      const tables = {
+        roles: 'big_roles',
+        permissions: 'big_permissions',
+        rolePermission: 'big_role_permission',
+        subjectRole: 'big_subject_role',
+        subjectPermission: 'big_subject_permission',
+      };
+      await createAuthzTables(db, { tables, subjectIdType: 'bigint' });
+      await db.rawQuery('CREATE TABLE IF NOT EXISTS big_users (id BIGINT PRIMARY KEY, email TEXT)');
+      await db.rawQuery(`INSERT INTO big_users (id, email) VALUES (4294967342, 'a@b.c')`);
+      BaseModel.$adapter = new Adapter(db);
+      const s = new LucidPermissionStore(db as unknown as LucidDatabase, {
+        tables,
+        subjectIdType: 'bigint',
+        autoCreateSchema: false,
+      });
+      await s.assignRole({ type: 'user', id: '4294967342' }, 'COORDINATOR');
+
+      const users = await BigIntUser.query().preload('roles');
+      expect(users).toHaveLength(1);
+      expect(String(users[0]!.id)).toBe('4294967342');
+      expect(users[0]!.roles.map((r) => r.name)).toEqual(['COORDINATOR']);
     });
   });
+}
+
+/** TEXT-pivot integer host: nothing but the PK and the relation. */
+class TxtIntUser extends BaseModel {
+  static table = 'txt_users';
+
+  @column({ isPrimary: true })
+  declare id: number;
+
+  @column()
+  declare email: string;
+
+  @manyToMany(() => TxtRole, authzRolesRelation({ tables: { subjectRole: 'txt_subject_role' } }))
+  declare roles: ManyToMany<typeof TxtRole>;
+}
+
+class TxtRole extends BaseModel {
+  static table = 'txt_roles';
+
+  @column({ isPrimary: true })
+  declare id: string;
+
+  @column()
+  declare name: string;
+}
+
+/** bigIncrements() host over BIGINT pivots. */
+class BigIntUser extends BaseModel {
+  static table = 'big_users';
+
+  @column({ isPrimary: true })
+  declare id: number | string;
+
+  @column()
+  declare email: string;
+
+  @manyToMany(() => BigRole, authzRolesRelation({ tables: { subjectRole: 'big_subject_role' } }))
+  declare roles: ManyToMany<typeof BigRole>;
+}
+
+class BigRole extends BaseModel {
+  static table = 'big_roles';
+
+  @column({ isPrimary: true })
+  declare id: string;
+
+  @column()
+  declare name: string;
+}
+
+/**
+ * Relation models for the container backends. Fixed table names are safe —
+ * each backend boots a fresh container, so there is no shared state.
+ */
+class RelRole extends BaseModel {
+  static table = 'rel_roles';
+
+  @column({ isPrimary: true })
+  declare id: string;
+
+  @column()
+  declare name: string;
+}
+
+/** Virgin integer model: plain id, DEFAULT relation, zero ceremony. */
+class RelIntUser extends BaseModel {
+  static table = 'rel_users';
+
+  @column({ isPrimary: true })
+  declare id: number;
+
+  @column()
+  declare email: string;
+
+  @manyToMany(() => RelRole, authzRolesRelation({ tables: { subjectRole: 'rel_subject_role' } }))
+  declare roles: ManyToMany<typeof RelRole>;
 }

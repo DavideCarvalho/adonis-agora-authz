@@ -3,7 +3,7 @@ name: authz-roles-tenancy
 description: >
   Reconcile roles and tenants with @adonis-agora/authz as the single authority —
   the effective-role union (token claim ∪ resolveRoles seam ∪ store.assignRole),
-  hasRole/hasAnyRole over that union, the reverse lookup usersWithRole and its
+  hasRole/hasAnyRole over that union, the reverse lookup subjectsWithRole and its
   reverse seams resolveRoleMembers / resolveGlobalRoleMembers, config-only
   roleGrants, superAdminRoles matched against global context roles only, tenant
   visibility rules (GLOBAL_TENANT '', normalizeTenant, tenant sees global ∪ own,
@@ -28,7 +28,7 @@ sources:
 
 An app's roles live in three places at once — the token claim, domain tables,
 the authz store. authz does not move them; it unions them and answers **every**
-role question forwards (`effectiveRoles`) and backwards (`usersWithRole`) off
+role question forwards (`effectiveRoles`) and backwards (`subjectsWithRole`) off
 that one union. Nothing else in the app should ask a role source directly.
 
 ## Setup
@@ -44,7 +44,7 @@ export default defineConfig({
   // Forward: app roles from YOUR tables enter the union.
   resolveRoles: async (user, scope) => {
     const rows = await UserRole.query()
-      .where('user_id', user.id)
+      .where('subject_id', user.id)
       .if(scope?.tenantId, (query) => query.where('tenant_id', scope!.tenantId!))
     return rows.map((row) => row.role)
   },
@@ -62,9 +62,9 @@ await authz.effectiveRoles(user, { tenantId: 'acme' }) // tenant-filtered
 
 ### Reverse lookup: who holds this role?
 
-`usersWithRole` mirrors `effectiveRoles` — store ∪ `resolveRoleMembers` ∪
+`subjectsWithRole` mirrors `effectiveRoles` — store ∪ `resolveRoleMembers` ∪
 `resolveGlobalRoleMembers`, run in parallel, deduped by `(type, id)`. It
-returns `UserRef`s; hydrate with your own models.
+returns `SubjectRef`s; hydrate with your own models.
 
 ```ts title="config/authz.ts"
 defineConfig({
@@ -89,7 +89,7 @@ import authz from '@adonis-agora/authz/services/main'
 import User from '#models/user'
 
 export async function notifyCoordinators(tenantId: string, message: string) {
-  const refs = await authz.usersWithRole('COORDINATOR', { tenantId })
+  const refs = await authz.subjectsWithRole('COORDINATOR', { tenantId })
   const ids = refs.filter((ref) => ref.type === 'user').map((ref) => ref.id)
   if (ids.length === 0) return
   const users = await User.query().whereIn('id', ids)
@@ -176,7 +176,7 @@ Source: `docs/bouncer-integration.mdx` ("Division of responsibility" warn Callou
 
 ### HIGH Wiring resolveRoles without its reverse seam
 
-`usersWithRole` answers only from configured sources. An unwired
+`subjectsWithRole` answers only from configured sources. An unwired
 `resolveRoleMembers` contributes nothing **silently** — a shorter list, not an
 error — so users whose roles come from your domain tables are missed everywhere
 the reverse lookup is used.
@@ -244,14 +244,14 @@ Wrong:
 
 ```ts
 // assuming a scoped variant exists
-await authz.store.giveUserPermission(ref, 'billing.view', { tenantId: 'acme' } as never);
+await authz.store.giveSubjectPermission(ref, 'billing.view', { tenantId: 'acme' } as never);
 ```
 
 Correct:
 
 ```ts
 // grants are global by design — put tenancy on a ROLE assignment instead:
-await authz.store.giveUserPermission(ref, 'billing.view'); // applies everywhere
+await authz.store.giveSubjectPermission(ref, 'billing.view'); // applies everywhere
 await authz.store.assignRole(ref, 'billing', { tenantId: 'acme' }); // scoped
 ```
 

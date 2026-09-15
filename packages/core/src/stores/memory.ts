@@ -1,17 +1,22 @@
 import { randomUUID } from 'node:crypto';
 import type { PermissionStore } from '../store.js';
-import { GLOBAL_TENANT, normalizeTenant, type TenantScope, type UserRef } from '../user_ref.js';
+import {
+  GLOBAL_TENANT,
+  normalizeTenant,
+  type SubjectRef,
+  type TenantScope,
+} from '../subject_ref.js';
 
-interface UserRoleRow {
-  userType: string;
-  userId: string;
+interface SubjectRoleRow {
+  subjectType: string;
+  subjectId: string;
   roleId: string;
   tenantId: string;
 }
 
-interface UserPermissionRow {
-  userType: string;
-  userId: string;
+interface SubjectPermissionRow {
+  subjectType: string;
+  subjectId: string;
   permissionId: string;
 }
 
@@ -23,7 +28,7 @@ interface UserPermissionRow {
  */
 const compositeKey = (...parts: string[]): string => JSON.stringify(parts);
 
-const userKey = (u: UserRef): string => compositeKey(u.type, u.id);
+const subjectKey = (u: SubjectRef): string => compositeKey(u.type, u.id);
 
 /**
  * Zero-peer, in-process {@link PermissionStore}. Faithful to the Lucid store's
@@ -34,8 +39,8 @@ export class MemoryPermissionStore implements PermissionStore {
   private roles = new Map<string, string>(); // name -> id
   private permissions = new Map<string, string>(); // name -> id
   private rolePermissions = new Set<string>(); // compositeKey(roleId, permissionId)
-  private userRoles: UserRoleRow[] = [];
-  private userPermissions: UserPermissionRow[] = [];
+  private subjectRoles: SubjectRoleRow[] = [];
+  private subjectPermissions: SubjectPermissionRow[] = [];
 
   async ensureSchema(): Promise<void> {
     // Nothing to do — purely in-memory.
@@ -70,30 +75,30 @@ export class MemoryPermissionStore implements PermissionStore {
     this.rolePermissions.delete(compositeKey(roleId, permissionId));
   }
 
-  async assignRole(user: UserRef, roleName: string, scope?: TenantScope): Promise<void> {
+  async assignRole(user: SubjectRef, roleName: string, scope?: TenantScope): Promise<void> {
     const roleId = await this.createRole(roleName);
     const tenantId = normalizeTenant(scope);
-    const exists = this.userRoles.some(
+    const exists = this.subjectRoles.some(
       (r) =>
-        r.userType === user.type &&
-        r.userId === user.id &&
+        r.subjectType === user.type &&
+        r.subjectId === user.id &&
         r.roleId === roleId &&
         r.tenantId === tenantId,
     );
     if (!exists) {
-      this.userRoles.push({ userType: user.type, userId: user.id, roleId, tenantId });
+      this.subjectRoles.push({ subjectType: user.type, subjectId: user.id, roleId, tenantId });
     }
   }
 
-  async removeRole(user: UserRef, roleName: string, scope?: TenantScope): Promise<void> {
+  async removeRole(user: SubjectRef, roleName: string, scope?: TenantScope): Promise<void> {
     const roleId = this.roles.get(roleName);
     if (!roleId) return;
     const tenantId = normalizeTenant(scope);
-    this.userRoles = this.userRoles.filter(
+    this.subjectRoles = this.subjectRoles.filter(
       (r) =>
         !(
-          r.userType === user.type &&
-          r.userId === user.id &&
+          r.subjectType === user.type &&
+          r.subjectId === user.id &&
           r.roleId === roleId &&
           r.tenantId === tenantId
         ),
@@ -105,27 +110,33 @@ export class MemoryPermissionStore implements PermissionStore {
     const roleId = this.roles.get(name);
     if (!roleId) return;
     this.roles.delete(name);
-    this.userRoles = this.userRoles.filter((r) => r.roleId !== roleId);
+    this.subjectRoles = this.subjectRoles.filter((r) => r.roleId !== roleId);
     for (const rp of [...this.rolePermissions]) {
       if ((JSON.parse(rp) as string[])[0] === roleId) this.rolePermissions.delete(rp);
     }
   }
 
-  async giveUserPermission(user: UserRef, permissionName: string): Promise<void> {
+  async giveSubjectPermission(user: SubjectRef, permissionName: string): Promise<void> {
     const permissionId = await this.createPermission(permissionName);
-    const exists = this.userPermissions.some(
-      (r) => r.userType === user.type && r.userId === user.id && r.permissionId === permissionId,
+    const exists = this.subjectPermissions.some(
+      (r) =>
+        r.subjectType === user.type && r.subjectId === user.id && r.permissionId === permissionId,
     );
     if (!exists) {
-      this.userPermissions.push({ userType: user.type, userId: user.id, permissionId });
+      this.subjectPermissions.push({ subjectType: user.type, subjectId: user.id, permissionId });
     }
   }
 
-  async revokeUserPermission(user: UserRef, permissionName: string): Promise<void> {
+  async revokeSubjectPermission(user: SubjectRef, permissionName: string): Promise<void> {
     const permissionId = this.permissions.get(permissionName);
     if (!permissionId) return;
-    this.userPermissions = this.userPermissions.filter(
-      (r) => !(r.userType === user.type && r.userId === user.id && r.permissionId === permissionId),
+    this.subjectPermissions = this.subjectPermissions.filter(
+      (r) =>
+        !(
+          r.subjectType === user.type &&
+          r.subjectId === user.id &&
+          r.permissionId === permissionId
+        ),
     );
   }
 
@@ -145,11 +156,11 @@ export class MemoryPermissionStore implements PermissionStore {
     return undefined;
   }
 
-  async getRolesForUser(user: UserRef, scope?: TenantScope): Promise<string[]> {
+  async getRolesForSubject(user: SubjectRef, scope?: TenantScope): Promise<string[]> {
     const requested = normalizeTenant(scope);
     const out = new Set<string>();
-    for (const r of this.userRoles) {
-      if (r.userType !== user.type || r.userId !== user.id) continue;
+    for (const r of this.subjectRoles) {
+      if (r.subjectType !== user.type || r.subjectId !== user.id) continue;
       if (!this.tenantVisible(r.tenantId, requested)) continue;
       const name = this.roleIdToName(r.roleId);
       if (name) out.add(name);
@@ -157,43 +168,43 @@ export class MemoryPermissionStore implements PermissionStore {
     return [...out];
   }
 
-  async getUsersForRole(role: string, scope?: TenantScope): Promise<UserRef[]> {
+  async getSubjectsForRole(role: string, scope?: TenantScope): Promise<SubjectRef[]> {
     const roleId = this.roles.get(role);
     if (!roleId) return [];
     const requested = normalizeTenant(scope);
     const seen = new Set<string>();
-    const out: UserRef[] = [];
-    for (const r of this.userRoles) {
+    const out: SubjectRef[] = [];
+    for (const r of this.subjectRoles) {
       if (r.roleId !== roleId) continue;
       if (!this.tenantVisible(r.tenantId, requested)) continue;
-      const key = userKey({ type: r.userType, id: r.userId });
+      const key = subjectKey({ type: r.subjectType, id: r.subjectId });
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push({ type: r.userType, id: r.userId });
+      out.push({ type: r.subjectType, id: r.subjectId });
     }
     return out;
   }
 
-  async countUsersForRole(role: string, scope?: TenantScope): Promise<number> {
-    return (await this.getUsersForRole(role, scope)).length;
+  async countSubjectsForRole(role: string, scope?: TenantScope): Promise<number> {
+    return (await this.getSubjectsForRole(role, scope)).length;
   }
 
-  async countUsersByRole(scope?: TenantScope): Promise<Record<string, number>> {
+  async countSubjectsByRole(scope?: TenantScope): Promise<Record<string, number>> {
     const counts: Record<string, number> = {};
     for (const name of this.roles.keys()) {
-      counts[name] = (await this.getUsersForRole(name, scope)).length;
+      counts[name] = (await this.getSubjectsForRole(name, scope)).length;
     }
     return counts;
   }
 
-  async getPermissionsForUser(user: UserRef, scope?: TenantScope): Promise<string[]> {
+  async getPermissionsForSubject(user: SubjectRef, scope?: TenantScope): Promise<string[]> {
     const out = new Set<string>();
 
     // Role-derived (tenant-aware).
     const roleIds = new Set<string>();
     const requested = normalizeTenant(scope);
-    for (const r of this.userRoles) {
-      if (r.userType !== user.type || r.userId !== user.id) continue;
+    for (const r of this.subjectRoles) {
+      if (r.subjectType !== user.type || r.subjectId !== user.id) continue;
       if (!this.tenantVisible(r.tenantId, requested)) continue;
       roleIds.add(r.roleId);
     }
@@ -206,8 +217,8 @@ export class MemoryPermissionStore implements PermissionStore {
     }
 
     // Direct grants (tenant-independent).
-    for (const up of this.userPermissions) {
-      if (up.userType !== user.type || up.userId !== user.id) continue;
+    for (const up of this.subjectPermissions) {
+      if (up.subjectType !== user.type || up.subjectId !== user.id) continue;
       const name = this.permissionIdToName(up.permissionId);
       if (name) out.add(name);
     }
@@ -215,12 +226,12 @@ export class MemoryPermissionStore implements PermissionStore {
     return [...out];
   }
 
-  async userHasPermission(
-    user: UserRef,
+  async subjectHasPermission(
+    user: SubjectRef,
     permission: string,
     scope?: TenantScope,
   ): Promise<boolean> {
-    const all = await this.getPermissionsForUser(user, scope);
+    const all = await this.getPermissionsForSubject(user, scope);
     return all.includes(permission);
   }
 

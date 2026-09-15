@@ -3,7 +3,7 @@ import type { CommandOptions } from '@adonisjs/core/types/ace';
 import { AuthzService } from '../src/authz_service.js';
 
 /**
- * `node ace authz:assign <role> <userId>` — assign a role to a user. Use
+ * `node ace authz:assign <role> <subjectId>` — assign a role to a user. Use
  * `--type` for a polymorphic user type and `--tenant` for a tenant scope.
  */
 export default class AuthzAssign extends BaseCommand {
@@ -15,7 +15,7 @@ export default class AuthzAssign extends BaseCommand {
   declare role: string;
 
   @args.string({ description: 'User id' })
-  declare userId: string;
+  declare subjectId: string;
 
   @flags.string({ description: 'User type (polymorphic)', default: 'user' })
   declare type: string;
@@ -26,11 +26,11 @@ export default class AuthzAssign extends BaseCommand {
   override async run(): Promise<void> {
     const authz = await this.app.container.make(AuthzService);
     await authz.store.assignRole(
-      { type: this.type, id: this.userId },
+      { type: this.type, id: this.subjectId },
       this.role,
       this.tenant ? { tenantId: this.tenant } : undefined,
     );
     const where = this.tenant ? ` (tenant: ${this.tenant})` : '';
-    this.logger.success(`Assigned role "${this.role}" to ${this.type}:${this.userId}${where}`);
+    this.logger.success(`Assigned role "${this.role}" to ${this.type}:${this.subjectId}${where}`);
   }
 }

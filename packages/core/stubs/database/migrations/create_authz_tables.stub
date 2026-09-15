@@ -6,7 +6,7 @@ import { createAuthzTables, dropAuthzTables } from '@adonis-agora/authz'
 
 /**
  * RBAC tables for @adonis-agora/authz. This package NEVER owns a users table — users
- * are referenced polymorphically by (user_type, user_id). The tenant_id column is
+ * are referenced polymorphically by (subject_type, subject_id). The tenant_id column is
  * part of the user-role primary key ('' = the global scope) so the same
  * (user, role) pair can be granted per-tenant independently.
  *
@@ -18,6 +18,10 @@ export default class extends BaseSchema {
   async up() {
     this.defer(async (db) => {
       await createAuthzTables(db)
+      // Optional: give the pivots your host's native key type — 'integer'
+      // (increments) or 'bigint' (bigIncrements). All subjects must then hold
+      // integer ids, and config/authz.ts must pass the same subjectIdType.
+      // await createAuthzTables(db, { subjectIdType: 'integer' })
     })
   }
 

@@ -3,8 +3,8 @@ import {
   AGORA_CONTEXT_ACCESSOR,
   globalRolesFromContext,
   readContextValue,
+  subjectRefFromContext,
   tenantFromContext,
-  userRefFromContext,
 } from './context.js';
 
 type GlobalSlots = Record<symbol, unknown>;
@@ -20,13 +20,13 @@ afterEach(() => {
 describe('agora context bridge', () => {
   it('returns undefined when no accessor slot is present', () => {
     expect(tenantFromContext()).toBeUndefined();
-    expect(userRefFromContext()).toBeUndefined();
+    expect(subjectRefFromContext()).toBeUndefined();
     expect(globalRolesFromContext()).toEqual([]);
     expect(readContextValue('globalRoles')).toBeUndefined();
   });
 
   // The real @adonis-agora/context accessor (packages/core/src/accessor.ts) publishes
-  // `tenantId`/`userRef` as METHODS, not plain properties. Earlier versions of this test
+  // `tenantId`/`subjectRef` as METHODS, not plain properties. Earlier versions of this test
   // faked `tenantId` as a string value, a contract the context lib never shipped — which
   // is exactly why the bug (authz reading the function reference itself, truthy but
   // wrong, instead of calling it) went unnoticed.
@@ -35,9 +35,9 @@ describe('agora context bridge', () => {
     expect(tenantFromContext()).toBe('acme');
   });
 
-  it('reads userRef structurally from the accessor by calling it', () => {
-    setAccessor({ userRef: () => ({ type: 'user', id: '42' }) });
-    expect(userRefFromContext()).toEqual({ type: 'user', id: '42' });
+  it('reads subjectRef structurally from the accessor by calling it', () => {
+    setAccessor({ subjectRef: () => ({ type: 'user', id: '42' }) });
+    expect(subjectRefFromContext()).toEqual({ type: 'user', id: '42' });
   });
 
   it('treats empty-string tenantId as no tenant', () => {
@@ -52,9 +52,9 @@ describe('agora context bridge', () => {
     expect(tenantFromContext()).toBeUndefined();
   });
 
-  it('treats a userRef field that is not a function as absent', () => {
-    setAccessor({ userRef: { type: 'user', id: '1' } as unknown as () => undefined });
-    expect(userRefFromContext()).toBeUndefined();
+  it('treats a subjectRef field that is not a function as absent', () => {
+    setAccessor({ subjectRef: { type: 'user', id: '1' } as unknown as () => undefined });
+    expect(subjectRefFromContext()).toBeUndefined();
   });
 
   it('tolerates a throwing tenantId() accessor', () => {
@@ -66,19 +66,19 @@ describe('agora context bridge', () => {
     expect(tenantFromContext()).toBeUndefined();
   });
 
-  it('tolerates a throwing userRef() accessor', () => {
+  it('tolerates a throwing subjectRef() accessor', () => {
     setAccessor({
-      userRef: () => {
+      subjectRef: () => {
         throw new Error('boom');
       },
     });
-    expect(userRefFromContext()).toBeUndefined();
+    expect(subjectRefFromContext()).toBeUndefined();
   });
 
-  it('returns undefined when the accessor has no tenantId/userRef field at all', () => {
+  it('returns undefined when the accessor has no tenantId/subjectRef field at all', () => {
     setAccessor({ get: () => ({}) });
     expect(tenantFromContext()).toBeUndefined();
-    expect(userRefFromContext()).toBeUndefined();
+    expect(subjectRefFromContext()).toBeUndefined();
   });
 
   // The real @adonis-agora/context accessor implements get() → the whole store, and

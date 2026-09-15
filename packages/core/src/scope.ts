@@ -1,4 +1,4 @@
-import type { TenantScope, UserRef } from './user_ref.js';
+import type { SubjectRef, TenantScope } from './subject_ref.js';
 
 /**
  * Conservative identifier allowlist for any column name interpolated into a query
@@ -139,7 +139,7 @@ export function or(...nodes: ScopeNode[]): ScopeConstraint {
 export type ScopeResult = ScopeConstraint | boolean | null | undefined;
 
 /**
- * Context handed to a registered {@link ScopeFilter}: the resolved {@link UserRef},
+ * Context handed to a registered {@link ScopeFilter}: the resolved {@link SubjectRef},
  * the action/ability being scoped, the user's effective roles and permissions
  * (already tenant-filtered + wildcard-aware via the store), and the active tenant.
  * Everything a filter needs to derive its `where` from the SAME authorization data
@@ -147,7 +147,7 @@ export type ScopeResult = ScopeConstraint | boolean | null | undefined;
  */
 export interface ScopeFilterContext {
   /** The resolved user reference (`{ type, id }`). */
-  user: UserRef;
+  user: SubjectRef;
   /** The action/ability being scoped (e.g. `viewAny`, `posts.read`). */
   action: string;
   /** The user's effective permission names for the active tenant (role-derived ∪ direct). */

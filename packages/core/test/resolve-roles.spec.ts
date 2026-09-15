@@ -79,7 +79,7 @@ describe('effectiveRoles / effectivePermissions (public API)', () => {
   it('effectivePermissions unions store-granted permissions with roleGrants over effective roles', async () => {
     setContextRoles(['ADMIN']);
     const store = new MemoryPermissionStore();
-    await store.giveUserPermission({ type: 'user', id: 'u1' }, 'direct.permission');
+    await store.giveSubjectPermission({ type: 'user', id: 'u1' }, 'direct.permission');
     const authz = svc({
       store,
       resolveRoles: async () => ['COORDINATOR'],

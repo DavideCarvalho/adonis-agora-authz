@@ -1,20 +1,21 @@
 ---
 title: Roles relation
-description: authzRolesRelation() — the Lucid manyToMany options that join your user model to the authz roles through the authz_user_role pivot, so a listing preloads roles instead of asking once per user.
+description: authzRolesRelation() — the Lucid manyToMany options that join your user model to the authz roles through the authz_subject_role pivot, so a listing preloads roles instead of asking once per user.
 icon: Link
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-`getRolesForUser` — and the [mixin](/docs/authz/mixin)'s `getRoles()` on top of
+`getRolesForSubject` — and the [mixin](/docs/authz/mixin)'s `getRoles()` on top of
 it — answers for **one** user, with one query. That is the right shape for a
 request that already has a user in hand, and the wrong shape for a list: a
 paginated screen of 20 users costs 20 extra round trips, and the cost grows with
 the page.
 
-`authzRolesRelation()` returns the options of a Lucid `manyToMany` joining your
-user model to the authz roles through the `authz_user_role` pivot, so roles
-arrive over a JOIN with `preload` instead:
+`authzRolesRelation()` returns the options of a Lucid `manyToMany` joining **any**
+model of yours — users, teams, organizations, whatever holds a primary key — to
+the authz roles through the `authz_subject_role` pivot, so roles arrive over a JOIN
+with `preload` instead:
 
 ```ts
 import { authzRolesRelation } from '@adonis-agora/authz'
@@ -70,17 +71,73 @@ const users = await User.query().preload('roles').paginate(page, 20)
 // one query for the users, one for every role of every user on the page
 ```
 
+That is the whole declaration, and it is not users-only: the store is
+[polymorphic](/docs/authz/concepts#polymorphic-subjects), so any table whose rows
+hold roles — teams, organizations, service accounts — gets the same relation on
+its own model. The primary key can be an `increments()` number, a
+`bigIncrements()`, a UUID, and it does not have to be called `id`:
+
+```ts title="app/models/team.ts"
+export default class Team extends BaseModel {
+  @column({ isPrimary: true })
+  declare id: number
+
+  // Teams are their own subject kind: `subjectType` is the `type` your
+  // resolveSubjectRef returns for a Team, and what assignRole(team, …) wrote.
+  @manyToMany(() => AuthzRole, authzRolesRelation({ subjectType: 'team' }))
+  declare roles: ManyToMany<typeof AuthzRole>
+}
+```
+
+```ts
+const teams = await Team.query().preload('roles')
+```
+
+## Any key type, any pivot type
+
+The pivot stores `subject_id` as TEXT by default — it is
+[polymorphic](/docs/authz/concepts#polymorphic-subjects), so integer ids and UUIDs
+share one table. Lucid, on its own, uses your model's key **as-is** in two
+places: the `WHERE subject_id IN (…)` it binds (SQLite does not coerce a numeric
+binding to match a TEXT column — it returns nothing), and the distribution of
+the result back to each parent, done with strict JS equality (`'42' !== 42`).
+An `increments()` model therefore preloaded `[]` **with no error** (#74).
+
+`authzRolesRelation()` closes both gaps itself, on the first query, without
+touching your model's columns: it points the relation's `localKey` at a plain
+getter it defines on the model's prototype (`$authz_<key>`, the key as a
+string — not a `@column`, so it never enters `$attributes`, hydration,
+`serialize()` or `save()`), and it distributes preloaded rows by comparing
+both sides as strings.
+
+The upshot: `preload`, `load` and `related('roles').query()` work with the key
+as you declared it, on TEXT pivots (the default) and on
+[`integer` / `bigint` pivots](/docs/authz/config#native-key-type-pivots) alike —
+including the Postgres case where a `bigint` PK arrives as a string. Nothing to
+declare, nothing to configure.
+
+<Callout type="warn">
+  **`has` / `whereHas('roles')` on Postgres with an integer PK needs a native
+  pivot.** Those compile to a correlated subquery comparing the **real** columns
+  (`users.id = authz_subject_role.subject_id`), which the relation cannot rewrite.
+  MySQL and SQLite coerce; Postgres refuses `integer = character varying` —
+  loudly, as a query error, never as a silent `[]`. On Postgres, set
+  [`subjectIdType: 'integer'` / `'bigint'`](/docs/authz/config#native-key-type-pivots)
+  to match your PK, or answer that question through the store
+  (`getSubjectsForRole`). `preload` is unaffected.
+</Callout>
+
 ## What the function spells for you
 
 The pivot's shape is an internal of this package, not of your app, and two of its
 columns are easy to get wrong in a way that **raises no error** — you just read
 rows from the wrong scope:
 
-- **`user_type` is part of the key.** authz users are
-  [polymorphic](/docs/authz/concepts#polymorphic-users): the primary key of
-  `authz_user_role` is `(user_type, user_id, role_id, tenant_id)`, so `admin#1`
+- **`subject_type` is part of the key.** authz users are
+  [polymorphic](/docs/authz/concepts#polymorphic-subjects): the primary key of
+  `authz_subject_role` is `(subject_type, subject_id, role_id, tenant_id)`, so `admin#1`
   and `user#1` are different subjects that share an id. A relation that joins on
-  `user_id` alone mixes them.
+  `subject_id` alone mixes them.
 - **The global tenant is the empty string, not `null`.** The store writes
   `''` ([`GLOBAL_TENANT`](/docs/authz/concepts#multi-tenancy)) for an unscoped
   assignment. Filtering the pivot on `null` matches no row at all.
@@ -89,58 +146,34 @@ So the returned object is:
 
 | Key                                | Value                                                |
 | ---------------------------------- | ---------------------------------------------------- |
-| `pivotTable`                       | `authz_user_role`                                    |
-| `localKey` / `relatedKey`          | `id` on the user model (or `localKey`, below) / `id` on the role model |
-| `pivotForeignKey`                  | `user_id`                                            |
+| `pivotTable`                       | `authz_subject_role`                                    |
+| `localKey` / `relatedKey`          | your model's primary key (whatever it is called) / `id` on the role model |
+| `pivotForeignKey`                  | `subject_id`                                            |
 | `pivotRelatedForeignKey`           | `role_id`                                            |
-| `onQuery`                          | `wherePivot('user_type', …)` plus the tenant filter below |
+| `onQuery`                          | `wherePivot('subject_type', …)` plus the tenant filter below |
 
 ## Options
 
 ```ts
-authzRolesRelation({ tables, userType, tenantId, localKey })
+authzRolesRelation({ tables, subjectType, tenantId, localKey })
 ```
 
 | Option     | Default              | When you need it                                                                                          |
 | ---------- | -------------------- | --------------------------------------------------------------------------------------------------------- |
-| `tables`   | the default names    | The store was configured with [table overrides](/docs/authz/config#stores). Only `userRole` is read here — the roles table name lives on the model's `static table`. |
-| `userType` | `'user'`             | This model is not the default subject kind — i.e. `resolveUserRef` returns another `type` for it. It must match what `assignRole` wrote. |
+| `tables`   | the default names    | The store was configured with [table overrides](/docs/authz/config#stores). Only `subjectRole` is read here — the roles table name lives on the model's `static table`. |
+| `subjectType` | `'user'`          | This model is not the default subject kind — i.e. `resolveSubjectRef` returns another `type` for it. It must match what `assignRole` wrote. |
 | `tenantId` | `''` (global)        | The relation should read a tenant's assignments as well as the global ones.                                |
-| `localKey` | `'id'`               | The model's `id` is not a string — integer `increments()` ids need this. See below. |
+| `localKey` | the model's primary key | The pivot references an attribute that is **not** the primary key. Key *type* never matters — see above. |
 
-<Callout type="warn">
-  **The pivot stores `user_id` as TEXT** (the authz is polymorphic — UUID hosts
-  included), and Lucid distributes preloaded pivot rows back to their parents
-  with **strict JS equality**. An `increments()` user has `id: 42` (number)
-  where the pivot holds `'42'` (string) — the SQL `whereIn` coerces and finds
-  the rows, the JS match drops every one, and `preload('roles')` answers `[]`
-  **with no error**. With integer ids, expose the same column as text through a
-  `@column`-registered **getter declared before `id`** (so `id` keeps the
-  hydration slot) and point `localKey` at it:
-
-```ts
-export default class User extends BaseModel {
-  @column({ columnName: 'id' })
-  get idAsText(): string {
-    return String(this.id)
-  }
-
-  @column({ isPrimary: true })
-  declare id: number
-
-  @manyToMany(() => AuthzRole, authzRolesRelation({ localKey: 'idAsText' }))
-  declare roles: ManyToMany<typeof AuthzRole>
-}
-```
-
-  Do **not** use a second plain `@column` on the same column (`declare idAsText`
-  with `columnName: 'id'`): Lucid keeps one hydration mapping per column and the
-  later declaration steals it — the roles arrive, so the recipe *looks* right,
-  but the model hydrates with `id: undefined` (#84).
+<Callout type="info">
+  **Upgrading from 0.14.x?** The `@column` getter + `localKey: 'idAsText'` recipe
+  is no longer needed. It still works (an explicit `localKey` is honored), but you
+  can delete the getter and the option: the default relation now covers integer
+  ids on its own.
 </Callout>
 
 The tenant filter mirrors the store's, so the relation and
-`getRolesForUser(user, scope)` agree: a **global** read sees global rows only,
+`getRolesForSubject(user, scope)` agree: a **global** read sees global rows only,
 and a **tenant** read sees that tenant's rows **plus** the global ones — a
 globally-assigned role holds inside every tenant. That is the visibility rule
 described in [multi-tenancy](/docs/authz/concepts#multi-tenancy).
@@ -149,7 +182,7 @@ described in [multi-tenancy](/docs/authz/concepts#multi-tenancy).
   **`tenantId` is fixed when the model is defined.** It cannot follow a
   per-request tenant, and a `wherePivot` added in `preload` ANDs with the one in
   `onQuery` rather than widening it. For a request-scoped tenant, read through
-  the service (`getRolesForUser(user, { tenantId })`) instead of the relation.
+  the service (`getRolesForSubject(user, { tenantId })`) instead of the relation.
 </Callout>
 
 ## It reads the store, not the effective roles
@@ -164,7 +197,7 @@ for listings and not a shortcut for authorization:
   `effectiveRoles`.
 - **It is for reading.** Writes stay on the store (`assignRole` / `removeRole`,
   or the mixin methods that delegate to them): `assignRole` creates the role when
-  it does not exist yet and is idempotent, and it is what fills `user_type` and
+  it does not exist yet and is idempotent, and it is what fills `subject_type` and
   `tenant_id`. The relation's pivot filters live in `onQuery`, which constrains
   **queries** — attaching through the relation does not write those columns, and
-  `user_type` is `NOT NULL` with no default.
+  `subject_type` is `NOT NULL` with no default.

@@ -31,7 +31,7 @@ export default class AuthzProvider {
         default: defaultStore,
         stores: providers,
         superAdmin,
-        resolveUserRef,
+        resolveSubjectRef,
         tenant,
         resolveTenant,
         superAdminRoles,
@@ -69,7 +69,7 @@ export default class AuthzProvider {
       return new AuthzService({
         store,
         ...(superAdmin !== undefined ? { superAdmin } : {}),
-        ...(resolveUserRef !== undefined ? { resolveUserRef } : {}),
+        ...(resolveSubjectRef !== undefined ? { resolveSubjectRef } : {}),
         ...(tenant !== undefined ? { tenant } : {}),
         ...(resolveTenant !== undefined ? { resolveTenant } : {}),
         ...(superAdminRoles !== undefined ? { superAdminRoles } : {}),

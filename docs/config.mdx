@@ -38,6 +38,7 @@ stores.lucid({
     roles: 'authz_roles',
   },
   resolveClient: () => authzClient.getStore(), // optional; see "Joining a transaction"
+  subjectIdType: 'integer',   // optional; see "Native key-type pivots" below
 })
 ```
 
@@ -54,6 +55,50 @@ happening on whichever request happens to arrive first.
 
 Both paths emit the same DDL, so it is safe to start with the default and switch
 later: the migration finds the tables already there and does nothing.
+
+### Native key-type pivots
+
+The subject pivots (`subject_role`, `subject_permission`) default to a TEXT `subject_id`,
+which fits every subject kind in one table — integer ids, UUIDs, ULIDs, even in
+the same app. The [roles relation](/docs/authz/roles-relation#any-key-type-any-pivot-type)
+works on it with any host key type, so this is a storage choice, not a
+correctness one — with one exception: `has` / `whereHas('roles')` on
+**Postgres** with an integer PK compares the real columns and errors on
+`integer = character varying` (see the [relation page](/docs/authz/roles-relation#any-key-type-any-pivot-type)).
+When **all** your subjects hold integer ids, the pivot can carry the host's
+native type instead —
+
+```ts
+stores.lucid({
+  subjectIdType: 'integer', // increments()   → INTEGER
+  // subjectIdType: 'bigint', // bigIncrements() → BIGINT
+})
+```
+
+— which gives the pivot the same storage and index shape as your primary key and
+makes a foreign key to it possible (MySQL needs the exact integer size for that,
+which is why there are two values). Non-integer ids then fail LOUD on write
+instead of silently matching nothing. Mixed apps (integer users *and* UUID
+subjects in one store) keep the TEXT default; nothing else changes for them.
+
+Choose at setup: the store, `createAuthzTables` and the published migration all
+take the same option, and they must agree. Switching an existing install later
+is a data migration, not a flag flip (`BIGINT` instead of `INTEGER` for `'bigint'`):
+
+```sql
+-- Postgres (fails loudly on non-numeric rows — good)
+ALTER TABLE authz_subject_role ALTER COLUMN subject_id TYPE INTEGER USING subject_id::integer;
+ALTER TABLE authz_subject_permission ALTER COLUMN subject_id TYPE INTEGER USING subject_id::integer;
+-- MySQL (strict mode errors on non-numeric rows — good)
+ALTER TABLE authz_subject_role MODIFY subject_id INTEGER NOT NULL;
+ALTER TABLE authz_subject_permission MODIFY subject_id INTEGER NOT NULL;
+-- SQLite: rebuild (no ALTER COLUMN) —
+CREATE TABLE authz_subject_role_new (subject_type VARCHAR(191) NOT NULL, subject_id INTEGER NOT NULL, role_id VARCHAR(191) NOT NULL, tenant_id VARCHAR(191) NOT NULL DEFAULT '', PRIMARY KEY (subject_type, subject_id, role_id, tenant_id));
+INSERT INTO authz_subject_role_new SELECT subject_type, CAST(subject_id AS INTEGER), role_id, tenant_id FROM authz_subject_role;
+DROP TABLE authz_subject_role;
+ALTER TABLE authz_subject_role_new RENAME TO authz_subject_role;
+-- (same for authz_subject_permission, then recreate the _subject_idx indexes)
+```
 
 ### Joining a transaction
 
@@ -80,7 +125,7 @@ export const authzClient = new AsyncLocalStorage<StoreQueryClient>()
    await db.transaction(async (trx) => {
      const authz = store.withClient(trx)
      await authz.assignRole(ref, 'editor')
-     const n = await authz.countUsersForRole('admin') // the last-admin guard
+     const n = await authz.countSubjectsForRole('admin') // the last-admin guard
      if (n === 0) throw new Error('cannot empty the admins')
    })
    ```
@@ -149,7 +194,7 @@ model:
 
 ```ts
 defineConfig({
-  resolveUserRef: (user) => ({ type: 'account', id: user.uid }),
+  resolveSubjectRef: (user) => ({ type: 'account', id: user.uid }),
 })
 ```
 
@@ -193,8 +238,8 @@ only the token and store decide.
 ```ts
 defineConfig({
   resolveRoles: async (user, scope) => {
-    const rows = await UserRole.query()
-      .where('user_id', user.id)
+    const rows = await SubjectRole.query()
+      .where('subject_id', user.id)
       .if(scope, (q) => q.where('tenant_id', scope!.tenantId))
     return rows.map((r) => r.role)
   },
@@ -208,16 +253,16 @@ The callback receives the resolved `{ type, id }` reference and the active
 
 `resolveRoles` answers "which roles does this user hold?". Two more keys answer
 the opposite question — "who holds this role?" — for
-[`usersWithRole`](/docs/authz/roles#the-reverse-question-userswithrole):
+[`subjectsWithRole`](/docs/authz/roles#the-reverse-question-userswithrole):
 
 ```ts
 defineConfig({
   // reverse of `resolveRoles`: your domain tables.
   resolveRoleMembers: async (role, scope) => {
-    const rows = await UserRole.query()
+    const rows = await SubjectRole.query()
       .where('role', role)
       .if(scope?.tenantId, (query) => query.where('tenant_id', scope!.tenantId!))
-    return rows.map((row) => row.userId)
+    return rows.map((row) => row.subjectId)
   },
 
   // reverse of the token's global-role claim: your identity store.
@@ -229,7 +274,7 @@ defineConfig({
 ```
 
 Each returns bare ids or `{ type, id }` references. Both are optional — and an
-unconfigured one contributes nothing rather than failing, so a `usersWithRole`
+unconfigured one contributes nothing rather than failing, so a `subjectsWithRole`
 call simply returns a shorter list. Wire the reverse seam for every source you
 wired forwards; [Roles](/docs/authz/roles#the-reverse-seams) covers the pairing
 and the failure mode.
@@ -282,7 +327,7 @@ export default class extends BaseSchema {
 - `dropAuthzTables(db, { tables? })` — idempotent (`DROP TABLE IF EXISTS`),
   child-first, for the migration `down()`.
 - `AUTHZ_TABLES` — the default table names (`authz_roles`, `authz_permissions`,
-  `authz_role_permission`, `authz_user_role`, `authz_user_permission`).
+  `authz_role_permission`, `authz_subject_role`, `authz_subject_permission`).
 
 Pass matching `tables` overrides to **both** the store config and these helpers so
 they agree:

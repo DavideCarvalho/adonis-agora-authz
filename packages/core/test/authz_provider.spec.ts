@@ -29,7 +29,7 @@ function appWithAuthzConfig(authzConfig: unknown) {
 }
 
 describe('AuthzProvider config plumbing (reverse seams)', () => {
-  it('forwards resolveRoleMembers from config into usersWithRole', async () => {
+  it('forwards resolveRoleMembers from config into subjectsWithRole', async () => {
     const app = appWithAuthzConfig({
       default: 'mem',
       stores: { mem: async () => new MemoryPermissionStore() },
@@ -38,11 +38,11 @@ describe('AuthzProvider config plumbing (reverse seams)', () => {
     new AuthzProvider(app as never).register();
     const authz = (await app.container.make(AuthzService)) as AuthzService;
 
-    expect(await authz.usersWithRole('ADMIN')).toEqual([{ type: 'user', id: 'u-admin' }]);
-    expect(await authz.usersWithRole('OTHER')).toEqual([]);
+    expect(await authz.subjectsWithRole('ADMIN')).toEqual([{ type: 'user', id: 'u-admin' }]);
+    expect(await authz.subjectsWithRole('OTHER')).toEqual([]);
   });
 
-  it('forwards resolveGlobalRoleMembers from config into usersWithRole', async () => {
+  it('forwards resolveGlobalRoleMembers from config into subjectsWithRole', async () => {
     const app = appWithAuthzConfig({
       default: 'mem',
       stores: { mem: async () => new MemoryPermissionStore() },
@@ -51,6 +51,6 @@ describe('AuthzProvider config plumbing (reverse seams)', () => {
     new AuthzProvider(app as never).register();
     const authz = (await app.container.make(AuthzService)) as AuthzService;
 
-    expect(await authz.usersWithRole('ADMIN')).toEqual([{ type: 'user', id: 'g-admin' }]);
+    expect(await authz.subjectsWithRole('ADMIN')).toEqual([{ type: 'user', id: 'g-admin' }]);
   });
 });

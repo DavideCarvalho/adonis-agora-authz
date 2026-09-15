@@ -1,6 +1,6 @@
 ---
 title: Roles
-description: authz as the single authority on roles — the effective-role union, the reverse lookup usersWithRole(), the resolveRoleMembers / resolveGlobalRoleMembers seams, and superAdminRoles.
+description: authz as the single authority on roles — the effective-role union, the reverse lookup subjectsWithRole(), the resolveRoleMembers / resolveGlobalRoleMembers seams, and superAdminRoles.
 icon: Users
 ---
 
@@ -53,26 +53,26 @@ any of those roles onto permissions with
 them over a relation instead of once per row: see
 [roles relation](/docs/authz/roles-relation).
 
-## The reverse question: `usersWithRole`
+## The reverse question: `subjectsWithRole`
 
 Forward lookups ("which roles does this user hold?") answer authorization.
 Backward lookups ("who holds this role?") answer everything else: notify every
 coordinator, assign a ticket to an on-call admin, render an org chart, export an
 audit of privileged accounts.
 
-`usersWithRole` is the mirror of `effectiveRoles` — same union, read in the other
+`subjectsWithRole` is the mirror of `effectiveRoles` — same union, read in the other
 direction:
 
 ```ts
 import authz from '@adonis-agora/authz/services/main'
 
-const coordinators = await authz.usersWithRole('COORDINATOR')
+const coordinators = await authz.subjectsWithRole('COORDINATOR')
 // [{ type: 'user', id: '12' }, { type: 'user', id: '31' }]
 
-const scoped = await authz.usersWithRole('COORDINATOR', { tenantId: 'acme' })
+const scoped = await authz.subjectsWithRole('COORDINATOR', { tenantId: 'acme' })
 ```
 
-It returns `UserRef` objects — `{ type, id }` — because authz never owns a users
+It returns `SubjectRef` objects — `{ type, id }` — because authz never owns a users
 table. Hydrate them with your own model:
 
 ```ts title="app/services/notify_coordinators.ts"
@@ -80,7 +80,7 @@ import authz from '@adonis-agora/authz/services/main'
 import User from '#models/user'
 
 export async function notifyCoordinators(tenantId: string, message: string) {
-  const refs = await authz.usersWithRole('COORDINATOR', { tenantId })
+  const refs = await authz.subjectsWithRole('COORDINATOR', { tenantId })
   const ids = refs.filter((ref) => ref.type === 'user').map((ref) => ref.id)
   if (ids.length === 0) return
 
@@ -110,7 +110,7 @@ forward one:
 ```ts title="config/authz.ts"
 import { defineConfig, stores } from '@adonis-agora/authz'
 import Account from '#models/account'
-import UserRole from '#models/user_role'
+import SubjectRole from '#models/subject_role'
 
 export default defineConfig({
   default: 'lucid',
@@ -118,18 +118,18 @@ export default defineConfig({
 
   // Forward: which app roles does this user hold?
   resolveRoles: async (user, scope) => {
-    const rows = await UserRole.query()
-      .where('user_id', user.id)
+    const rows = await SubjectRole.query()
+      .where('subject_id', user.id)
       .if(scope?.tenantId, (query) => query.where('tenant_id', scope!.tenantId!))
     return rows.map((row) => row.role)
   },
 
   // Reverse: who holds this app role?
   resolveRoleMembers: async (role, scope) => {
-    const rows = await UserRole.query()
+    const rows = await SubjectRole.query()
       .where('role', role)
       .if(scope?.tenantId, (query) => query.where('tenant_id', scope!.tenantId!))
-    return rows.map((row) => row.userId)
+    return rows.map((row) => row.subjectId)
   },
 
   // Reverse: who holds this role as a global / IdP role?
@@ -151,7 +151,7 @@ are not, which is why the example above takes only `role`.
 
 <Callout type="warn">
   **An unconfigured seam contributes nothing, silently.** With neither seam wired,
-  `usersWithRole` answers from the authz store alone — it returns a *shorter*
+  `subjectsWithRole` answers from the authz store alone — it returns a *shorter*
   list, not an error. That is the failure mode to watch for: a coordinator whose
   role comes from `user_roles` never gets notified, and nothing anywhere reports a
   problem. If `resolveRoles` reads a source, `resolveRoleMembers` must read the

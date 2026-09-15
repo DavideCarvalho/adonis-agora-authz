@@ -21,6 +21,10 @@ export default defineConfig({
       // connection: 'pg',          // defaults to the app's default connection
       // autoCreateSchema: false,   // set false when using the published migration
       // resolveClient: () => authzClient.getStore(), // ambient db.transaction seam
+      // subjectIdType: 'integer',  // pivot key type: 'text' (default, any id kind),
+                                    // 'integer' (increments) or 'bigint' (bigIncrements);
+                                    // must match the migration. The roles relation works
+                                    // on every mode — this is storage, not correctness.
     }),
   },
 
@@ -35,7 +39,7 @@ export default defineConfig({
    * Map a host user object to a polymorphic user reference { type, id }. The
    * default reads user.id (and an optional user.type).
    *
-   *   resolveUserRef: (user) => ({ type: 'user', id: user.id }),
+   *   resolveSubjectRef: (user) => ({ type: 'user', id: user.id }),
    */
 
   /**

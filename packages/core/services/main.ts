@@ -17,7 +17,7 @@ export type AuthzQueryService = Pick<
   | 'hasAnyRole'
   | 'effectiveRoles'
   | 'effectivePermissions'
-  | 'usersWithRole'
+  | 'subjectsWithRole'
 >;
 
 /**
@@ -58,7 +58,7 @@ const service: AuthzQueryService = {
   hasAnyRole: async (...args) => (await resolve()).hasAnyRole(...args),
   effectiveRoles: async (...args) => (await resolve()).effectiveRoles(...args),
   effectivePermissions: async (...args) => (await resolve()).effectivePermissions(...args),
-  usersWithRole: async (...args) => (await resolve()).usersWithRole(...args),
+  subjectsWithRole: async (...args) => (await resolve()).subjectsWithRole(...args),
 };
 
 export default service;

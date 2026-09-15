@@ -1,6 +1,6 @@
 import type { ApplicationService } from '@adonisjs/core/types';
 import type { PermissionStore, StoreQueryClient } from '../store.js';
-import type { AuthzTableNames, LucidDatabase } from './lucid.js';
+import type { AuthzSubjectIdType, AuthzTableNames, LucidDatabase } from './lucid.js';
 import { MemoryPermissionStore } from './memory.js';
 
 export interface StoreContext {
@@ -25,6 +25,13 @@ export interface LucidStoreConfig {
   tables?: AuthzTableNames;
   /** Auto-create tables on first use (default true). Set false when migrating. */
   autoCreateSchema?: boolean;
+  /**
+   * The `subject_id` pivot column type: `'text'` (default, every subject kind),
+   * `'integer'` or `'bigint'` (the host's native key type — must match the
+   * tables, see `createAuthzTables` and the migration stub). Subject *types*
+   * stay polymorphic either way; this is only about the id column type.
+   */
+  subjectIdType?: AuthzSubjectIdType;
   /**
    * Ambient transaction seam (wired once, like a channel config): read before
    * each data method; a non-nullish return runs that call's SQL on it — the

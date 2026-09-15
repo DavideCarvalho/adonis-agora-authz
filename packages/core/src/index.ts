@@ -12,8 +12,8 @@ export {
   globalRolesFromContext,
   readContextAccessor,
   readContextValue,
+  subjectRefFromContext,
   tenantFromContext,
-  userRefFromContext,
 } from './agora/context.js';
 export type { AuthorizeByRolesOptions } from './authorize.js';
 // Dashboard authorization hook factory (shared by telescope/durable/media/agent dashboards).
@@ -76,6 +76,7 @@ export type {
   StoreProvider,
 } from './stores/factory.js';
 export type {
+  AuthzSubjectIdType,
   AuthzTableNames,
   LucidDatabase,
   LucidPermissionStoreOptions,
@@ -93,17 +94,17 @@ export {
 export { MemoryPermissionStore } from './stores/memory.js';
 export type {
   IdentityLike,
-  ResolveUserRef,
+  ResolveSubjectRef,
+  SubjectAuthz,
+  SubjectRef,
+  SubjectRefInput,
   TenantScope,
-  UserAuthz,
-  UserRef,
-  UserRefInput,
-} from './user_ref.js';
+} from './subject_ref.js';
 // User references & tenancy.
 export {
-  defaultResolveUserRef,
+  defaultResolveSubjectRef,
   GLOBAL_TENANT,
-  identityUserRef,
+  identitySubjectRef,
+  normalizeSubjectRef,
   normalizeTenant,
-  normalizeUserRef,
-} from './user_ref.js';
+} from './subject_ref.js';
