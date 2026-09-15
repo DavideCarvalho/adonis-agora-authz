@@ -71,18 +71,26 @@ const users = await User.query().preload('roles').paginate(page, 20)
 // one query for the users, one for every role of every user on the page
 ```
 
-That is the whole declaration. The primary key can be an `increments()` number,
-a `bigIncrements()`, a UUID — and it can be called something other than `id`:
+That is the whole declaration, and it is not users-only: the store is
+[polymorphic](/docs/authz/concepts#polymorphic-users), so any table whose rows
+hold roles — teams, organizations, service accounts — gets the same relation on
+its own model. The primary key can be an `increments()` number, a
+`bigIncrements()`, a UUID, and it does not have to be called `id`:
 
 ```ts title="app/models/team.ts"
 export default class Team extends BaseModel {
-  @column({ isPrimary: true, columnName: 'team_id' })
-  declare teamId: number
+  @column({ isPrimary: true })
+  declare id: number
 
-  // `userType` is the subject kind the store wrote for teams (see resolveUserRef).
+  // Teams are their own subject kind: `userType` is the `type` your
+  // resolveUserRef returns for a Team, and what assignRole(team, …) wrote.
   @manyToMany(() => AuthzRole, authzRolesRelation({ userType: 'team' }))
   declare roles: ManyToMany<typeof AuthzRole>
 }
+```
+
+```ts
+const teams = await Team.query().preload('roles')
 ```
 
 ## Any key type, any pivot type
