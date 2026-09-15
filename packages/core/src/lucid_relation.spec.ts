@@ -13,7 +13,7 @@ function capture(relation: ReturnType<typeof authzRolesRelation>) {
 
 /**
  * Os detalhes do pivô são internos DESTA lib, não do app: nome das colunas, o
- * `user_type` (o authz é polimórfico, então o tipo faz parte da chave) e o sentinel de
+ * `subject_type` (o authz é polimórfico, então o tipo faz parte da chave) e o sentinel de
  * tenant global — que é a string VAZIA, não `null`.
  *
  * Errar qualquer um não dá erro: dá uma relação que lê as linhas erradas em silêncio.
@@ -22,14 +22,14 @@ function capture(relation: ReturnType<typeof authzRolesRelation>) {
 describe('authzRolesRelation', () => {
   it('aponta para as tabelas e colunas do store', () => {
     const relation = authzRolesRelation();
-    expect(relation.pivotTable).toBe('authz_user_role');
-    expect(relation.pivotForeignKey).toBe('user_id');
+    expect(relation.pivotTable).toBe('authz_subject_role');
+    expect(relation.pivotForeignKey).toBe('subject_id');
     expect(relation.pivotRelatedForeignKey).toBe('role_id');
   });
 
-  it('filtra o pivô por user_type E por tenant', () => {
+  it('filtra o pivô por subject_type E por tenant', () => {
     expect(capture(authzRolesRelation())).toEqual([
-      ['user_type', 'user'],
+      ['subject_type', 'user'],
       ['tenant_id', ''],
     ]);
   });
@@ -42,23 +42,14 @@ describe('authzRolesRelation', () => {
   });
 
   it('respeita nomes de tabela customizados', () => {
-    const relation = authzRolesRelation({ tables: { userRole: 'rbac_user_role' } });
-    expect(relation.pivotTable).toBe('rbac_user_role');
+    const relation = authzRolesRelation({ tables: { subjectRole: 'rbac_subject_role' } });
+    expect(relation.pivotTable).toBe('rbac_subject_role');
   });
 
-  it('permite outro tipo de sujeito (subjectType; userType é alias deprecado)', () => {
+  it('permite outro tipo de sujeito', () => {
     expect(capture(authzRolesRelation({ subjectType: 'service' }))[0]).toEqual([
-      'user_type',
+      'subject_type',
       'service',
-    ]);
-    expect(capture(authzRolesRelation({ userType: 'service' }))[0]).toEqual([
-      'user_type',
-      'service',
-    ]);
-    // O nome novo ganha quando os dois aparecem.
-    expect(capture(authzRolesRelation({ subjectType: 'team', userType: 'service' }))[0]).toEqual([
-      'user_type',
-      'team',
     ]);
   });
 
@@ -80,7 +71,7 @@ describe('authzRolesRelation', () => {
     const relation = authzRolesRelation({ localKey: 'idAsText' });
     expect(relation.localKey).toBe('idAsText');
     // As restantes chaves do pivô não mudam com o override.
-    expect(relation.pivotForeignKey).toBe('user_id');
+    expect(relation.pivotForeignKey).toBe('subject_id');
     expect(relation.relatedKey).toBe('id');
   });
 });

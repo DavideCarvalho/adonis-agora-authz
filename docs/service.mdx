@@ -257,7 +257,7 @@ the permission set.
   The cache memoizes **both** dimensions a check reads — roles and permissions —
   once per `(user, tenant)` per request. `can()` resolves the effective-role
   union (the token's global roles, the `resolveRoles` seam **and**
-  `store.getRolesForUser`) and the permission grants; with a cache the eight
+  `store.getRolesForSubject`) and the permission grants; with a cache the eight
   `can()` calls of a request are one role resolution and one permission read,
   not sixteen. A host that derives roles from domain tables via `resolveRoles`
   no longer pays those queries per check.

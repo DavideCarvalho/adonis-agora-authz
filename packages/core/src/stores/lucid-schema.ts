@@ -57,8 +57,8 @@ export interface AuthzTableNames {
   roles?: string;
   permissions?: string;
   rolePermission?: string;
-  userRole?: string;
-  userPermission?: string;
+  subjectRole?: string;
+  subjectPermission?: string;
 }
 
 /** The default table names for the Lucid store's RBAC schema. */
@@ -66,8 +66,8 @@ export const AUTHZ_TABLES: Required<AuthzTableNames> = {
   roles: 'authz_roles',
   permissions: 'authz_permissions',
   rolePermission: 'authz_role_permission',
-  userRole: 'authz_user_role',
-  userPermission: 'authz_user_permission',
+  subjectRole: 'authz_subject_role',
+  subjectPermission: 'authz_subject_permission',
 };
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -110,7 +110,7 @@ function resolveTables(tables: AuthzTableNames | undefined): Required<AuthzTable
 }
 
 /**
- * The `user_id` column type of the subject pivots (`userRole`, `userPermission`).
+ * The `subject_id` column type of the subject pivots (`subjectRole`, `subjectPermission`).
  *
  * - `'text'` (default) fits every subject kind in ONE table — integer ids,
  *   UUIDs, ULIDs — because the store is polymorphic. Required for mixed apps.
@@ -210,25 +210,35 @@ export async function createAuthzTables(
   );
 
   await run(
-    `CREATE TABLE IF NOT EXISTS ${t.userRole} (
-      user_type VARCHAR(191) NOT NULL,
-      user_id ${subjectId} NOT NULL,
+    `CREATE TABLE IF NOT EXISTS ${t.subjectRole} (
+      subject_type VARCHAR(191) NOT NULL,
+      subject_id ${subjectId} NOT NULL,
       role_id VARCHAR(191) NOT NULL,
       tenant_id VARCHAR(191) NOT NULL DEFAULT '',
-      PRIMARY KEY (user_type, user_id, role_id, tenant_id)
+      PRIMARY KEY (subject_type, subject_id, role_id, tenant_id)
     )`,
   );
-  await createIndex(`${t.userRole}_user_idx`, false, t.userRole, 'user_type, user_id');
+  await createIndex(
+    `${t.subjectRole}_subject_idx`,
+    false,
+    t.subjectRole,
+    'subject_type, subject_id',
+  );
 
   await run(
-    `CREATE TABLE IF NOT EXISTS ${t.userPermission} (
-      user_type VARCHAR(191) NOT NULL,
-      user_id ${subjectId} NOT NULL,
+    `CREATE TABLE IF NOT EXISTS ${t.subjectPermission} (
+      subject_type VARCHAR(191) NOT NULL,
+      subject_id ${subjectId} NOT NULL,
       permission_id VARCHAR(191) NOT NULL,
-      PRIMARY KEY (user_type, user_id, permission_id)
+      PRIMARY KEY (subject_type, subject_id, permission_id)
     )`,
   );
-  await createIndex(`${t.userPermission}_user_idx`, false, t.userPermission, 'user_type, user_id');
+  await createIndex(
+    `${t.subjectPermission}_subject_idx`,
+    false,
+    t.subjectPermission,
+    'subject_type, subject_id',
+  );
 }
 
 /**
@@ -243,7 +253,13 @@ export async function dropAuthzTables(
   options: { tables?: AuthzTableNames } = {},
 ): Promise<void> {
   const t = resolveTables(options.tables);
-  for (const table of [t.userPermission, t.userRole, t.rolePermission, t.permissions, t.roles]) {
+  for (const table of [
+    t.subjectPermission,
+    t.subjectRole,
+    t.rolePermission,
+    t.permissions,
+    t.roles,
+  ]) {
     await db.rawQuery(`DROP TABLE IF EXISTS ${table}`);
   }
 }

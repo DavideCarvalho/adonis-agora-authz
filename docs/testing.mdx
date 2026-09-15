@@ -46,7 +46,7 @@ remote authorization service, an in-house table layout. Implement these twenty
 methods and every feature in the package works against it unchanged:
 
 ```ts title="app/authz/redis_store.ts"
-import type { PermissionStore, TenantScope, UserRef } from '@adonis-agora/authz'
+import type { PermissionStore, TenantScope, SubjectRef } from '@adonis-agora/authz'
 
 export class RedisPermissionStore implements PermissionStore {
   // ...
@@ -70,7 +70,7 @@ export class RedisPermissionStore implements PermissionStore {
 | `getRolePermissions(role)` | The permission names attached to a role. |
 | `listRoles()` | Every role name known to the store. |
 | `listPermissions()` | Every permission name known to the store. |
-| `deleteRole(role)` | Remove a role outright — revokes its grants, every user assignment, and the role row. Idempotent; an unknown name is a no-op. Whether to refuse a still-populated role is the host's call (`countUsersForRole` first). |
+| `deleteRole(role)` | Remove a role outright — revokes its grants, every user assignment, and the role row. Idempotent; an unknown name is a no-op. Whether to refuse a still-populated role is the host's call (`countSubjectsForRole` first). |
 
 **Assignments & grants**
 
@@ -78,19 +78,19 @@ export class RedisPermissionStore implements PermissionStore {
 | ------ | -------- |
 | `assignRole(user, role, scope?)` | Assign a role to a user, optionally scoped to a tenant. |
 | `removeRole(user, role, scope?)` | Remove the assignment matching that **exact** tenant scope. |
-| `giveUserPermission(user, permission)` | Grant a permission straight to a user. |
-| `revokeUserPermission(user, permission)` | Revoke that direct grant. Role-derived permissions survive. |
+| `giveSubjectPermission(user, permission)` | Grant a permission straight to a user. |
+| `revokeSubjectPermission(user, permission)` | Revoke that direct grant. Role-derived permissions survive. |
 
 **Reads**
 
 | Method | Contract |
 | ------ | -------- |
-| `getRolesForUser(user, scope?)` | The user's role names, tenant-filtered. |
-| `getUsersForRole(role, scope?)` | The reverse: every `{ type, id }` holding the role, tenant-filtered the same way. |
-| `countUsersForRole(role, scope?)` | The same visibility as `getUsersForRole`, reduced to a count — the "N users" KPI without transferring one ref per member. |
-| `countUsersByRole(scope?)` | Every role mapped to its member count in one pass (unheld roles count as `0`), for a whole roles matrix. |
-| `getPermissionsForUser(user, scope?)` | The user's effective permission names — role-derived ∪ direct. |
-| `userHasPermission(user, permission, scope?)` | Exact-name membership check. |
+| `getRolesForSubject(user, scope?)` | The user's role names, tenant-filtered. |
+| `getSubjectsForRole(role, scope?)` | The reverse: every `{ type, id }` holding the role, tenant-filtered the same way. |
+| `countSubjectsForRole(role, scope?)` | The same visibility as `getSubjectsForRole`, reduced to a count — the "N users" KPI without transferring one ref per member. |
+| `countSubjectsByRole(scope?)` | Every role mapped to its member count in one pass (unheld roles count as `0`), for a whole roles matrix. |
+| `getPermissionsForSubject(user, scope?)` | The user's effective permission names — role-derived ∪ direct. |
+| `subjectHasPermission(user, permission, scope?)` | Exact-name membership check. |
 
 **Transaction seam**
 
@@ -109,7 +109,7 @@ will pass casual testing and fail in production:
    another tenant's.
 3. **Direct user-permission grants are tenant-independent.** They apply in every
    scope. Only role assignments carry a tenant.
-4. **Names match exactly.** `userHasPermission` and `getPermissionsForUser` do no
+4. **Names match exactly.** `subjectHasPermission` and `getPermissionsForSubject` do no
    wildcard expansion — the store returns what was granted, `posts.*` included,
    and the service runs the [matcher](/docs/authz/concepts#wildcard-matching)
    over it. A store that expands wildcards itself will double-expand.
@@ -131,7 +131,7 @@ The suite covers idempotency, role/permission grants and revokes, direct grants,
 per-user isolation, tenant visibility, polymorphic user types, role deletion,
 member counts (per role and per matrix, tenant-scoped), and a trailing
 `{ client }` option accepted by every data method. The Lucid store runs it
-three times — TEXT, INTEGER and BIGINT `user_id` columns — so behavior provably
+three times — TEXT, INTEGER and BIGINT `subject_id` columns — so behavior provably
 does not depend on the column type.
 
 <Callout type="info">
@@ -144,7 +144,7 @@ does not depend on the column type.
 `test/lucid_store_testcontainers.spec.ts` runs the **full contract suite** — plus
 the transaction-seam scenarios — against ephemeral **Postgres 16** and **MySQL 8**
 containers ([Testcontainers](https://testcontainers.com)), each on TEXT **and**
-INTEGER `user_id` columns. These are the things
+INTEGER `subject_id` columns. These are the things
 only a real backend can prove:
 
 - **the write path per dialect** — MySQL exercises `INSERT IGNORE`, SQLite and

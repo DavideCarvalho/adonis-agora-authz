@@ -8,7 +8,7 @@ import { createAuthzTables } from '../src/stores/lucid-schema.js';
 import { asLucidDatabase, makeMemoryDatabase } from './lucid_helpers.js';
 
 /**
- * Runtime proof for issues #74/#84: the pivot stores `user_id` as TEXT
+ * Runtime proof for issues #74/#84: the pivot stores `subject_id` as TEXT
  * (polymorphic — hosts may use UUIDs), and Lucid distributes pivot rows back to
  * parents with STRICT JS equality, so an `increments()` host compared `'42'`
  * (pivot) to `42` (model) and `preload('roles')` silently returned []. The
@@ -227,7 +227,7 @@ describe('authzRolesRelation — runtime preload on TEXT pivots (issues #74/#84)
     expect(user.roles).toEqual([]);
   });
 
-  it('the relation still filters by user_type and tenant at runtime', async () => {
+  it('the relation still filters by subject_type and tenant at runtime', async () => {
     await db.rawQuery(`INSERT INTO users_uuid (id, email) VALUES (?, ?)`, ['u-1', 'a@b.c']);
     const store = new LucidPermissionStore(asLucidDatabase(db));
     // Global role (visible), tenant-scoped role (invisible to the default
@@ -256,8 +256,8 @@ const INT_TABLES = {
   roles: 'ip_roles',
   permissions: 'ip_permissions',
   rolePermission: 'ip_role_permission',
-  userRole: 'ip_user_role',
-  userPermission: 'ip_user_permission',
+  subjectRole: 'ip_subject_role',
+  subjectPermission: 'ip_subject_permission',
 } as const;
 
 class IntPivotRole extends BaseModel {

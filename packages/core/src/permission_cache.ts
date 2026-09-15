@@ -1,6 +1,6 @@
 import { permissionSatisfied } from './permission_matcher.js';
 import type { PermissionStore } from './store.js';
-import type { TenantScope, UserRef } from './user_ref.js';
+import type { SubjectRef, TenantScope } from './subject_ref.js';
 
 /**
  * Memo key for the (user, tenant) pair. JSON.stringify rather than a joined
@@ -8,7 +8,7 @@ import type { TenantScope, UserRef } from './user_ref.js';
  * raw NUL would make this file unreadable to git diff (same rule as
  * `compositeKey` in stores/memory.ts).
  */
-const key = (user: UserRef, scope?: TenantScope): string =>
+const key = (user: SubjectRef, scope?: TenantScope): string =>
   JSON.stringify([user.type, user.id, scope?.tenantId ?? '']);
 
 /**
@@ -22,7 +22,7 @@ const key = (user: UserRef, scope?: TenantScope): string =>
  *
  * `resolveRoles` is the role function the {@link AuthzService} injects (context
  * ∪ app resolver ∪ store). A cache built with just a store falls back to
- * `store.getRolesForUser`, so a standalone cache still memoizes the store read.
+ * `store.getRolesForSubject`, so a standalone cache still memoizes the store read.
  */
 export class PermissionCache {
   private cache = new Map<string, Promise<ReadonlySet<string>>>();
@@ -30,35 +30,35 @@ export class PermissionCache {
 
   constructor(
     private readonly store: PermissionStore,
-    private readonly resolveRoles?: (user: UserRef, scope?: TenantScope) => Promise<string[]>,
+    private readonly resolveRoles?: (user: SubjectRef, scope?: TenantScope) => Promise<string[]>,
   ) {}
 
   /** The user's effective roles, memoized — the same union the service computes. */
-  getRoles(user: UserRef, scope?: TenantScope): Promise<string[]> {
+  getRoles(user: SubjectRef, scope?: TenantScope): Promise<string[]> {
     const k = key(user, scope);
     let pending = this.roleCache.get(k);
     if (!pending) {
       pending = this.resolveRoles
         ? this.resolveRoles(user, scope)
-        : this.store.getRolesForUser(user, scope);
+        : this.store.getRolesForSubject(user, scope);
       this.roleCache.set(k, pending);
     }
     return pending;
   }
 
   /** The user's full granted permission set (role-derived ∪ direct), memoized. */
-  getPermissions(user: UserRef, scope?: TenantScope): Promise<ReadonlySet<string>> {
+  getPermissions(user: SubjectRef, scope?: TenantScope): Promise<ReadonlySet<string>> {
     const k = key(user, scope);
     let pending = this.cache.get(k);
     if (!pending) {
-      pending = this.store.getPermissionsForUser(user, scope).then((perms) => new Set(perms));
+      pending = this.store.getPermissionsForSubject(user, scope).then((perms) => new Set(perms));
       this.cache.set(k, pending);
     }
     return pending;
   }
 
   /** Wildcard-aware: does the user's granted set satisfy `ability`? */
-  async satisfies(user: UserRef, ability: string, scope?: TenantScope): Promise<boolean> {
+  async satisfies(user: SubjectRef, ability: string, scope?: TenantScope): Promise<boolean> {
     const set = await this.getPermissions(user, scope);
     return permissionSatisfied(set, ability);
   }

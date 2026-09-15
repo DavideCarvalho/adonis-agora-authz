@@ -1,7 +1,7 @@
 import type { SuperAdminHook, TenantResolver } from './authz_service.js';
 import type { ScopeRegistry } from './scope.js';
 import { type StoreProvider, stores } from './stores/factory.js';
-import type { ResolveUserRef, TenantScope, UserRef, UserRefInput } from './user_ref.js';
+import type { ResolveSubjectRef, SubjectRef, SubjectRefInput, TenantScope } from './subject_ref.js';
 
 export interface AuthzConfig {
   /** Key of the active store in {@link AuthzConfig.stores}. */
@@ -11,7 +11,7 @@ export interface AuthzConfig {
   /** Optional super-admin hook: `true` allows, `false` denies, nullish falls through. */
   superAdmin?: SuperAdminHook;
   /** Map a host user object to a polymorphic user reference. */
-  resolveUserRef?: ResolveUserRef;
+  resolveSubjectRef?: ResolveSubjectRef;
   /** Resolve the active tenant for the current request (multi-tenancy). */
   tenant?: TenantResolver;
   /**
@@ -32,7 +32,7 @@ export interface AuthzConfig {
    * `can()`/`hasRole()`/`scope()` e são mapeadas por {@link roleGrants}, exatamente como as roles
    * globais do contexto. Opcional: ausente → só token + store decidem.
    */
-  resolveRoles?: (user: UserRef, scope?: TenantScope) => Promise<string[]> | string[];
+  resolveRoles?: (user: SubjectRef, scope?: TenantScope) => Promise<string[]> | string[];
   /**
    * Domain reverse seam — the reverse counterpart of {@link resolveRoles}. Given a role, return the
    * user ids/refs that hold it in the app's own role source (e.g. `user_roles`). Feeds the union in
@@ -41,7 +41,7 @@ export interface AuthzConfig {
   resolveRoleMembers?: (
     role: string,
     scope?: TenantScope,
-  ) => Promise<Array<string | UserRefInput>> | Array<string | UserRefInput>;
+  ) => Promise<Array<string | SubjectRefInput>> | Array<string | SubjectRefInput>;
   /**
    * Global/IdP reverse seam — the reverse counterpart of the global (token) role claim. Given a role,
    * return the user ids/refs that hold it as a global/IdP role. Feeds the union in
@@ -50,7 +50,7 @@ export interface AuthzConfig {
   resolveGlobalRoleMembers?: (
     role: string,
     scope?: TenantScope,
-  ) => Promise<Array<string | UserRefInput>> | Array<string | UserRefInput>;
+  ) => Promise<Array<string | SubjectRefInput>> | Array<string | SubjectRefInput>;
   /**
    * Mapa role → permissões/wildcards, aplicado às roles EFETIVAS (contexto + resolver) sem seed no
    * store. (Antes: `globalRoleGrants`; renomeado porque não é só das roles globais.)

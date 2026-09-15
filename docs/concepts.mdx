@@ -19,11 +19,11 @@ await authz.store.createRole('editor')
 await authz.store.givePermissionToRole('editor', 'posts.edit')
 await authz.store.assignRole({ type: 'user', id: '1' }, 'editor')
 
-await authz.store.giveUserPermission({ type: 'user', id: '1' }, 'billing.view') // direct
+await authz.store.giveSubjectPermission({ type: 'user', id: '1' }, 'billing.view') // direct
 
 // Administration, without any host SQL against the store's tables:
-await authz.store.countUsersForRole('editor')       // the "N users" KPI
-await authz.store.countUsersByRole()                // whole matrix: { editor: 1, ... }
+await authz.store.countSubjectsForRole('editor')       // the "N users" KPI
+await authz.store.countSubjectsByRole()                // whole matrix: { editor: 1, ... }
 await authz.store.deleteRole('editor')              // grants + memberships + row, idempotent
 ```
 
@@ -72,10 +72,10 @@ is why a permission set is always tested with it rather than with
 <Callout type="info">
   Wildcard expansion happens in the service, not the database: the store returns
   a user's grant set, and `AuthzService.can` runs the matcher over it.
-  `store.userHasPermission` itself matches names **exactly**.
+  `store.subjectHasPermission` itself matches names **exactly**.
 </Callout>
 
-## Polymorphic users
+## Polymorphic subjects
 
 The package never owns a users table. A user is a `{ type, id }` reference, so
 the same tables serve admins, customers, API clients, etc.
@@ -83,24 +83,24 @@ the same tables serve admins, customers, API clients, etc.
 ```ts
 await authz.store.assignRole({ type: 'admin', id: '1' }, 'superuser')
 // A different type with the same id is a different subject:
-await authz.store.userHasPermission({ type: 'user', id: '1' }, 'system.manage') // false
+await authz.store.subjectHasPermission({ type: 'user', id: '1' }, 'system.manage') // false
 ```
 
-The default `resolveUserRef` reads `user.id` (and an optional `user.type`).
+The default `resolveSubjectRef` reads `user.id` (and an optional `user.type`).
 Override it in config to map your own user shape.
 
 Anywhere a reference is accepted, the shorthand forms are accepted too — a bare
-id, a number, an object without a `type` — and `normalizeUserRef` is the function
+id, a number, an object without a `type` — and `normalizeSubjectRef` is the function
 that canonicalizes them. Call it when you need the exact `{ type, id }` a store
 row is keyed by:
 
 ```ts
-import { normalizeUserRef } from '@adonis-agora/authz'
+import { normalizeSubjectRef } from '@adonis-agora/authz'
 
-normalizeUserRef('42')                        // { type: 'user', id: '42' }
-normalizeUserRef(42)                          // { type: 'user', id: '42' }
-normalizeUserRef({ id: 42 })                  // { type: 'user', id: '42' }
-normalizeUserRef({ type: 'admin', id: 42 })   // { type: 'admin', id: '42' }
+normalizeSubjectRef('42')                        // { type: 'user', id: '42' }
+normalizeSubjectRef(42)                          // { type: 'user', id: '42' }
+normalizeSubjectRef({ id: 42 })                  // { type: 'user', id: '42' }
+normalizeSubjectRef({ type: 'admin', id: 42 })   // { type: 'admin', id: '42' }
 ```
 
 Ids are always stringified, so the numeric `42` and the string `'42'` are the
@@ -170,27 +170,27 @@ Hosts with integer ids may give the pivots their native key type
 | ------ | -------- |
 | `assignRole(user, role, scope?)` | Idempotent; creates the role when it does not exist. `scope` defaults to global. |
 | `removeRole(user, role, scope?)` | Removes the assignment matching the **exact** tenant scope. |
-| `giveUserPermission(user, permission)` / `revokeUserPermission(...)` | Direct grants — tenant-independent by design. |
+| `giveSubjectPermission(user, permission)` / `revokeSubjectPermission(...)` | Direct grants — tenant-independent by design. |
 
 **Reads**
 
 | Method | Contract |
 | ------ | -------- |
-| `getRolesForUser(user, scope?)` | Role names, with the tenant-visibility rules above. |
-| `getUsersForRole(role, scope?)` | The reverse: every `{ type, id }` holding the role. |
-| `countUsersForRole(role, scope?)` | Same visibility, reduced to a number — the "N users" KPI of a roles screen without transferring one ref per member. |
-| `countUsersByRole(scope?)` | Every role → member count in one `GROUP BY` pass; roles nobody holds come back as `0` (a complete matrix, not just rows with members). |
-| `getPermissionsForUser(user, scope?)` | The raw granted names — role-derived ∪ direct. Wildcards are **not** expanded (the service's matcher does that). |
-| `userHasPermission(user, permission, scope?)` | Exact-name membership, no wildcards — prefer `authz.can()`. |
+| `getRolesForSubject(user, scope?)` | Role names, with the tenant-visibility rules above. |
+| `getSubjectsForRole(role, scope?)` | The reverse: every `{ type, id }` holding the role. |
+| `countSubjectsForRole(role, scope?)` | Same visibility, reduced to a number — the "N users" KPI of a roles screen without transferring one ref per member. |
+| `countSubjectsByRole(scope?)` | Every role → member count in one `GROUP BY` pass; roles nobody holds come back as `0` (a complete matrix, not just rows with members). |
+| `getPermissionsForSubject(user, scope?)` | The raw granted names — role-derived ∪ direct. Wildcards are **not** expanded (the service's matcher does that). |
+| `subjectHasPermission(user, permission, scope?)` | Exact-name membership, no wildcards — prefer `authz.can()`. |
 
-For a roles administration screen the pair `countUsersByRole()` (the table) and
-`countUsersForRole(role)` (the delete guard) covers the KPIs; when a delete must
+For a roles administration screen the pair `countSubjectsByRole()` (the table) and
+`countSubjectsForRole(role)` (the delete guard) covers the KPIs; when a delete must
 also check-and-act atomically, run both reads and the write on one client:
 
 ```ts
 await db.transaction(async (trx) => {
   const authz = store.withClient(trx)
-  if ((await authz.countUsersForRole('editor')) > 0) {
+  if ((await authz.countSubjectsForRole('editor')) > 0) {
     throw new Error('role still has members') // the tx rolls back the check itself
   }
   await authz.deleteRole('editor')

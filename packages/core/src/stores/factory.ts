@@ -26,7 +26,7 @@ export interface LucidStoreConfig {
   /** Auto-create tables on first use (default true). Set false when migrating. */
   autoCreateSchema?: boolean;
   /**
-   * The `user_id` pivot column type: `'text'` (default, every subject kind),
+   * The `subject_id` pivot column type: `'text'` (default, every subject kind),
    * `'integer'` or `'bigint'` (the host's native key type — must match the
    * tables, see `createAuthzTables` and the migration stub). Subject *types*
    * stay polymorphic either way; this is only about the id column type.

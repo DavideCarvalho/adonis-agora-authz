@@ -6,11 +6,11 @@ description: >
   (config/authz.ts, app/abilities/authz.ts, RBAC migration), defineConfig with
   stores.lucid() / stores.memory(), autoCreateSchema vs owning the schema via
   createAuthzTables/dropAuthzTables with matching tables overrides, the
-  resolveUserRef seam (defaultResolveUserRef, identityUserRef), the tenant
+  resolveSubjectRef seam (defaultResolveSubjectRef, identitySubjectRef), the tenant
   resolver, and the ace commands authz:grant / authz:assign / authz:list /
   authz:sync with the idempotent catalog. Use when installing, wiring config,
   choosing between auto-created or migrated RBAC tables, seeding roles and
-  permissions, or mapping a custom user model to a { type, id } UserRef.
+  permissions, or mapping a custom user model to a { type, id } SubjectRef.
 metadata:
   type: core
   library: "@adonis-agora/authz"
@@ -30,7 +30,7 @@ sources:
 and publishes `config/authz.ts`, `app/abilities/authz.ts` (the `can` /
 `hasRole` Bouncer abilities), and a Lucid migration for the five RBAC tables
 (`authz_roles`, `authz_permissions`, `authz_role_permission`,
-`authz_user_role`, `authz_user_permission` — exported as `AUTHZ_TABLES`).
+`authz_subject_role`, `authz_subject_permission` — exported as `AUTHZ_TABLES`).
 
 ## Setup
 
@@ -64,7 +64,7 @@ node ace migration:run
 Both paths emit identical DDL (`CREATE TABLE IF NOT EXISTS`), so switching
 later is safe — the migration finds the tables already there and does nothing.
 
-The subject pivots store `user_id` as TEXT by default (polymorphic: integer ids
+The subject pivots store `subject_id` as TEXT by default (polymorphic: integer ids
 and UUIDs share one table) and `authzRolesRelation()` preloads correctly on it
 with any host key type — no model ceremony. Optionally, when every subject has an
 integer id, give the pivots the host's native type with
@@ -108,20 +108,20 @@ Source: `docs/commands.mdx`
 
 ### Map your user shape to a `{ type, id }` reference
 
-The store never owns a users table; every row keys on a polymorphic `UserRef`.
+The store never owns a users table; every row keys on a polymorphic `SubjectRef`.
 The default resolver reads `user.id` plus an optional `user.type`. Override it
 for your model:
 
 ```ts title="config/authz.ts"
-import { defineConfig, identityUserRef, stores } from '@adonis-agora/authz'
+import { defineConfig, identitySubjectRef, stores } from '@adonis-agora/authz'
 
 export default defineConfig({
   // ...
-  resolveUserRef: identityUserRef, // authkit identity → { type: 'user', id }
+  resolveSubjectRef: identitySubjectRef, // authkit identity → { type: 'user', id }
 })
 ```
 
-`normalizeUserRef('42' | 42 | { id: 42 })` all yield `{ type: 'user', id: '42' }`
+`normalizeSubjectRef('42' | 42 | { id: 42 })` all yield `{ type: 'user', id: '42' }`
 — ids are stringified, a missing type means `'user'`.
 
 Source: `docs/concepts.mdx`, `docs/bouncer-integration.mdx`

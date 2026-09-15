@@ -1,6 +1,6 @@
 import app from '@adonisjs/core/services/app';
 import { AuthzService } from './authz_service.js';
-import type { TenantScope } from './user_ref.js';
+import type { TenantScope } from './subject_ref.js';
 
 /**
  * Mínimo do `ctx.auth` que o helper lê — estrutural, para funcionar com o

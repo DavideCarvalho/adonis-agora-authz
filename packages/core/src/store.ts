@@ -1,4 +1,4 @@
-import type { TenantScope, UserRef } from './user_ref.js';
+import type { SubjectRef, TenantScope } from './subject_ref.js';
 
 /**
  * The minimal query-client surface a store can be scoped to. Mirrors
@@ -31,13 +31,13 @@ export interface StoreOptions {
  *
  * Semantics every implementation MUST preserve:
  * - All write methods are idempotent and race-tolerant.
- * - `assignRole` / `removeRole` / `getRolesForUser` / `getPermissionsForUser`
+ * - `assignRole` / `removeRole` / `getRolesForSubject` / `getPermissionsForSubject`
  *   are tenant-aware. Direct user-permission grants are tenant-independent.
  * - Tenant visibility: a global request (`''`) sees only global rows; a
  *   tenant request sees global rows AND that tenant's rows. A tenant-scoped
  *   assignment never leaks into an unscoped check.
- * - `userHasPermission` matches permission NAMES exactly. Wildcard expansion is
- *   the caller's job (it reads `getPermissionsForUser` and runs the matcher).
+ * - `subjectHasPermission` matches permission NAMES exactly. Wildcard expansion is
+ *   the caller's job (it reads `getPermissionsForSubject` and runs the matcher).
  * - Every data method takes a trailing {@link StoreOptions}; the client it
  *   carries (or the one {@link withClient} / the `resolveClient` config bound)
  *   runs the method's SQL. `ensureSchema` is the exception: DDL belongs to the
@@ -67,14 +67,14 @@ export interface PermissionStore {
 
   /** Assign a role to a user (optionally tenant-scoped). */
   assignRole(
-    user: UserRef,
+    user: SubjectRef,
     roleName: string,
     scope?: TenantScope,
     opts?: StoreOptions,
   ): Promise<void>;
   /** Remove a role assignment matching the exact tenant scope. */
   removeRole(
-    user: UserRef,
+    user: SubjectRef,
     roleName: string,
     scope?: TenantScope,
     opts?: StoreOptions,
@@ -84,45 +84,57 @@ export interface PermissionStore {
    * Delete a role outright: revokes its permission grants, removes every user
    * assignment, deletes the role row. Idempotent — an unknown name is a no-op.
    * Whether to refuse a role that still has members is the HOST's decision
-   * (call {@link countUsersForRole} first); the store just deletes.
+   * (call {@link countSubjectsForRole} first); the store just deletes.
    */
   deleteRole(name: string, opts?: StoreOptions): Promise<void>;
 
   /** Grant a permission directly to a user (tenant-independent). */
-  giveUserPermission(user: UserRef, permissionName: string, opts?: StoreOptions): Promise<void>;
+  giveSubjectPermission(
+    user: SubjectRef,
+    permissionName: string,
+    opts?: StoreOptions,
+  ): Promise<void>;
   /** Revoke a direct user grant (role-derived permissions survive). */
-  revokeUserPermission(user: UserRef, permissionName: string, opts?: StoreOptions): Promise<void>;
+  revokeSubjectPermission(
+    user: SubjectRef,
+    permissionName: string,
+    opts?: StoreOptions,
+  ): Promise<void>;
 
   /** Role names for a user, tenant-filtered. */
-  getRolesForUser(user: UserRef, scope?: TenantScope, opts?: StoreOptions): Promise<string[]>;
+  getRolesForSubject(user: SubjectRef, scope?: TenantScope, opts?: StoreOptions): Promise<string[]>;
   /**
-   * Reverse of {@link getRolesForUser}: every user that holds `role` in the
+   * Reverse of {@link getRolesForSubject}: every user that holds `role` in the
    * store, tenant-filtered with the SAME visibility rule (a global request sees
    * only global assignments; a tenant request sees global AND that tenant's).
    * Returns `{ type, id }` refs.
    */
-  getUsersForRole(role: string, scope?: TenantScope, opts?: StoreOptions): Promise<UserRef[]>;
+  getSubjectsForRole(role: string, scope?: TenantScope, opts?: StoreOptions): Promise<SubjectRef[]>;
   /**
    * Count of distinct users holding `role`, with the same tenant visibility as
-   * {@link getUsersForRole}. The "N users" KPI of a roles screen, without
+   * {@link getSubjectsForRole}. The "N users" KPI of a roles screen, without
    * transferring one ref per member.
    */
-  countUsersForRole(role: string, scope?: TenantScope, opts?: StoreOptions): Promise<number>;
+  countSubjectsForRole(role: string, scope?: TenantScope, opts?: StoreOptions): Promise<number>;
   /**
    * Every role with its distinct member count in one pass (roles nobody holds
    * count as `0`), for a whole roles matrix. Same tenant visibility as
-   * {@link getUsersForRole}.
+   * {@link getSubjectsForRole}.
    */
-  countUsersByRole(scope?: TenantScope, opts?: StoreOptions): Promise<Record<string, number>>;
+  countSubjectsByRole(scope?: TenantScope, opts?: StoreOptions): Promise<Record<string, number>>;
   /** Effective permission names for a user (role-derived ∪ direct). */
-  getPermissionsForUser(user: UserRef, scope?: TenantScope, opts?: StoreOptions): Promise<string[]>;
+  getPermissionsForSubject(
+    user: SubjectRef,
+    scope?: TenantScope,
+    opts?: StoreOptions,
+  ): Promise<string[]>;
 
   /**
    * Exact-name check: does the user hold `permission` via a role (tenant-aware)
    * or a direct grant? Wildcards are NOT expanded here.
    */
-  userHasPermission(
-    user: UserRef,
+  subjectHasPermission(
+    user: SubjectRef,
     permission: string,
     scope?: TenantScope,
     opts?: StoreOptions,

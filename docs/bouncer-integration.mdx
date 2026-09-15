@@ -121,21 +121,21 @@ cache's lifetime.
 ## Pairing with an authentication provider (AuthKit)
 
 `@adonis-agora/authz` never owns a users table — it identifies users by a
-polymorphic `UserRef`. When you pair it with an auth provider such as
-[`@adonis-agora/authkit`](/docs/authkit), point `resolveUserRef` at the
-`identityUserRef` seam so the provider's identity maps straight to a `UserRef`:
+polymorphic `SubjectRef`. When you pair it with an auth provider such as
+[`@adonis-agora/authkit`](/docs/authkit), point `resolveSubjectRef` at the
+`identitySubjectRef` seam so the provider's identity maps straight to a `SubjectRef`:
 
 ```ts title="config/authz.ts"
-import { defineConfig, identityUserRef, stores } from '@adonis-agora/authz'
+import { defineConfig, identitySubjectRef, stores } from '@adonis-agora/authz'
 
 export default defineConfig({
   default: 'lucid',
   stores: { lucid: stores.lucid() },
-  resolveUserRef: identityUserRef,
+  resolveSubjectRef: identitySubjectRef,
 })
 ```
 
-`identityUserRef` accepts any identity carrying a `userId` (or an `id`) and
+`identitySubjectRef` accepts any identity carrying a `userId` (or an `id`) and
 returns `{ type: 'user', id: String(userId ?? id) }`, falling back to the default
 resolver when neither is present. It never imports authkit, so pairing the two
 packages stays optional in both directions.

@@ -228,8 +228,8 @@ export async function check(user: unknown, perm: string) {
 
 Mechanism: `createCache()` memoizes BOTH dimensions a check reads per
 `(user, tenant)` forever by design — the role resolution (context roles, the
-`resolveRoles` seam **and** `store.getRolesForUser`) and the permission read
-(`store.getPermissionsForUser`) — correct inside one request, wrong across
+`resolveRoles` seam **and** `store.getRolesForSubject`) and the permission read
+(`store.getPermissionsForSubject`) — correct inside one request, wrong across
 requests. Pass `{ cache }` to `can`, `hasRole`, `hasAnyRole`, `scope`, and
 `effectiveRoles`/`effectivePermissions` (third argument) so they share the
 snapshot.

@@ -3,7 +3,7 @@ import type { HttpContext } from '@adonisjs/core/http';
 import type { NextFn } from '@adonisjs/core/types/http';
 import { AuthzService } from './authz_service.js';
 import { permissionMatches, permissionSatisfied } from './permission_matcher.js';
-import type { TenantScope } from './user_ref.js';
+import type { TenantScope } from './subject_ref.js';
 
 /**
  * Estrutura mínima do `ctx.auth` que o middleware lê — estrutural, para funcionar com o

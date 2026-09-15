@@ -39,7 +39,7 @@ export default defineConfig({
    * Map a host user object to a polymorphic user reference { type, id }. The
    * default reads user.id (and an optional user.type).
    *
-   *   resolveUserRef: (user) => ({ type: 'user', id: user.id }),
+   *   resolveSubjectRef: (user) => ({ type: 'user', id: user.id }),
    */
 
   /**

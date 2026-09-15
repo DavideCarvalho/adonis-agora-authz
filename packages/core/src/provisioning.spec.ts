@@ -48,9 +48,9 @@ describe('feature A — event-driven provisioning', () => {
 
     await emit('authkit:organization.created', { metadata: { orgId: 'acme' } });
 
-    expect(await store.getRolesForUser({ type: 'user', id: '1' }, { tenantId: 'acme' })).toContain(
-      'org:owner',
-    );
+    expect(
+      await store.getRolesForSubject({ type: 'user', id: '1' }, { tenantId: 'acme' }),
+    ).toContain('org:owner');
     provisioning.stop();
   });
 
@@ -116,7 +116,7 @@ describe('provisioning — contrato real do payload do authkit', () => {
     });
 
     expect(
-      await store.getRolesForUser({ type: 'user', id: 'owner-1' }, { tenantId: 'acme' }),
+      await store.getRolesForSubject({ type: 'user', id: 'owner-1' }, { tenantId: 'acme' }),
     ).toContain('org:owner');
     provisioning.stop();
   });

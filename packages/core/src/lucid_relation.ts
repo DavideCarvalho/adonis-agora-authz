@@ -1,5 +1,5 @@
 import { AUTHZ_TABLES, type AuthzTableNames } from './stores/lucid-schema.js';
-import { GLOBAL_TENANT } from './user_ref.js';
+import { GLOBAL_TENANT } from './subject_ref.js';
 
 /**
  * O mínimo do query builder de pivô do Lucid que este módulo usa. Estrutural para não
@@ -36,10 +36,10 @@ const subjectKeyOf = (localKey: string) => `$authz_${localKey}`;
 /**
  * Faz a relação casar o pivô com a chave do host SEM depender do tipo dela.
  *
- * O pivô do authz é polimórfico (`user_id` TEXT por default) e o Lucid usa o valor do
- * modelo tal-qual em dois lugares: no `WHERE user_id IN (...)` (SQLite não converte um
+ * O pivô do authz é polimórfico (`subject_id` TEXT por default) e o Lucid usa o valor do
+ * modelo tal-qual em dois lugares: no `WHERE subject_id IN (...)` (SQLite não converte um
  * binding numérico para casar uma coluna TEXT — devolve nada) e na distribuição do
- * resultado (`pivot.user_id === parent[localKey]`, onde `'42' !== 42`). Um host
+ * resultado (`pivot.subject_id === parent[localKey]`, onde `'42' !== 42`). Um host
  * `increments()` via `preload('roles')` devolver `[]` SEM ERRO (#74). Pivôs INTEGER
  * têm o espelho: Postgres entrega `bigint` como string e `integer` como number.
  *
@@ -102,23 +102,21 @@ export interface AuthzRolesRelationOptions {
   /** Sobrescreve nomes de tabela, se o store foi configurado com outros. */
   tables?: AuthzTableNames;
   /**
-   * O tipo de sujeito deste modelo — o `type` que `resolveUserRef` devolve para ele e
-   * que `assignRole` gravou em `user_type`. Default `'user'`. Um modelo `Team` passa
+   * O tipo de sujeito deste modelo — o `type` que `resolveSubjectRef` devolve para ele e
+   * que `assignRole` gravou em `subject_type`. Default `'user'`. Um modelo `Team` passa
    * `'team'`, um `ServiceAccount` `'service'`, etc.
    */
   subjectType?: string;
-  /** @deprecated Use `subjectType` — mesmo significado, nome sem o "user" herdado. */
-  userType?: string;
   /**
    * O tenant a ler. Default o global (string vazia).
    *
    * Um tenant específico traz as linhas DELE **mais** as globais — a mesma
-   * visibilidade que `getRolesForUser({ tenantId })` dá, porque um papel global vale
+   * visibilidade que `getRolesForSubject({ tenantId })` dá, porque um papel global vale
    * dentro de qualquer tenant. Só o pedido global é exclusivo (traz apenas globais).
    */
   tenantId?: string;
   /**
-   * O atributo do modelo do host que o pivô referencia em `user_id`. Default: a chave
+   * O atributo do modelo do host que o pivô referencia em `subject_id`. Default: a chave
    * primária do próprio modelo (`Model.primaryKey`), seja ela `id`, `teamId` ou outra —
    * o tipo (integer, bigint, uuid) não importa, ver {@link authzRolesRelation}.
    * Só precisa disto quem liga o pivô a um atributo que NÃO é a PK.
@@ -131,7 +129,7 @@ export interface AuthzRolesRelationOptions {
  * do authz — users, teams, organizations: o que tiver uma chave primária.
  *
  * Existe porque a alternativa é cada app redigitar os detalhes do pivô — e eles são
- * INTERNOS desta lib, não do app: o nome das colunas, o `user_type` (o authz é
+ * INTERNOS desta lib, não do app: o nome das colunas, o `subject_type` (o authz é
  * polimórfico, então o tipo faz parte da chave) e o sentinel de tenant global, que é
  * a string VAZIA e não `null`. Errar qualquer um deles não dá erro: dá uma relação que
  * lê as linhas erradas em silêncio, que é a pior forma de um bug de autorização.
@@ -161,7 +159,7 @@ export interface AuthzRolesRelationOptions {
  * }
  * ```
  *
- * **O tipo da chave do host não importa.** O pivô grava `user_id` como TEXTO por
+ * **O tipo da chave do host não importa.** O pivô grava `subject_id` como TEXTO por
  * default (polimórfico: aceita integer e uuid na mesma tabela) e o Lucid distribui o
  * resultado do preload por igualdade ESTRITA — `'42'` (pivô) nunca casaria `42`
  * (modelo). Esta função normaliza o binding e a distribuição (ver `normalizeRelation`), então
@@ -173,20 +171,20 @@ export interface AuthzRolesRelationOptions {
  */
 export function authzRolesRelation(options: AuthzRolesRelationOptions = {}) {
   const tables = { ...AUTHZ_TABLES, ...options.tables };
-  const subjectType = options.subjectType ?? options.userType ?? 'user';
+  const subjectType = options.subjectType ?? 'user';
   const tenantId = options.tenantId ?? GLOBAL_TENANT;
 
   return {
-    pivotTable: tables.userRole,
+    pivotTable: tables.subjectRole,
     // Sem `localKey` o Lucid usa a PK do modelo — o nome que o host escolheu.
     ...(options.localKey ? { localKey: options.localKey } : {}),
-    pivotForeignKey: 'user_id',
+    pivotForeignKey: 'subject_id',
     relatedKey: 'id',
     pivotRelatedForeignKey: 'role_id',
     onQuery: (query: PivotQueryLike) => {
       // Roda antes de qualquer `exec`, logo antes de qualquer distribuição.
       normalizeRelation(query.relation);
-      query.wherePivot('user_type', subjectType);
+      query.wherePivot('subject_type', subjectType);
       // Espelha o `tenantClause` do store: pedido global vê só o global; pedido de um
       // tenant vê o dele MAIS o global. Uma igualdade simples aqui descartaria os
       // papéis globais de quem lê por tenant — silenciosamente, que é exatamente o

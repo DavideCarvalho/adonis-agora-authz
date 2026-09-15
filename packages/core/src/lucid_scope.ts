@@ -22,7 +22,7 @@ import {
   type ScopeNode,
   type ScopeOperator,
 } from './scope.js';
-import type { TenantScope } from './user_ref.js';
+import type { TenantScope } from './subject_ref.js';
 
 /**
  * The slice of a Lucid `ModelQueryBuilderContract` (or any Knex-style chainable) the

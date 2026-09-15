@@ -21,7 +21,7 @@ describe('LucidPermissionStore (sqlite)', () => {
 
     // A second instance over the same db sees the persisted rows.
     const b = new LucidPermissionStore(asLucidDatabase(db));
-    expect(await b.userHasPermission({ type: 'user', id: '7' }, 'posts.edit')).toBe(true);
+    expect(await b.subjectHasPermission({ type: 'user', id: '7' }, 'posts.edit')).toBe(true);
   });
 
   it('persists distinct tenant assignments independently', async () => {
@@ -30,9 +30,11 @@ describe('LucidPermissionStore (sqlite)', () => {
     await store.givePermissionToRole('billing', 'billing.view');
     await store.assignRole(user, 'billing', { tenantId: 'acme' });
 
-    expect(await store.userHasPermission(user, 'billing.view')).toBe(false);
-    expect(await store.userHasPermission(user, 'billing.view', { tenantId: 'acme' })).toBe(true);
-    expect(await store.userHasPermission(user, 'billing.view', { tenantId: 'globex' })).toBe(false);
+    expect(await store.subjectHasPermission(user, 'billing.view')).toBe(false);
+    expect(await store.subjectHasPermission(user, 'billing.view', { tenantId: 'acme' })).toBe(true);
+    expect(await store.subjectHasPermission(user, 'billing.view', { tenantId: 'globex' })).toBe(
+      false,
+    );
   });
 
   it('honors autoCreateSchema:false (manual ensureSchema)', async () => {
@@ -56,15 +58,15 @@ describe('LucidPermissionStore (sqlite)', () => {
     await store.assignRole(alice, 'editor', undefined, { client: trx });
     await store.givePermissionToRole('editor', 'posts.edit', { client: trx });
     // Inside the transaction: the grant is visible through the same client.
-    expect(await store.getRolesForUser(alice, undefined, { client: trx })).toContain('editor');
-    expect(await store.userHasPermission(alice, 'posts.edit', undefined, { client: trx })).toBe(
+    expect(await store.getRolesForSubject(alice, undefined, { client: trx })).toContain('editor');
+    expect(await store.subjectHasPermission(alice, 'posts.edit', undefined, { client: trx })).toBe(
       true,
     );
     await trx.commit();
 
     // After the commit: visible on the store's own connection too.
-    expect(await store.getRolesForUser(alice)).toContain('editor');
-    expect(await store.countUsersForRole('editor')).toBe(1);
+    expect(await store.getRolesForSubject(alice)).toContain('editor');
+    expect(await store.countSubjectsForRole('editor')).toBe(1);
   });
 
   it('withClient binds one client for a whole sequence — no per-call options', async () => {
@@ -77,7 +79,7 @@ describe('LucidPermissionStore (sqlite)', () => {
     await scoped.assignRole({ type: 'user', id: '1' }, 'admin');
     // The view is a PermissionStore: everything a host does with the store, it
     // does with the view — same tables, same rules, host's transaction.
-    expect(await scoped.getRolesForUser({ type: 'user', id: '1' })).toContain('admin');
+    expect(await scoped.getRolesForSubject({ type: 'user', id: '1' })).toContain('admin');
     expect(await scoped.listRoles()).toContain('admin');
     await trx.commit();
 
@@ -105,7 +107,7 @@ describe('LucidPermissionStore (sqlite)', () => {
       },
     };
     const view = store.withClient(viewClient);
-    const roles = await view.getRolesForUser({ type: 'user', id: '1' }, undefined, {
+    const roles = await view.getRolesForSubject({ type: 'user', id: '1' }, undefined, {
       client: callClient,
     });
     expect(roles).toEqual(['editor']);
@@ -123,13 +125,13 @@ describe('LucidPermissionStore (sqlite)', () => {
     ambient = trx;
     // No opts anywhere: the configured resolver carries the call into the trx.
     await store.assignRole({ type: 'user', id: '1' }, 'editor');
-    expect(await store.getRolesForUser({ type: 'user', id: '1' })).toContain('editor');
+    expect(await store.getRolesForSubject({ type: 'user', id: '1' })).toContain('editor');
     await trx.rollback();
     ambient = undefined;
 
     // Outside the transaction the resolver yields nothing → root connection,
     // and the rolled-back grant is gone.
-    expect(await store.getRolesForUser({ type: 'user', id: '1' })).not.toContain('editor');
+    expect(await store.getRolesForSubject({ type: 'user', id: '1' })).not.toContain('editor');
   });
 
   it('rolls back with the host transaction — the grant never commits alone', async () => {
@@ -157,9 +159,9 @@ describe('LucidPermissionStore (sqlite)', () => {
     await scoped.removeRole({ type: 'user', id: '1' }, 'admin');
     // The guard's count runs INSIDE the transaction: it sees 1, not the
     // committed 2 — two concurrent requests can no longer both read "2".
-    expect(await scoped.countUsersForRole('admin')).toBe(1);
+    expect(await scoped.countSubjectsForRole('admin')).toBe(1);
     await trx.commit();
-    expect(await store.countUsersForRole('admin')).toBe(1);
+    expect(await store.countSubjectsForRole('admin')).toBe(1);
   });
 
   it('deleteRole joins the host transaction when given a client', async () => {
@@ -176,7 +178,7 @@ describe('LucidPermissionStore (sqlite)', () => {
     // The rollback restored everything: role, grant and membership.
     expect(await store.listRoles()).toContain('editor');
     expect(await store.getRolePermissions('editor')).toContain('posts.edit');
-    expect(await store.countUsersForRole('editor')).toBe(1);
+    expect(await store.countSubjectsForRole('editor')).toBe(1);
   });
 
   it('the scoped view never touches the root connection (no DDL, no waits)', async () => {
@@ -199,7 +201,7 @@ describe('LucidPermissionStore (sqlite)', () => {
     const trx = await db.transaction();
     const scoped = store.withClient(trx);
     await scoped.assignRole({ type: 'user', id: '9' }, 'viewer');
-    await scoped.getPermissionsForUser({ type: 'user', id: '9' });
+    await scoped.getPermissionsForSubject({ type: 'user', id: '9' });
     // Zero root calls while the host transaction is open — no DDL sneak-in, no
     // pool wait, which is what makes the pattern safe on sqlite.
     expect(rootCalls).toBe(afterSchema);
@@ -224,17 +226,17 @@ describe('LucidPermissionStore with subjectIdType integer (sqlite)', () => {
   it('round-trips integer ids as native values, refs stay strings', async () => {
     const store = integerStore();
     await store.assignRole({ type: 'user', id: '42' }, 'editor');
-    await store.giveUserPermission({ type: 'user', id: '42' }, 'billing.view');
-    expect(await store.getRolesForUser({ type: 'user', id: '42' })).toContain('editor');
-    expect(await store.getUsersForRole('editor')).toEqual([{ type: 'user', id: '42' }]);
-    expect(await store.userHasPermission({ type: 'user', id: '42' }, 'billing.view')).toBe(true);
-    expect(await store.countUsersForRole('editor')).toBe(1);
+    await store.giveSubjectPermission({ type: 'user', id: '42' }, 'billing.view');
+    expect(await store.getRolesForSubject({ type: 'user', id: '42' })).toContain('editor');
+    expect(await store.getSubjectsForRole('editor')).toEqual([{ type: 'user', id: '42' }]);
+    expect(await store.subjectHasPermission({ type: 'user', id: '42' }, 'billing.view')).toBe(true);
+    expect(await store.countSubjectsForRole('editor')).toBe(1);
   });
 
   it('bigint mode guards the same way and names itself in the error', async () => {
     const store = new LucidPermissionStore(asLucidDatabase(db), { subjectIdType: 'bigint' });
     await store.assignRole({ type: 'user', id: '4294967342' }, 'editor');
-    expect(await store.getRolesForUser({ type: 'user', id: '4294967342' })).toContain('editor');
+    expect(await store.getRolesForSubject({ type: 'user', id: '4294967342' })).toContain('editor');
     await expect(store.assignRole({ type: 'user', id: 'nope' }, 'editor')).rejects.toThrow(
       /subjectIdType 'bigint'/,
     );
@@ -245,14 +247,14 @@ describe('LucidPermissionStore with subjectIdType integer (sqlite)', () => {
     await expect(store.assignRole({ type: 'user', id: 'not-an-id' }, 'editor')).rejects.toThrow(
       /subjectIdType 'integer'.*non-integer user id/,
     );
-    await expect(store.giveUserPermission({ type: 'user', id: '3f0c1b2a' }, 'x')).rejects.toThrow(
+    await expect(
+      store.giveSubjectPermission({ type: 'user', id: '3f0c1b2a' }, 'x'),
+    ).rejects.toThrow(/subjectIdType 'integer'/);
+    await expect(store.getRolesForSubject({ type: 'user', id: 'abc' })).rejects.toThrow(
       /subjectIdType 'integer'/,
     );
-    await expect(store.getRolesForUser({ type: 'user', id: 'abc' })).rejects.toThrow(
-      /subjectIdType 'integer'/,
-    );
-    // Every user_id binding — the direct-grant read included (Pullfrog caught it unguarded).
-    await expect(store.getPermissionsForUser({ type: 'user', id: 'abc' })).rejects.toThrow(
+    // Every subject_id binding — the direct-grant read included (Pullfrog caught it unguarded).
+    await expect(store.getPermissionsForSubject({ type: 'user', id: 'abc' })).rejects.toThrow(
       /subjectIdType 'integer'/,
     );
   });
@@ -260,6 +262,8 @@ describe('LucidPermissionStore with subjectIdType integer (sqlite)', () => {
   it('a text store keeps accepting anything (mixed/uuid hosts unaffected)', async () => {
     const store = new LucidPermissionStore(asLucidDatabase(db));
     await store.assignRole({ type: 'user', id: '3f0c1b2a-uuid' }, 'editor');
-    expect(await store.getRolesForUser({ type: 'user', id: '3f0c1b2a-uuid' })).toContain('editor');
+    expect(await store.getRolesForSubject({ type: 'user', id: '3f0c1b2a-uuid' })).toContain(
+      'editor',
+    );
   });
 });

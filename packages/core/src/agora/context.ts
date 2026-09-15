@@ -19,7 +19,7 @@ export const AGORA_CONTEXT_ACCESSOR = Symbol.for('@agora/context:accessor');
  * newer context versions honour.
  *
  * `@adonis-agora/context`'s real accessor (`packages/core/src/accessor.ts`) publishes
- * `traceId`, `tenantId`, and `userRef` as METHODS — calling them returns the active
+ * `traceId`, `tenantId`, and `subjectRef` as METHODS — calling them returns the active
  * value, or `undefined` outside a request/job. They are NOT plain properties; reading
  * them as values (the mistake this file used to make for `tenantId`) makes the field a
  * truthy function reference instead of the data it holds.
@@ -27,7 +27,7 @@ export const AGORA_CONTEXT_ACCESSOR = Symbol.for('@agora/context:accessor');
 export interface AgoraContextAccessor {
   traceId?: () => string | undefined;
   tenantId?: () => string | undefined;
-  userRef?: () => { type?: string; id?: string | number } | undefined;
+  subjectRef?: () => { type?: string; id?: string | number } | undefined;
   /** Read the whole active context store (structural). */
   get?: () => unknown;
 }
@@ -62,12 +62,12 @@ export function tenantFromContext(): string | undefined {
 }
 
 /**
- * The active caller's `userRef` from the Agora context, or `undefined` outside a
+ * The active caller's `subjectRef` from the Agora context, or `undefined` outside a
  * context / when the accessor slot is absent.
  */
-export function userRefFromContext(): { type?: string; id?: string | number } | undefined {
+export function subjectRefFromContext(): { type?: string; id?: string | number } | undefined {
   const accessor = readContextAccessor();
-  return readMethod(accessor?.userRef);
+  return readMethod(accessor?.subjectRef);
 }
 
 /**

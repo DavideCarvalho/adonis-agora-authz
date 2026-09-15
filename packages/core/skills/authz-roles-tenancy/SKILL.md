@@ -44,7 +44,7 @@ export default defineConfig({
   // Forward: app roles from YOUR tables enter the union.
   resolveRoles: async (user, scope) => {
     const rows = await UserRole.query()
-      .where('user_id', user.id)
+      .where('subject_id', user.id)
       .if(scope?.tenantId, (query) => query.where('tenant_id', scope!.tenantId!))
     return rows.map((row) => row.role)
   },
@@ -64,7 +64,7 @@ await authz.effectiveRoles(user, { tenantId: 'acme' }) // tenant-filtered
 
 `usersWithRole` mirrors `effectiveRoles` — store ∪ `resolveRoleMembers` ∪
 `resolveGlobalRoleMembers`, run in parallel, deduped by `(type, id)`. It
-returns `UserRef`s; hydrate with your own models.
+returns `SubjectRef`s; hydrate with your own models.
 
 ```ts title="config/authz.ts"
 defineConfig({
@@ -244,14 +244,14 @@ Wrong:
 
 ```ts
 // assuming a scoped variant exists
-await authz.store.giveUserPermission(ref, 'billing.view', { tenantId: 'acme' } as never);
+await authz.store.giveSubjectPermission(ref, 'billing.view', { tenantId: 'acme' } as never);
 ```
 
 Correct:
 
 ```ts
 // grants are global by design — put tenancy on a ROLE assignment instead:
-await authz.store.giveUserPermission(ref, 'billing.view'); // applies everywhere
+await authz.store.giveSubjectPermission(ref, 'billing.view'); // applies everywhere
 await authz.store.assignRole(ref, 'billing', { tenantId: 'acme' }); // scoped
 ```
 

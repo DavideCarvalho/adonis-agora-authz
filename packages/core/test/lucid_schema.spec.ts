@@ -49,7 +49,7 @@ describe('createAuthzTables / dropAuthzTables (sqlite)', () => {
     const store = new LucidPermissionStore(asLucidDatabase(db), { autoCreateSchema: false });
     await store.givePermissionToRole('editor', 'posts.edit');
     await store.assignRole({ type: 'user', id: '3' }, 'editor');
-    expect(await store.userHasPermission({ type: 'user', id: '3' }, 'posts.edit')).toBe(true);
+    expect(await store.subjectHasPermission({ type: 'user', id: '3' }, 'posts.edit')).toBe(true);
   });
 
   it('honors table-name overrides', async () => {
@@ -66,7 +66,7 @@ describe('createAuthzTables / dropAuthzTables (sqlite)', () => {
 
   it('dropAuthzTables removes the tables it created', async () => {
     await createAuthzTables(asLucidDatabase(db));
-    expect(await tableExists(db, AUTHZ_TABLES.userRole)).toBe(true);
+    expect(await tableExists(db, AUTHZ_TABLES.subjectRole)).toBe(true);
 
     await dropAuthzTables(asLucidDatabase(db));
 

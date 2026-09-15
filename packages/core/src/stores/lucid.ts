@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { PermissionStore, StoreOptions, StoreQueryClient } from '../store.js';
-import { GLOBAL_TENANT, normalizeTenant, type TenantScope, type UserRef } from '../user_ref.js';
+import {
+  GLOBAL_TENANT,
+  normalizeTenant,
+  type SubjectRef,
+  type TenantScope,
+} from '../subject_ref.js';
 import {
   AUTHZ_TABLES,
   type AuthzSubjectIdType,
@@ -29,11 +34,11 @@ export interface LucidPermissionStoreOptions {
   /** Run `CREATE TABLE IF NOT EXISTS` on first use (default true). Set false when using migrations. */
   autoCreateSchema?: boolean;
   /**
-   * The `user_id` column type of the subject pivots. `'text'` (default) fits
+   * The `subject_id` column type of the subject pivots. `'text'` (default) fits
    * every subject kind in one table; `'integer'` / `'bigint'` give the pivot
    * the host's native key type (`increments()` / `bigIncrements()`). All
    * subjects in the store must hold integer ids in those modes (validated on
-   * every `user_id` binding — a non-integer fails LOUD instead of silently
+   * every `subject_id` binding — a non-integer fails LOUD instead of silently
    * matching nothing). Mixed apps keep `'text'`. The relation helper works on
    * every mode, so this is a storage choice, not a correctness one.
    * Must agree with the tables: pass the same value to {@link createAuthzTables}
@@ -127,7 +132,7 @@ export class LucidPermissionStore implements PermissionStore {
   }
 
   /**
-   * The `user_id` binding value. Refs always arrive as strings (the contract
+   * The `subject_id` binding value. Refs always arrive as strings (the contract
    * speaks `{ type, id: string }`); on INTEGER/BIGINT pivots the driver coerces
    * the digit string on write and returns natives on read (normalized back with
    * `String()` at the boundary), so no conversion is needed — only a guard:
@@ -268,7 +273,7 @@ export class LucidPermissionStore implements PermissionStore {
   }
 
   async assignRole(
-    user: UserRef,
+    user: SubjectRef,
     roleName: string,
     scope?: TenantScope,
     opts?: StoreOptions,
@@ -277,8 +282,8 @@ export class LucidPermissionStore implements PermissionStore {
     const tenantId = normalizeTenant(scope);
     await this.run(
       this.insertIgnore(
-        this.t.userRole,
-        ['user_type', 'user_id', 'role_id', 'tenant_id'],
+        this.t.subjectRole,
+        ['subject_type', 'subject_id', 'role_id', 'tenant_id'],
         '?, ?, ?, ?',
       ),
       [user.type, this.subjectId(user.id), roleId, tenantId],
@@ -287,7 +292,7 @@ export class LucidPermissionStore implements PermissionStore {
   }
 
   async removeRole(
-    user: UserRef,
+    user: SubjectRef,
     roleName: string,
     scope?: TenantScope,
     opts?: StoreOptions,
@@ -297,7 +302,7 @@ export class LucidPermissionStore implements PermissionStore {
     if (!roleId) return;
     const tenantId = normalizeTenant(scope);
     await this.run(
-      `DELETE FROM ${this.t.userRole} WHERE user_type = ? AND user_id = ? AND role_id = ? AND tenant_id = ?`,
+      `DELETE FROM ${this.t.subjectRole} WHERE subject_type = ? AND subject_id = ? AND role_id = ? AND tenant_id = ?`,
       [user.type, this.subjectId(user.id), roleId, tenantId],
       opts,
     );
@@ -309,20 +314,20 @@ export class LucidPermissionStore implements PermissionStore {
     if (!roleId) return;
     // Child rows first so the delete is safe under a dialect that enforces FKs.
     await this.run(`DELETE FROM ${this.t.rolePermission} WHERE role_id = ?`, [roleId], opts);
-    await this.run(`DELETE FROM ${this.t.userRole} WHERE role_id = ?`, [roleId], opts);
+    await this.run(`DELETE FROM ${this.t.subjectRole} WHERE role_id = ?`, [roleId], opts);
     await this.run(`DELETE FROM ${this.t.roles} WHERE id = ?`, [roleId], opts);
   }
 
-  async giveUserPermission(
-    user: UserRef,
+  async giveSubjectPermission(
+    user: SubjectRef,
     permissionName: string,
     opts?: StoreOptions,
   ): Promise<void> {
     const permissionId = await this.createPermission(permissionName, opts);
     await this.run(
       this.insertIgnore(
-        this.t.userPermission,
-        ['user_type', 'user_id', 'permission_id'],
+        this.t.subjectPermission,
+        ['subject_type', 'subject_id', 'permission_id'],
         '?, ?, ?',
       ),
       [user.type, this.subjectId(user.id), permissionId],
@@ -330,8 +335,8 @@ export class LucidPermissionStore implements PermissionStore {
     );
   }
 
-  async revokeUserPermission(
-    user: UserRef,
+  async revokeSubjectPermission(
+    user: SubjectRef,
     permissionName: string,
     opts?: StoreOptions,
   ): Promise<void> {
@@ -339,7 +344,7 @@ export class LucidPermissionStore implements PermissionStore {
     const permissionId = await this.findPermissionId(permissionName, opts);
     if (!permissionId) return;
     await this.run(
-      `DELETE FROM ${this.t.userPermission} WHERE user_type = ? AND user_id = ? AND permission_id = ?`,
+      `DELETE FROM ${this.t.subjectPermission} WHERE subject_type = ? AND subject_id = ? AND permission_id = ?`,
       [user.type, this.subjectId(user.id), permissionId],
       opts,
     );
@@ -358,8 +363,8 @@ export class LucidPermissionStore implements PermissionStore {
     return { sql: '(ur.tenant_id = ? OR ur.tenant_id = ?)', bindings: [GLOBAL_TENANT, requested] };
   }
 
-  async getRolesForUser(
-    user: UserRef,
+  async getRolesForSubject(
+    user: SubjectRef,
     scope?: TenantScope,
     opts?: StoreOptions,
   ): Promise<string[]> {
@@ -367,46 +372,50 @@ export class LucidPermissionStore implements PermissionStore {
     const tenant = this.tenantClause(scope);
     const rows = await this.query(
       `SELECT DISTINCT r.name AS name
-       FROM ${this.t.userRole} ur
+       FROM ${this.t.subjectRole} ur
        JOIN ${this.t.roles} r ON r.id = ur.role_id
-       WHERE ur.user_type = ? AND ur.user_id = ? AND ${tenant.sql}`,
+       WHERE ur.subject_type = ? AND ur.subject_id = ? AND ${tenant.sql}`,
       [user.type, this.subjectId(user.id), ...tenant.bindings],
       opts,
     );
     return rows.map((r) => r.name as string);
   }
 
-  async getUsersForRole(
+  async getSubjectsForRole(
     role: string,
     scope?: TenantScope,
     opts?: StoreOptions,
-  ): Promise<UserRef[]> {
+  ): Promise<SubjectRef[]> {
     await this.ready(opts);
     const tenant = this.tenantClause(scope);
     const rows = await this.query(
-      `SELECT DISTINCT ur.user_type AS user_type, ur.user_id AS user_id
-       FROM ${this.t.userRole} ur
+      `SELECT DISTINCT ur.subject_type AS subject_type, ur.subject_id AS subject_id
+       FROM ${this.t.subjectRole} ur
        JOIN ${this.t.roles} r ON r.id = ur.role_id
        WHERE r.name = ? AND ${tenant.sql}`,
       [role, ...tenant.bindings],
       opts,
     );
-    return rows.map((r) => ({ type: r.user_type as string, id: String(r.user_id) }));
+    return rows.map((r) => ({ type: r.subject_type as string, id: String(r.subject_id) }));
   }
 
-  async countUsersForRole(role: string, scope?: TenantScope, opts?: StoreOptions): Promise<number> {
+  async countSubjectsForRole(
+    role: string,
+    scope?: TenantScope,
+    opts?: StoreOptions,
+  ): Promise<number> {
     await this.ready(opts);
     const tenant = this.tenantClause(scope);
-    // DISTINCT over (user_type, user_id) in a subquery, NOT COUNT(DISTINCT
-    // user_id): the store is polymorphic, and two subject TYPES sharing one id
+    // DISTINCT over (subject_type, subject_id) in a subquery, NOT COUNT(DISTINCT
+    // subject_id): the store is polymorphic, and two subject TYPES sharing one id
     // string are two members — a type-blind count would disagree with
-    // getUsersForRole. The dialects differ on row-value distinct support, so
+    // getSubjectsForRole. The dialects differ on row-value distinct support, so
     // the derived table is the portable form.
     const rows = await this.query(
       `SELECT COUNT(*) AS total
        FROM (
-         SELECT DISTINCT ur.user_type AS ut, ur.user_id AS uid
-         FROM ${this.t.userRole} ur
+         SELECT DISTINCT ur.subject_type AS ut, ur.subject_id AS uid
+         FROM ${this.t.subjectRole} ur
          JOIN ${this.t.roles} r ON r.id = ur.role_id
          WHERE r.name = ? AND ${tenant.sql}
        ) AS counted`,
@@ -416,7 +425,7 @@ export class LucidPermissionStore implements PermissionStore {
     return Number(rows[0]?.total ?? 0);
   }
 
-  async countUsersByRole(
+  async countSubjectsByRole(
     scope?: TenantScope,
     opts?: StoreOptions,
   ): Promise<Record<string, number>> {
@@ -425,13 +434,13 @@ export class LucidPermissionStore implements PermissionStore {
     // LEFT JOIN from the roles side (tenant filter in the ON clause) so a role
     // nobody holds still appears — with 0: the inner DISTINCT leaves ut/uid
     // NULL for it and COUNT(ut) skips nulls. Members are counted per
-    // (user_type, user_id) subject — the same polymorphic key as getUsersForRole.
+    // (subject_type, subject_id) subject — the same polymorphic key as getSubjectsForRole.
     const rows = await this.query(
       `SELECT d.name AS name, COUNT(d.ut) AS total
        FROM (
-         SELECT DISTINCT r.name AS name, ur.user_type AS ut, ur.user_id AS uid
+         SELECT DISTINCT r.name AS name, ur.subject_type AS ut, ur.subject_id AS uid
          FROM ${this.t.roles} r
-         LEFT JOIN ${this.t.userRole} ur ON ur.role_id = r.id AND ${tenant.sql}
+         LEFT JOIN ${this.t.subjectRole} ur ON ur.role_id = r.id AND ${tenant.sql}
        ) AS d
        GROUP BY d.name`,
       tenant.bindings,
@@ -442,8 +451,8 @@ export class LucidPermissionStore implements PermissionStore {
     return counts;
   }
 
-  async getPermissionsForUser(
-    user: UserRef,
+  async getPermissionsForSubject(
+    user: SubjectRef,
     scope?: TenantScope,
     opts?: StoreOptions,
   ): Promise<string[]> {
@@ -453,10 +462,10 @@ export class LucidPermissionStore implements PermissionStore {
 
     const roleDerived = await this.query(
       `SELECT DISTINCT p.name AS name
-       FROM ${this.t.userRole} ur
+       FROM ${this.t.subjectRole} ur
        JOIN ${this.t.rolePermission} rp ON rp.role_id = ur.role_id
        JOIN ${this.t.permissions} p ON p.id = rp.permission_id
-       WHERE ur.user_type = ? AND ur.user_id = ? AND ${tenant.sql}`,
+       WHERE ur.subject_type = ? AND ur.subject_id = ? AND ${tenant.sql}`,
       [user.type, this.subjectId(user.id), ...tenant.bindings],
       opts,
     );
@@ -464,9 +473,9 @@ export class LucidPermissionStore implements PermissionStore {
 
     const direct = await this.query(
       `SELECT p.name AS name
-       FROM ${this.t.userPermission} up
+       FROM ${this.t.subjectPermission} up
        JOIN ${this.t.permissions} p ON p.id = up.permission_id
-       WHERE up.user_type = ? AND up.user_id = ?`,
+       WHERE up.subject_type = ? AND up.subject_id = ?`,
       [user.type, this.subjectId(user.id)],
       opts,
     );
@@ -475,8 +484,8 @@ export class LucidPermissionStore implements PermissionStore {
     return [...result];
   }
 
-  async userHasPermission(
-    user: UserRef,
+  async subjectHasPermission(
+    user: SubjectRef,
     permission: string,
     scope?: TenantScope,
     opts?: StoreOptions,
@@ -485,10 +494,10 @@ export class LucidPermissionStore implements PermissionStore {
     const tenant = this.tenantClause(scope);
     const roleHit = await this.query(
       `SELECT 1 AS hit
-       FROM ${this.t.userRole} ur
+       FROM ${this.t.subjectRole} ur
        JOIN ${this.t.rolePermission} rp ON rp.role_id = ur.role_id
        JOIN ${this.t.permissions} p ON p.id = rp.permission_id
-       WHERE ur.user_type = ? AND ur.user_id = ? AND p.name = ? AND ${tenant.sql}
+       WHERE ur.subject_type = ? AND ur.subject_id = ? AND p.name = ? AND ${tenant.sql}
        LIMIT 1`,
       [user.type, this.subjectId(user.id), permission, ...tenant.bindings],
       opts,
@@ -497,9 +506,9 @@ export class LucidPermissionStore implements PermissionStore {
 
     const directHit = await this.query(
       `SELECT 1 AS hit
-       FROM ${this.t.userPermission} up
+       FROM ${this.t.subjectPermission} up
        JOIN ${this.t.permissions} p ON p.id = up.permission_id
-       WHERE up.user_type = ? AND up.user_id = ? AND p.name = ?
+       WHERE up.subject_type = ? AND up.subject_id = ? AND p.name = ?
        LIMIT 1`,
       [user.type, this.subjectId(user.id), permission],
       opts,

@@ -1,5 +1,5 @@
 import type { AuthzService } from './authz_service.js';
-import type { TenantScope, UserRef } from './user_ref.js';
+import type { SubjectRef, TenantScope } from './subject_ref.js';
 
 /**
  * The instance methods the {@link hasPermissions} mixin adds to a Lucid model.
@@ -7,7 +7,7 @@ import type { TenantScope, UserRef } from './user_ref.js';
  */
 export interface HasPermissions {
   /** This model's polymorphic user reference (resolved via the service). */
-  authzRef(): UserRef;
+  authzRef(): SubjectRef;
   assignRole(role: string, scope?: TenantScope): Promise<void>;
   removeRole(role: string, scope?: TenantScope): Promise<void>;
   givePermission(permission: string): Promise<void>;
@@ -40,7 +40,7 @@ export function hasPermissions(resolve: () => AuthzService | Promise<AuthzServic
   // biome-ignore lint/suspicious/noExplicitAny: required by TypeScript's mixin class constraint
   return <Model extends new (...args: any[]) => object>(superclass: Model) => {
     class WithPermissions extends superclass implements HasPermissions {
-      authzRef(): UserRef {
+      authzRef(): SubjectRef {
         // Resolved synchronously is not possible without the service; callers of
         // the async methods below never need this, but it is exposed for parity.
         throw new Error(
@@ -72,28 +72,28 @@ export function hasPermissions(resolve: () => AuthzService | Promise<AuthzServic
           throw new Error(
             '@adonis-agora/authz: could not resolve a user reference for this model.',
           );
-        await service.store.giveUserPermission(ref, permission);
+        await service.store.giveSubjectPermission(ref, permission);
       }
 
       async revokePermission(permission: string): Promise<void> {
         const service = await authzService();
         const ref = service.refOf(this);
         if (!ref) return;
-        await service.store.revokeUserPermission(ref, permission);
+        await service.store.revokeSubjectPermission(ref, permission);
       }
 
       async getRoles(scope?: TenantScope): Promise<string[]> {
         const service = await authzService();
         const ref = service.refOf(this);
         if (!ref) return [];
-        return service.store.getRolesForUser(ref, service.currentScope(scope));
+        return service.store.getRolesForSubject(ref, service.currentScope(scope));
       }
 
       async getPermissions(scope?: TenantScope): Promise<string[]> {
         const service = await authzService();
         const ref = service.refOf(this);
         if (!ref) return [];
-        return service.store.getPermissionsForUser(ref, service.currentScope(scope));
+        return service.store.getPermissionsForSubject(ref, service.currentScope(scope));
       }
 
       async can(permission: string, scope?: TenantScope): Promise<boolean> {

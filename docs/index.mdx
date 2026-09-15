@@ -23,7 +23,7 @@ exactly as before.
   `posts.edit` (spatie/Laravel-style, segment-based).
 - **Multi-tenancy** — role assignments can be scoped to a tenant; global grants
   always apply.
-- **Polymorphic users** — never owns a users table; users are referenced by
+- **Polymorphic subjects** — never owns a users table; users are referenced by
   `(type, id)`, so any model (or even non-Lucid identity) works.
 - **Query scopes** — `accessibleBy(Post.query(), …)` filters a *collection* at
   the DB layer from the same authorization data, instead of over-fetching and

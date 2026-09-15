@@ -52,7 +52,7 @@ export default defineConfig({
     registry.register(Invoice, ({ user, roles, tenant }) => {
       if (roles.includes('manager')) return true // allow-all
       return and(
-        eq('user_id', user.id),
+        eq('subject_id', user.id),
         ...(tenant ? [eq('tenant_id', tenant.tenantId)] : []),
       )
     })
@@ -78,7 +78,7 @@ re-query — and may return a constraint, `true` (allow-all), or
 ```ts
 registry.register(Document, async ({ user, roles }) => {
   if (roles.includes('auditor')) return true // sees everything
-  const teamIds = await TeamMember.query().where('user_id', user.id).select('team_id')
+  const teamIds = await TeamMember.query().where('subject_id', user.id).select('team_id')
   return whereIn('team_id', teamIds.map((t) => t.teamId))
 })
 ```

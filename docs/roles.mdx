@@ -72,7 +72,7 @@ const coordinators = await authz.usersWithRole('COORDINATOR')
 const scoped = await authz.usersWithRole('COORDINATOR', { tenantId: 'acme' })
 ```
 
-It returns `UserRef` objects — `{ type, id }` — because authz never owns a users
+It returns `SubjectRef` objects — `{ type, id }` — because authz never owns a users
 table. Hydrate them with your own model:
 
 ```ts title="app/services/notify_coordinators.ts"
@@ -110,7 +110,7 @@ forward one:
 ```ts title="config/authz.ts"
 import { defineConfig, stores } from '@adonis-agora/authz'
 import Account from '#models/account'
-import UserRole from '#models/user_role'
+import SubjectRole from '#models/subject_role'
 
 export default defineConfig({
   default: 'lucid',
@@ -118,18 +118,18 @@ export default defineConfig({
 
   // Forward: which app roles does this user hold?
   resolveRoles: async (user, scope) => {
-    const rows = await UserRole.query()
-      .where('user_id', user.id)
+    const rows = await SubjectRole.query()
+      .where('subject_id', user.id)
       .if(scope?.tenantId, (query) => query.where('tenant_id', scope!.tenantId!))
     return rows.map((row) => row.role)
   },
 
   // Reverse: who holds this app role?
   resolveRoleMembers: async (role, scope) => {
-    const rows = await UserRole.query()
+    const rows = await SubjectRole.query()
       .where('role', role)
       .if(scope?.tenantId, (query) => query.where('tenant_id', scope!.tenantId!))
-    return rows.map((row) => row.userId)
+    return rows.map((row) => row.subjectId)
   },
 
   // Reverse: who holds this role as a global / IdP role?

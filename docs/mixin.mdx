@@ -52,8 +52,8 @@ await user.hasRole('admin')
 
 <Callout type="info">
   The mixin maps the model to a `{ type, id }` reference using the configured
-  `resolveUserRef`. The default reads `this.id`; set a `type` via
-  `resolveUserRef` if you store multiple subject kinds.
+  `resolveSubjectRef`. The default reads `this.id`; set a `type` via
+  `resolveSubjectRef` if you store multiple subject kinds.
 </Callout>
 
 Every method above is one query for one user. Over a list of users, `getRoles()`
