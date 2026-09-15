@@ -153,7 +153,7 @@ authz regardless of where the answer happens to live:
 await ctx.bouncer.authorize('hasRole', 'admin')
 await authz.hasRole(user, 'admin')
 await authz.effectiveRoles(user)     // the whole union
-await authz.usersWithRole('admin')   // and the reverse
+await authz.subjectsWithRole('admin')   // and the reverse
 
 // Permissions — authz too, with wildcards and tenancy.
 await ctx.bouncer.allows('can', 'posts.edit')

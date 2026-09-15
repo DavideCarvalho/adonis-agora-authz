@@ -30,7 +30,7 @@ exactly as before.
   filtering in memory.
 - **The single authority on roles** — one union of the token claim, your domain
   tables and the store, readable forwards (`effectiveRoles`) and backwards
-  (`usersWithRole`).
+  (`subjectsWithRole`).
 - **A route guard** — `AuthzRoleMiddleware` keeps whole route trees behind a
   role, with guest and denied redirects.
 - **Frontend parity** — `@adonis-agora/authz-react` ships the effective grants to

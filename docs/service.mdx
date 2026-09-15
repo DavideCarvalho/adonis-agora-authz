@@ -1,6 +1,6 @@
 ---
 title: The authz service
-description: AuthzService and the services/main singleton — can, scope, hasRole, hasAnyRole, effectiveRoles, effectivePermissions, usersWithRole, the super-admin resolution and the per-request permission cache.
+description: AuthzService and the services/main singleton — can, scope, hasRole, hasAnyRole, effectiveRoles, effectivePermissions, subjectsWithRole, the super-admin resolution and the per-request permission cache.
 icon: Boxes
 ---
 
@@ -47,7 +47,7 @@ export default defineConfig({
 ```
 
 It exposes the asynchronous decision surface — `can`, `scope`, `hasRole`,
-`hasAnyRole`, `effectiveRoles`, `effectivePermissions` and `usersWithRole`. For
+`hasAnyRole`, `effectiveRoles`, `effectivePermissions` and `subjectsWithRole`. For
 the synchronous members (`store`, `scopes`, `createCache`) resolve the class
 itself from the container:
 

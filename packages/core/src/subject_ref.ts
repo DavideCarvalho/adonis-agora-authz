@@ -1,6 +1,7 @@
 /**
- * Polymorphic user reference. The authz tables NEVER own a users table — users
- * are referenced by `(type, id)`, mirroring nestjs-authz's `SubjectRef`.
+ * Polymorphic subject reference. The authz tables NEVER own a users table —
+ * subjects (users, teams, service accounts…) are referenced by `(type, id)`,
+ * mirroring nestjs-authz's `SubjectRef`.
  */
 export interface SubjectRef {
   type: string;

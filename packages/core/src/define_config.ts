@@ -36,7 +36,7 @@ export interface AuthzConfig {
   /**
    * Domain reverse seam — the reverse counterpart of {@link resolveRoles}. Given a role, return the
    * user ids/refs that hold it in the app's own role source (e.g. `user_roles`). Feeds the union in
-   * {@link AuthzService.usersWithRole}. Optional: absent → only the store and the global seam contribute.
+   * {@link AuthzService.subjectsWithRole}. Optional: absent → only the store and the global seam contribute.
    */
   resolveRoleMembers?: (
     role: string,
@@ -45,7 +45,7 @@ export interface AuthzConfig {
   /**
    * Global/IdP reverse seam — the reverse counterpart of the global (token) role claim. Given a role,
    * return the user ids/refs that hold it as a global/IdP role. Feeds the union in
-   * {@link AuthzService.usersWithRole}. Optional: absent → the global side contributes nothing.
+   * {@link AuthzService.subjectsWithRole}. Optional: absent → the global side contributes nothing.
    */
   resolveGlobalRoleMembers?: (
     role: string,

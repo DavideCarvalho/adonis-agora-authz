@@ -89,7 +89,7 @@ describe('AuthzService', () => {
   });
 });
 
-describe('AuthzService.usersWithRole', () => {
+describe('AuthzService.subjectsWithRole', () => {
   it('unions the store, domain seam, and global seam', async () => {
     const { store, service } = makeService({
       resolveRoleMembers: () => ['2'],
@@ -97,7 +97,7 @@ describe('AuthzService.usersWithRole', () => {
     });
     await store.assignRole({ type: 'user', id: '1' }, 'editor');
 
-    const users = await service.usersWithRole('editor');
+    const users = await service.subjectsWithRole('editor');
     expect(users).toEqual(
       expect.arrayContaining([
         { type: 'user', id: '1' },
@@ -115,7 +115,7 @@ describe('AuthzService.usersWithRole', () => {
     });
     await store.assignRole({ type: 'user', id: '1' }, 'editor');
 
-    const users = await service.usersWithRole('editor');
+    const users = await service.subjectsWithRole('editor');
     expect(users).toEqual([{ type: 'user', id: '1' }]);
   });
 
@@ -124,7 +124,7 @@ describe('AuthzService.usersWithRole', () => {
       resolveRoleMembers: () => ['42'],
       resolveGlobalRoleMembers: () => [7], // number id too
     });
-    const users = await service.usersWithRole('editor');
+    const users = await service.subjectsWithRole('editor');
     expect(users).toEqual(
       expect.arrayContaining([
         { type: 'user', id: '42' },
@@ -139,7 +139,7 @@ describe('AuthzService.usersWithRole', () => {
       resolveRoleMembers: () => [{ type: 'account', id: 'abc' }],
       resolveGlobalRoleMembers: () => [{ id: 9 }], // no type → default 'user'
     });
-    const users = await service.usersWithRole('editor');
+    const users = await service.subjectsWithRole('editor');
     expect(users).toEqual(
       expect.arrayContaining([
         { type: 'account', id: 'abc' },
@@ -153,7 +153,7 @@ describe('AuthzService.usersWithRole', () => {
     const { store, service } = makeService();
     await store.assignRole({ type: 'user', id: '1' }, 'editor');
     await store.assignRole({ type: 'user', id: '2' }, 'editor');
-    const users = await service.usersWithRole('editor');
+    const users = await service.subjectsWithRole('editor');
     expect(users).toEqual(
       expect.arrayContaining([
         { type: 'user', id: '1' },
@@ -165,7 +165,7 @@ describe('AuthzService.usersWithRole', () => {
 
   it('returns [] for a role nobody holds', async () => {
     const { service } = makeService();
-    expect(await service.usersWithRole('ghost')).toEqual([]);
+    expect(await service.subjectsWithRole('ghost')).toEqual([]);
   });
 
   it('runs the three sources in parallel', async () => {
@@ -182,7 +182,7 @@ describe('AuthzService.usersWithRole', () => {
       resolveRoleMembers: slow('domain', 30, ['2']),
       resolveGlobalRoleMembers: slow('global', 10, ['3']),
     });
-    const users = await service.usersWithRole('editor');
+    const users = await service.subjectsWithRole('editor');
     expect(users).toEqual(
       expect.arrayContaining([
         { type: 'user', id: '2' },
@@ -205,7 +205,7 @@ describe('AuthzService.usersWithRole', () => {
     });
     await store.assignRole({ type: 'user', id: '1' }, 'editor', { tenantId: 'acme' });
     // The store's tenant-visibility means the acme assignee shows only under acme scope.
-    const users = await service.usersWithRole('editor');
+    const users = await service.subjectsWithRole('editor');
     expect(users).toEqual([{ type: 'user', id: '1' }]);
     expect(seamScope).toBe('acme');
   });

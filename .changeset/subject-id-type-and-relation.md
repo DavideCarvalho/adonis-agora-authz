@@ -26,7 +26,7 @@ a "user" was always any row holding roles — so the API now says so: `SubjectRe
 `ResolveSubjectRef`, `resolveSubjectRef` (config), `normalizeSubjectRef` / `defaultResolveSubjectRef` /
 `identitySubjectRef`, store methods `getRolesForSubject`, `getPermissionsForSubject`,
 `giveSubjectPermission`, `revokeSubjectPermission`, `subjectHasPermission`, `getSubjectsForRole`,
-`countSubjectsForRole`, `countSubjectsByRole`; `AuthzTableNames.subjectRole` / `subjectPermission`
+`countSubjectsForRole`, `countSubjectsByRole`, service `subjectsWithRole`; `AuthzTableNames.subjectRole` / `subjectPermission`
 (default tables `authz_subject_role` / `authz_subject_permission`, columns `subject_type` /
 `subject_id`); `authzRolesRelation({ subjectType })`. Existing installs (if any) rename the two
 pivot tables and their two columns; no other data changes.

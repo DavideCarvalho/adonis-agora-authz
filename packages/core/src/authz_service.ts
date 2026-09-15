@@ -68,7 +68,7 @@ export interface AuthzServiceOptions {
    * Domain reverse seam — the reverse counterpart of {@link resolveRoles}. Given a role, return the
    * user ids/refs that hold it in the app's OWN role store (typically a domain table, e.g.
    * `user_roles`), the source that is neither in the token nor in the authz store. Its results join
-   * the union of {@link AuthzService.usersWithRole}. Optional: absent → only the authz store and the
+   * the union of {@link AuthzService.subjectsWithRole}. Optional: absent → only the authz store and the
    * global seam contribute. Bare `string` ids are normalized to the default user type; a
    * {@link SubjectRefInput} object is normalized as-is.
    */
@@ -81,7 +81,7 @@ export interface AuthzServiceOptions {
    * Given a role, return the user ids/refs that hold it as an IdP/global role (e.g. scanning the
    * authenticator's accounts by their `globalRoles`). authz owns the "global" concept so it can layer
    * global-specific policy later (e.g. `superAdminRoles`); the authenticator gains no role-query
-   * method. Its results join the union of {@link AuthzService.usersWithRole}. Optional: absent → the
+   * method. Its results join the union of {@link AuthzService.subjectsWithRole}. Optional: absent → the
    * global side contributes nothing.
    */
   resolveGlobalRoleMembers?: (
@@ -441,7 +441,7 @@ export class AuthzService {
    * normalizer; results are deduped by `(type, id)`. The tenant scope defaults consistently with
    * {@link hasRole}/{@link effectiveRoles} via {@link currentScope}.
    */
-  async usersWithRole(role: string, scope?: TenantScope): Promise<SubjectRef[]> {
+  async subjectsWithRole(role: string, scope?: TenantScope): Promise<SubjectRef[]> {
     const tenant = this.currentScope(scope);
     const [storeUsers, roleMembers, globalRoleMembers] = await Promise.all([
       this.store.getSubjectsForRole(role, tenant),
