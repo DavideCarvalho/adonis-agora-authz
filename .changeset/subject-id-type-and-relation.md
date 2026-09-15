@@ -11,7 +11,7 @@ plain string getter it defines on the model's prototype (not a `@column` — no 
 or save impact) and distributes rows comparing both sides as strings. `preload`, `load` and
 `related().query()` are covered on TEXT and INTEGER/BIGINT pivots, on SQLite, Postgres (including
 `bigint` PKs, which arrive as strings) and MySQL. `localKey` now defaults to the model's primary
-key instead of a hard-coded `'id'`. The 0.14.x `@column` getter + `localKey: 'idAsText'` recipe is
+key instead of a hard-coded `'id'`, and the subject-kind option is now `subjectType` (`userType` stays as a deprecated alias). The 0.14.x `@column` getter + `localKey: 'idAsText'` recipe is
 no longer needed (an explicit `localKey` is still honored).
 
 **Native key-type pivots:** `stores.lucid({ subjectIdType: 'integer' | 'bigint' })` (same option on

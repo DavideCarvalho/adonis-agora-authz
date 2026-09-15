@@ -53,7 +53,7 @@ class TextPivotTeam extends BaseModel {
   @column()
   declare name: string;
 
-  @manyToMany(() => AuthzRoleModel, authzRolesRelation({ userType: 'team' }))
+  @manyToMany(() => AuthzRoleModel, authzRolesRelation({ subjectType: 'team' }))
   declare roles: ManyToMany<typeof AuthzRoleModel>;
 }
 
@@ -249,7 +249,7 @@ describe('authzRolesRelation — runtime preload on TEXT pivots (issues #74/#84)
  * And it is not users-specific: `Team` below is an arbitrary host table with
  * an arbitrary PK name (`team_id`), proving ANY table can many-to-many with
  * roles — the PK name is picked up from the model, subjectIdType covers the
- * column type, userType covers the subject kind.
+ * column type, subjectType covers the subject kind.
  */
 
 const INT_TABLES = {
@@ -296,7 +296,7 @@ class Team extends BaseModel {
 
   @manyToMany(
     () => IntPivotRole,
-    authzRolesRelation({ tables: { ...INT_TABLES }, userType: 'team' }),
+    authzRolesRelation({ tables: { ...INT_TABLES }, subjectType: 'team' }),
   )
   declare roles: ManyToMany<typeof IntPivotRole>;
 }

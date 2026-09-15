@@ -102,9 +102,12 @@ export interface AuthzRolesRelationOptions {
   /** Sobrescreve nomes de tabela, se o store foi configurado com outros. */
   tables?: AuthzTableNames;
   /**
-   * O `user_type` das linhas do pivô. Default `'user'` — o mesmo que
-   * `refOf`/`assignRole` gravam para um usuário.
+   * O tipo de sujeito deste modelo — o `type` que `resolveUserRef` devolve para ele e
+   * que `assignRole` gravou em `user_type`. Default `'user'`. Um modelo `Team` passa
+   * `'team'`, um `ServiceAccount` `'service'`, etc.
    */
+  subjectType?: string;
+  /** @deprecated Use `subjectType` — mesmo significado, nome sem o "user" herdado. */
   userType?: string;
   /**
    * O tenant a ler. Default o global (string vazia).
@@ -153,7 +156,7 @@ export interface AuthzRolesRelationOptions {
  *   \@column({ isPrimary: true, columnName: 'team_id' })
  *   declare teamId: number
  *
- *   \@manyToMany(() => AuthzRole, authzRolesRelation({ userType: 'team' }))
+ *   \@manyToMany(() => AuthzRole, authzRolesRelation({ subjectType: 'team' }))
  *   declare roles: ManyToMany<typeof AuthzRole>
  * }
  * ```
@@ -170,7 +173,7 @@ export interface AuthzRolesRelationOptions {
  */
 export function authzRolesRelation(options: AuthzRolesRelationOptions = {}) {
   const tables = { ...AUTHZ_TABLES, ...options.tables };
-  const userType = options.userType ?? 'user';
+  const subjectType = options.subjectType ?? options.userType ?? 'user';
   const tenantId = options.tenantId ?? GLOBAL_TENANT;
 
   return {
@@ -183,7 +186,7 @@ export function authzRolesRelation(options: AuthzRolesRelationOptions = {}) {
     onQuery: (query: PivotQueryLike) => {
       // Roda antes de qualquer `exec`, logo antes de qualquer distribuição.
       normalizeRelation(query.relation);
-      query.wherePivot('user_type', userType);
+      query.wherePivot('user_type', subjectType);
       // Espelha o `tenantClause` do store: pedido global vê só o global; pedido de um
       // tenant vê o dele MAIS o global. Uma igualdade simples aqui descartaria os
       // papéis globais de quem lê por tenant — silenciosamente, que é exatamente o

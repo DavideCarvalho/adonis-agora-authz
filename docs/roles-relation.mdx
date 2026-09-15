@@ -82,9 +82,9 @@ export default class Team extends BaseModel {
   @column({ isPrimary: true })
   declare id: number
 
-  // Teams are their own subject kind: `userType` is the `type` your
+  // Teams are their own subject kind: `subjectType` is the `type` your
   // resolveUserRef returns for a Team, and what assignRole(team, …) wrote.
-  @manyToMany(() => AuthzRole, authzRolesRelation({ userType: 'team' }))
+  @manyToMany(() => AuthzRole, authzRolesRelation({ subjectType: 'team' }))
   declare roles: ManyToMany<typeof AuthzRole>
 }
 ```
@@ -155,13 +155,13 @@ So the returned object is:
 ## Options
 
 ```ts
-authzRolesRelation({ tables, userType, tenantId, localKey })
+authzRolesRelation({ tables, subjectType, tenantId, localKey })
 ```
 
 | Option     | Default              | When you need it                                                                                          |
 | ---------- | -------------------- | --------------------------------------------------------------------------------------------------------- |
 | `tables`   | the default names    | The store was configured with [table overrides](/docs/authz/config#stores). Only `userRole` is read here — the roles table name lives on the model's `static table`. |
-| `userType` | `'user'`             | This model is not the default subject kind — i.e. `resolveUserRef` returns another `type` for it. It must match what `assignRole` wrote. |
+| `subjectType` | `'user'`          | This model is not the default subject kind — i.e. `resolveUserRef` returns another `type` for it. It must match what `assignRole` wrote. (`userType` is accepted as a deprecated alias.) |
 | `tenantId` | `''` (global)        | The relation should read a tenant's assignments as well as the global ones.                                |
 | `localKey` | the model's primary key | The pivot references an attribute that is **not** the primary key. Key *type* never matters — see above. |
 

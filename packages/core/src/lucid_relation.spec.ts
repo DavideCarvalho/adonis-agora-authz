@@ -46,9 +46,20 @@ describe('authzRolesRelation', () => {
     expect(relation.pivotTable).toBe('rbac_user_role');
   });
 
-  it('permite outro user_type', () => {
-    const calls = capture(authzRolesRelation({ userType: 'service' }));
-    expect(calls[0]).toEqual(['user_type', 'service']);
+  it('permite outro tipo de sujeito (subjectType; userType é alias deprecado)', () => {
+    expect(capture(authzRolesRelation({ subjectType: 'service' }))[0]).toEqual([
+      'user_type',
+      'service',
+    ]);
+    expect(capture(authzRolesRelation({ userType: 'service' }))[0]).toEqual([
+      'user_type',
+      'service',
+    ]);
+    // O nome novo ganha quando os dois aparecem.
+    expect(capture(authzRolesRelation({ subjectType: 'team', userType: 'service' }))[0]).toEqual([
+      'user_type',
+      'team',
+    ]);
   });
 
   it('um tenant específico vê o dele MAIS o global', () => {
