@@ -110,18 +110,35 @@ function resolveTables(tables: AuthzTableNames | undefined): Required<AuthzTable
 }
 
 /**
+ * The `user_id` column type of the subject pivots (`userRole`, `userPermission`).
+ *
+ * - `'text'` (default) fits every subject kind in ONE table — integer ids,
+ *   UUIDs, ULIDs — because the store is polymorphic. Required for mixed apps.
+ * - `'integer'` makes the pivot respect an integer-id host natively: Lucid
+ *   binds the model's numeric id against an INTEGER column, so `preload`
+ *   matches with the DEFAULT relation — no getter, no `localKey`, no ceremony.
+ *   All subjects in the store must then hold integer ids (validated on write).
+ *
+ * Choose at setup: switching later is a data migration, not a flag flip.
+ */
+export type AuthzUserIdType = 'text' | 'integer';
+
+/**
  * Create the RBAC tables (idempotent — `CREATE TABLE IF NOT EXISTS`). Safe to call
  * from a Lucid migration `up()` or repeatedly at boot. The `created_at` column type
  * is dialect-aware (`TIMESTAMP` on Postgres, `DATETIME` elsewhere).
  *
  * @param db a Lucid `Database` or connection client
  * @param options.tables optional table-name overrides (defaults to {@link AUTHZ_TABLES})
+ * @param options.userIdType `'text'` (default, fits every subject kind) or
+ * `'integer'` (native integer-id hosts — see {@link AuthzUserIdType})
  */
 export async function createAuthzTables(
   db: LucidDatabase,
-  options: { tables?: AuthzTableNames } = {},
+  options: { tables?: AuthzTableNames; userIdType?: AuthzUserIdType } = {},
 ): Promise<void> {
   const t = resolveTables(options.tables);
+  const userId = options.userIdType === 'integer' ? 'INTEGER' : 'VARCHAR(191)';
   const dialect = detectDialect(db);
   const ts = isPostgres(dialect) ? 'TIMESTAMP' : 'DATETIME';
   const mysql = isMysql(dialect);
@@ -184,7 +201,7 @@ export async function createAuthzTables(
   await run(
     `CREATE TABLE IF NOT EXISTS ${t.userRole} (
       user_type VARCHAR(191) NOT NULL,
-      user_id VARCHAR(191) NOT NULL,
+      user_id ${userId} NOT NULL,
       role_id VARCHAR(191) NOT NULL,
       tenant_id VARCHAR(191) NOT NULL DEFAULT '',
       PRIMARY KEY (user_type, user_id, role_id, tenant_id)
@@ -195,7 +212,7 @@ export async function createAuthzTables(
   await run(
     `CREATE TABLE IF NOT EXISTS ${t.userPermission} (
       user_type VARCHAR(191) NOT NULL,
-      user_id VARCHAR(191) NOT NULL,
+      user_id ${userId} NOT NULL,
       permission_id VARCHAR(191) NOT NULL,
       PRIMARY KEY (user_type, user_id, permission_id)
     )`,

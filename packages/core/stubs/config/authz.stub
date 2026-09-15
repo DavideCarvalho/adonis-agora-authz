@@ -21,6 +21,8 @@ export default defineConfig({
       // connection: 'pg',          // defaults to the app's default connection
       // autoCreateSchema: false,   // set false when using the published migration
       // resolveClient: () => authzClient.getStore(), // ambient db.transaction seam
+      // userIdType: 'integer',     // native integer-id subjects (all subjects must
+                                    // hold integer ids; mixed/uuid apps keep TEXT default)
     }),
   },
 

@@ -90,5 +90,10 @@ export type {
   StoreContext,
   StoreProvider,
 } from './stores/factory.js';
-export type { AuthzTableNames, LucidDatabase, LucidQueryClient } from './stores/lucid.js';
+export type {
+  AuthzTableNames,
+  AuthzUserIdType,
+  LucidDatabase,
+  LucidQueryClient,
+} from './stores/lucid.js';
 export { stores };

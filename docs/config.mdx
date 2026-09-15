@@ -38,6 +38,7 @@ stores.lucid({
     roles: 'authz_roles',
   },
   resolveClient: () => authzClient.getStore(), // optional; see "Joining a transaction"
+  userIdType: 'integer',   // optional; see "Integer-id hosts" below
 })
 ```
 
@@ -54,6 +55,46 @@ happening on whichever request happens to arrive first.
 
 Both paths emit the same DDL, so it is safe to start with the default and switch
 later: the migration finds the tables already there and does nothing.
+
+### Integer-id hosts
+
+The subject pivots (`user_role`, `user_permission`) default to a TEXT `user_id`,
+which fits every subject kind in one table — integer ids, UUIDs, ULIDs, even in
+the same app. When **all** your subjects hold integer ids (`increments()`, the
+Adonis default), declare it once and the pivot respects your key type natively:
+
+```ts
+stores.lucid({
+  userIdType: 'integer',
+})
+```
+
+With INTEGER pivots Lucid binds the model's numeric id against an INTEGER
+column, so `preload('roles')` matches with the **default** relation — no getter,
+no `localKey`, on any table, with any PK name (`localKey` still covers names,
+`userType` the subject kind). Non-integer ids fail LOUD on write instead of
+silently matching nothing. Mixed apps (integer users *and* UUID subjects in one
+store) keep the TEXT default and use the `localKey` recipe in
+[roles-relation](/docs/authz/roles-relation).
+
+Choose at setup: the store, `createAuthzTables` and the published migration all
+take the same option, and they must agree. Switching an existing install later
+is a data migration, not a flag flip:
+
+```sql
+-- Postgres (fails loudly on non-numeric rows — good)
+ALTER TABLE authz_user_role ALTER COLUMN user_id TYPE INTEGER USING user_id::integer;
+ALTER TABLE authz_user_permission ALTER COLUMN user_id TYPE INTEGER USING user_id::integer;
+-- MySQL (strict mode errors on non-numeric rows — good)
+ALTER TABLE authz_user_role MODIFY user_id INTEGER NOT NULL;
+ALTER TABLE authz_user_permission MODIFY user_id INTEGER NOT NULL;
+-- SQLite: rebuild (no ALTER COLUMN) —
+CREATE TABLE authz_user_role_new (user_type VARCHAR(191) NOT NULL, user_id INTEGER NOT NULL, role_id VARCHAR(191) NOT NULL, tenant_id VARCHAR(191) NOT NULL DEFAULT '', PRIMARY KEY (user_type, user_id, role_id, tenant_id));
+INSERT INTO authz_user_role_new SELECT user_type, CAST(user_id AS INTEGER), role_id, tenant_id FROM authz_user_role;
+DROP TABLE authz_user_role;
+ALTER TABLE authz_user_role_new RENAME TO authz_user_role;
+-- (same for authz_user_permission, then recreate the _user_idx indexes)
+```
 
 ### Joining a transaction
 

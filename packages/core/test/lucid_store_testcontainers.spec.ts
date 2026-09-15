@@ -3,9 +3,12 @@ import { Emitter } from '@adonisjs/core/events';
 import { AppFactory } from '@adonisjs/core/factories/app';
 import { LoggerFactory } from '@adonisjs/core/factories/logger';
 import { Database } from '@adonisjs/lucid/database';
+import { Adapter, BaseModel, column, manyToMany } from '@adonisjs/lucid/orm';
+import type { ManyToMany } from '@adonisjs/lucid/types/relations';
 import { MySqlContainer, type StartedMySqlContainer } from '@testcontainers/mysql';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { authzRolesRelation } from '../src/lucid_relation.js';
 import type { StoreQueryClient } from '../src/store.js';
 import type { LucidDatabase } from '../src/stores/lucid.js';
 import { LucidPermissionStore } from '../src/stores/lucid.js';
@@ -133,18 +136,27 @@ for (const backend of backends) {
       await stop?.();
     }, STOP_TIMEOUT_MS);
 
-    async function freshStore(): Promise<LucidPermissionStore> {
+    async function freshStore(
+      userIdType: 'text' | 'integer' = 'text',
+    ): Promise<LucidPermissionStore> {
       const tables = nextTables();
-      await createAuthzTables(db, { tables });
+      await createAuthzTables(db, { tables, userIdType });
       return new LucidPermissionStore(db as unknown as LucidDatabase, {
         tables,
+        userIdType,
         autoCreateSchema: false,
       });
     }
 
     // Every semantic — idempotency, tenants, polymorphic types, deleteRole,
-    // the (type,id)-distinct counts — runs against this real dialect too.
-    runPermissionStoreContract(`${backend.label} via testcontainers`, freshStore);
+    // the (type,id)-distinct counts — runs against this real dialect too, on
+    // BOTH user_id column types: behavior must not depend on the column type.
+    runPermissionStoreContract(`${backend.label} via testcontainers (text)`, () =>
+      freshStore('text'),
+    );
+    runPermissionStoreContract(`${backend.label} via testcontainers (integer)`, () =>
+      freshStore('integer'),
+    );
 
     it('ensureSchema is idempotent on this dialect (MySQL: CREATE INDEX has no IF NOT EXISTS)', async () => {
       const tables = nextTables();
@@ -215,5 +227,69 @@ for (const backend of backends) {
       expect(await s.getRolePermissions('temp')).toContain('x.view');
       expect(await s.countUsersForRole('temp')).toBe(1);
     });
+
+    it('a virgin integer model preloads through the DEFAULT relation on INTEGER pivots', async () => {
+      // Fixed names are safe: each backend owns a fresh container/database.
+      await createAuthzTables(db, {
+        tables: {
+          roles: 'rel_roles',
+          permissions: 'rel_permissions',
+          rolePermission: 'rel_role_permission',
+          userRole: 'rel_user_role',
+          userPermission: 'rel_user_permission',
+        },
+        userIdType: 'integer',
+      });
+      await db.rawQuery(
+        'CREATE TABLE IF NOT EXISTS rel_users (id INTEGER PRIMARY KEY, email TEXT)',
+      );
+      await db.rawQuery(`INSERT INTO rel_users (id, email) VALUES (42, 'a@b.c')`);
+      BaseModel.$adapter = new Adapter(db);
+      const s = new LucidPermissionStore(db as unknown as LucidDatabase, {
+        tables: {
+          roles: 'rel_roles',
+          permissions: 'rel_permissions',
+          rolePermission: 'rel_role_permission',
+          userRole: 'rel_user_role',
+          userPermission: 'rel_user_permission',
+        },
+        userIdType: 'integer',
+        autoCreateSchema: false,
+      });
+      await s.assignRole({ type: 'user', id: '42' }, 'COORDINATOR');
+
+      const users = await RelIntUser.query().preload('roles');
+      expect(users).toHaveLength(1);
+      expect(users[0]!.id).toBe(42);
+      expect(users[0]!.roles.map((r) => r.name)).toEqual(['COORDINATOR']);
+    });
   });
+}
+
+/**
+ * Relation models for the container backends. Fixed table names are safe —
+ * each backend boots a fresh container, so there is no shared state.
+ */
+class RelRole extends BaseModel {
+  static table = 'rel_roles';
+
+  @column({ isPrimary: true })
+  declare id: string;
+
+  @column()
+  declare name: string;
+}
+
+/** Virgin integer model: plain id, DEFAULT relation, zero ceremony. */
+class RelIntUser extends BaseModel {
+  static table = 'rel_users';
+
+  @column({ isPrimary: true })
+  declare id: number;
+
+  @column()
+  declare email: string;
+
+  @manyToMany(() => RelRole, authzRolesRelation({ tables: { userRole: 'rel_user_role' } }))
+  declare roles: ManyToMany<typeof RelRole>;
 }

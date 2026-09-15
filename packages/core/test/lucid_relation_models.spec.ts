@@ -189,3 +189,122 @@ describe('authzRolesRelation — runtime preload (issue #74)', () => {
     expect(user!.roles.map((r) => r.name)).toEqual(['GLOBAL']);
   });
 });
+
+/**
+ * Integer pivots (`userIdType: 'integer'`): the relation needs NO recipe at
+ * all — Lucid binds the model's numeric id against an INTEGER column, so the
+ * DEFAULT relation matches on every dialect. This is the userIdType headline:
+ * the host schema is respected instead of worked around.
+ *
+ * And it is not users-specific: `Team` below is an arbitrary host table with
+ * an arbitrary PK name (`team_id`), proving ANY table can many-to-many with
+ * roles — localKey covers names, userIdType covers types, userType covers
+ * the subject kind. That is the whole OSS generality story in one spec.
+ */
+
+const INT_TABLES = {
+  roles: 'ip_roles',
+  permissions: 'ip_permissions',
+  rolePermission: 'ip_role_permission',
+  userRole: 'ip_user_role',
+  userPermission: 'ip_user_permission',
+} as const;
+
+class IntPivotRole extends BaseModel {
+  static table = 'ip_roles';
+
+  @column({ isPrimary: true })
+  declare id: string;
+
+  @column()
+  declare name: string;
+}
+
+/** Virgin integer model: plain id, DEFAULT relation, zero ceremony. */
+class VirginIntUser extends BaseModel {
+  static table = 'users_int';
+
+  @column({ isPrimary: true })
+  declare id: number;
+
+  @column()
+  declare email: string;
+
+  @manyToMany(() => IntPivotRole, authzRolesRelation({ tables: { ...INT_TABLES } }))
+  declare roles: ManyToMany<typeof IntPivotRole>;
+}
+
+/** Arbitrary host table: `teams(team_id)`, subject kind `team`. */
+class Team extends BaseModel {
+  static table = 'niteams';
+
+  @column({ isPrimary: true, columnName: 'team_id' })
+  declare teamId: number;
+
+  @column()
+  declare name: string;
+
+  @manyToMany(
+    () => IntPivotRole,
+    authzRolesRelation({ tables: { ...INT_TABLES }, localKey: 'teamId', userType: 'team' }),
+  )
+  declare roles: ManyToMany<typeof IntPivotRole>;
+}
+
+describe('authzRolesRelation on INTEGER pivots (userIdType)', () => {
+  let db: Database;
+
+  beforeEach(async () => {
+    db = makeMemoryDatabase();
+    BaseModel.$adapter = new Adapter(db);
+    await createAuthzTables(db, { tables: { ...INT_TABLES }, userIdType: 'integer' });
+    await db.rawQuery('CREATE TABLE users_int (id INTEGER PRIMARY KEY, email TEXT)');
+    await db.rawQuery('CREATE TABLE niteams (team_id INTEGER PRIMARY KEY, name TEXT)');
+  });
+
+  afterEach(async () => {
+    await db.manager.closeAll();
+  });
+
+  function integerStore() {
+    return new LucidPermissionStore(asLucidDatabase(db), {
+      tables: { ...INT_TABLES },
+      userIdType: 'integer',
+      autoCreateSchema: false,
+    });
+  }
+
+  it('a virgin integer model preloads with the DEFAULT relation, id intact', async () => {
+    await db.rawQuery(`INSERT INTO users_int (id, email) VALUES (?, ?)`, [42, 'a@b.c']);
+    await integerStore().assignRole({ type: 'user', id: '42' }, 'COORDINATOR');
+
+    const users = await VirginIntUser.query().preload('roles');
+    expect(users).toHaveLength(1);
+    expect(users[0]!.id).toBe(42);
+    expect(users[0]!.roles.map((r) => r.name)).toEqual(['COORDINATOR']);
+  });
+
+  it('ANY table works: teams(team_id) with its own subject kind', async () => {
+    await db.rawQuery(`INSERT INTO niteams (team_id, name) VALUES (?, ?)`, [7, 'core']);
+    const store = integerStore();
+    await store.assignRole({ type: 'team', id: '7' }, 'MANAGER');
+    // A user holding the same numeric id never leaks across subject kinds.
+    await store.assignRole({ type: 'user', id: '7' }, 'VIEWER');
+
+    const teams = await Team.query().preload('roles');
+    expect(teams).toHaveLength(1);
+    expect(teams[0]!.teamId).toBe(7);
+    expect(teams[0]!.roles.map((r) => r.name)).toEqual(['MANAGER']);
+  });
+
+  it('tenant visibility holds on integer pivots too', async () => {
+    await db.rawQuery(`INSERT INTO niteams (team_id, name) VALUES (?, ?)`, [7, 'core']);
+    const store = integerStore();
+    await store.assignRole({ type: 'team', id: '7' }, 'GLOBAL');
+    await store.assignRole({ type: 'team', id: '7' }, 'TENANT', { tenantId: 'acme' });
+
+    // The default (global) relation read sees global rows only.
+    const [team] = await Team.query().where('team_id', 7).preload('roles');
+    expect(team!.roles.map((r) => r.name)).toEqual(['GLOBAL']);
+  });
+});

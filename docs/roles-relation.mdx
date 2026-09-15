@@ -106,15 +106,25 @@ authzRolesRelation({ tables, userType, tenantId, localKey })
 | `tables`   | the default names    | The store was configured with [table overrides](/docs/authz/config#stores). Only `userRole` is read here — the roles table name lives on the model's `static table`. |
 | `userType` | `'user'`             | This model is not the default subject kind — i.e. `resolveUserRef` returns another `type` for it. It must match what `assignRole` wrote. |
 | `tenantId` | `''` (global)        | The relation should read a tenant's assignments as well as the global ones.                                |
-| `localKey` | `'id'`               | The model's `id` is not a string — integer `increments()` ids need this. See below. |
+| `localKey` | `'id'`               | The model's id lives under another attribute name (any table, any PK name). Only names — for integer *types*, see below. |
+
+<Callout type="info">
+  **Integer ids (`increments()`, the Adonis default)? Prefer INTEGER pivots.**
+  Set `userIdType: 'integer'` in `stores.lucid()` (and in `createAuthzTables` /
+  the migration — they must agree), and the pivot respects your key type
+  natively: Lucid binds the numeric id against an INTEGER column, so the
+  **default** relation just works — no getter, no `localKey`, on any table with
+  any PK name. See [config → Integer-id hosts](/docs/authz/config#integer-id-hosts).
+</Callout>
 
 <Callout type="warn">
-  **The pivot stores `user_id` as TEXT** (the authz is polymorphic — UUID hosts
-  included), and Lucid distributes preloaded pivot rows back to their parents
-  with **strict JS equality**. An `increments()` user has `id: 42` (number)
-  where the pivot holds `'42'` (string) — the SQL `whereIn` coerces and finds
-  the rows, the JS match drops every one, and `preload('roles')` answers `[]`
-  **with no error**. With integer ids, expose the same column as text through a
+  **Mixed apps (integer *and* UUID subjects in one store) keep TEXT pivots**
+  (the default) — one column cannot be both types. There, an `increments()`
+  model needs a string view of its id, because the pivot holds `'42'` (string)
+  while the model holds `42` (number): the SQL `whereIn` may or may not match
+  depending on the dialect, and Lucid then distributes preloaded pivot rows back
+  to their parents with **strict JS equality** — each dropped row answers `[]`
+  **with no error**. Expose the same column as text through a
   `@column`-registered **getter declared before `id`** (so `id` keeps the
   hydration slot) and point `localKey` at it:
 
