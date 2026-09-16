@@ -63,8 +63,9 @@ export default defineConfig({
 ```ts
 import { accessibleBy } from '@adonis-agora/authz/scope'
 
-const scoped = await accessibleBy(Post.query(), authz, user, Post)
-const posts = await scoped // second await runs the query
+// A Lucid query builder is thenable (`then()` runs `exec()`), so the await already
+// executes the query and resolves to the ROWS — one await, you hold the rows.
+const posts = await accessibleBy(Post.query(), authz, user, Post)
 ```
 
 ## Core patterns
@@ -198,27 +199,37 @@ Mechanism: `AuthzService.scope` resolves an unregistered resource to
 
 Source: `docs/query-scopes.mdx` (opening warn Callout)
 
-### MEDIUM Awaiting accessibleBy once and using the result as rows
+### MEDIUM Expecting a builder back from `accessibleBy`
 
-`accessibleBy` resolves the constraint and applies it to the builder you passed,
-returning that builder — the first await is the resolution, the second runs the
-query.
+`accessibleBy` resolves the constraint, applies it to the query you passed, and the
+promise **resolves to the rows**: a Lucid query builder is thenable (`then()` runs
+`exec()`), so `await`ing the helper already executes the query. Anything that treats
+the resolved value as a builder fails — you are holding an array.
 
 Wrong:
 
 ```ts
-const posts = await accessibleBy(Post.query(), authz, user, Post);
-console.log(posts.length); // undefined — still a query builder
+const scoped = await accessibleBy(Post.query(), authz, user, Post);
+await scoped.exec(); // TypeError: scoped.exec is not a function
+
+const recent = await accessibleBy(Post.query(), authz, user, Post);
+recent.orderBy('created_at'); // TypeError: recent.orderBy is not a function
 ```
 
 Correct:
 
 ```ts
-const scoped = await accessibleBy(Post.query(), authz, user, Post);
-const posts = await scoped; // or scoped.exec()
+// one await, and you hold the rows
+const posts = await accessibleBy(Post.query(), authz, user, Post);
+
+// need to add clauses AFTER the scope? Resolve the halves yourself —
+// `applyScopeConstraint` is synchronous and never executes
+const constraint = await authz.scope(user, Post);
+const recent = await applyScopeConstraint(Post.query(), constraint).orderBy('created_at', 'desc');
 ```
 
-Mechanism: the helper returns the query builder, not a promise of rows; only
-the second await executes SQL.
+Mechanism: the helper is `async` and returns a thenable builder, so JavaScript
+assimilates that thenable into the returned promise — which therefore resolves to the
+query result (the rows), not to the builder.
 
-Source: `docs/concepts.mdx` ("So there are two awaits"), `docs/query-scopes.mdx`
+Source: `docs/concepts.mdx` (Query scopes), `docs/query-scopes.mdx`

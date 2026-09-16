@@ -159,6 +159,16 @@ export interface AccessibleByOptions {
 }
 
 /**
+ * What {@link accessibleBy} actually needs from the service: `scope`.
+ *
+ * Structural on purpose. The `@adonis-agora/authz/services/main` singleton is typed
+ * as `AuthzQueryService` (a `Pick` of the class, which exposes `scope`), so typing the
+ * parameter as the full {@link AuthzService} rejected the singleton the docs use —
+ * callers had to reach for the container. A narrower parameter accepts both.
+ */
+export type ScopeResolvingService = Pick<AuthzService, 'scope'>;
+
+/**
  * Constrain a Lucid query to the rows `user` may access for `action` on `resource`.
  *
  * Resolves the {@link ScopeConstraint} via {@link AuthzService.scope} (super-admin →
@@ -166,14 +176,24 @@ export interface AccessibleByOptions {
  * filter derives from the SAME authorization data `can`/`hasRole` use — the user's
  * effective roles/permissions for the active tenant.
  *
- * Returns the SAME builder with the scope applied — it does not run the query, so
- * await it once for the constraint and again (or `.exec()`) for the rows:
+ * ⚠️ **It resolves to the ROWS, not to the builder.** A Lucid query builder is
+ * thenable (`then()` runs `exec()`), so `await`ing this function already executes the
+ * query — one await and you hold the rows:
  *
  * ```ts
- * const scoped = await accessibleBy(Post.query(), service, user, Post)
- * const posts = await scoped.exec()
+ * const posts = await accessibleBy(Post.query(), service, user, Post)
  * // super-admin: every post; non-privileged: ownership/tenant WHERE injected;
  * // unknown resource: no rows (fail-closed).
+ * ```
+ *
+ * Need to add clauses AFTER the scope (filter, order, paginate)? Then you need a
+ * builder, and `(await accessibleBy(...))` is an array — use the primitive pair this
+ * helper is built from. {@link applyScopeConstraint} is synchronous and never executes:
+ *
+ * ```ts
+ * const constraint = await service.scope(user, Post)
+ * const q = applyScopeConstraint(Post.query(), constraint)
+ * const posts = await q.where('published', true).orderBy('title') // runs once, here
  * ```
  *
  * ⚠️ **Contract — the query MUST NOT have a top-level `orWhere`.** The scope is appended
@@ -183,13 +203,14 @@ export interface AccessibleByOptions {
  * already added. Two safe patterns:
  *
  * ```ts
- * // SAFE — apply the scope FIRST, then add only AND-ed filters:
- * const scoped = await accessibleBy(Post.query(), service, user, Post)
- * await scoped.where('published', true) // ANDed: fine
+ * // SAFE — scope FIRST, then add only AND-ed clauses (primitive pair, because adding
+ * // clauses after the scope requires a builder):
+ * const constraint = await service.scope(user, Post)
+ * applyScopeConstraint(Post.query(), constraint).where('published', true)
  *
  * // SAFE — wrap any caller-side OR inside its own group, keeping the top level OR-free:
  * const base = Post.query().where((q) => q.where('id', 1).orWhere('id', 2))
- * await accessibleBy(base, service, user, Post) // → (id=1 or id=2) AND (scope)
+ * const posts = await accessibleBy(base, service, user, Post) // (id=1 or id=2) AND (scope)
  *
  * // UNSAFE — top-level OR; the scope only binds to the last branch and leaks:
  * const bad = Post.query().where('id', 1).orWhere('id', 2)
@@ -198,7 +219,7 @@ export interface AccessibleByOptions {
  */
 export async function accessibleBy<Q>(
   query: Q & ScopeableQuery,
-  service: AuthzService,
+  service: ScopeResolvingService,
   user: unknown,
   resource: ResourceKey,
   options: AccessibleByOptions = {},

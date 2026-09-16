@@ -1,7 +1,13 @@
 import type { Database } from '@adonisjs/lucid/database';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { AuthzQueryService } from '../services/main.js';
 import { AuthzService } from '../src/authz_service.js';
-import { accessibleBy, applyScopeConstraint, type ScopeableQuery } from '../src/lucid_scope.js';
+import {
+  accessibleBy,
+  applyScopeConstraint,
+  type ScopeableQuery,
+  type ScopeResolvingService,
+} from '../src/lucid_scope.js';
 import { and, eq, ScopeRegistry } from '../src/scope.js';
 import { LucidPermissionStore } from '../src/stores/lucid.js';
 import { asLucidDatabase, makeMemoryDatabase } from './lucid_helpers.js';
@@ -43,6 +49,11 @@ async function idsOf(q: PromiseLike<{ id: number }[]>): Promise<number[]> {
   return rows.map((r) => r.id);
 }
 
+/** A registry where `posts` scopes to rows the user authored (ownership). */
+function ownershipScopes(): ScopeRegistry {
+  return new ScopeRegistry().register('posts', (ctx) => eq('author_id', ctx.user.id));
+}
+
 describe('accessibleBy — Lucid query-scope (integration)', () => {
   let db: Database;
   let store: LucidPermissionStore;
@@ -55,11 +66,6 @@ describe('accessibleBy — Lucid query-scope (integration)', () => {
   afterEach(async () => {
     await db.manager.closeAll();
   });
-
-  /** A registry where `posts` scopes to rows the user authored (ownership). */
-  function ownershipScopes(): ScopeRegistry {
-    return new ScopeRegistry().register('posts', (ctx) => eq('author_id', ctx.user.id));
-  }
 
   it('non-privileged user: ownership WHERE is injected', async () => {
     const service = new AuthzService({ store, scopes: ownershipScopes() });
@@ -186,5 +192,59 @@ describe('accessibleBy — Lucid query-scope (integration)', () => {
       // author_id=7 AND tenant_id=acme → id 1.
       expect(await idsOf(q as never)).toEqual([1]);
     });
+  });
+});
+
+/**
+ * The resolved-value contract of `accessibleBy`.
+ *
+ * It is a trap worth pinning: a Lucid query builder is thenable (`then()` runs `exec()`),
+ * and `accessibleBy` is `async`, so returning the builder makes JavaScript assimilate that
+ * thenable — the returned promise resolves to the ROWS, not to the builder. Chaining on the
+ * result (`(await accessibleBy(...)).orderBy(...)`, `.exec()`) therefore fails at runtime
+ * while the declared `Promise<Q>` type suggests otherwise.
+ *
+ * These tests exist so that turning the helper into a builder-returning one (a breaking
+ * change) has to be a deliberate, visible decision instead of an accident.
+ */
+describe('accessibleBy — resolved-value contract (regression)', () => {
+  let db: Database;
+  let store: LucidPermissionStore;
+
+  beforeEach(async () => {
+    db = makeMemoryDatabase();
+    await seedPosts(db);
+    store = new LucidPermissionStore(asLucidDatabase(db));
+  });
+  afterEach(async () => {
+    await db.manager.closeAll();
+  });
+
+  it('resolves to the ROWS, not to the builder', async () => {
+    const service = new AuthzService({ store, scopes: ownershipScopes() });
+    const result = await accessibleBy(postsQuery(db), service, { id: '7' }, 'posts');
+
+    expect(Array.isArray(result)).toBe(true);
+    /* a Lucid builder exposes `exec`; the resolved value must not */
+    expect((result as { exec?: unknown }).exec).toBeUndefined();
+    expect(result.map((r: { id: number }) => r.id)).toEqual([1, 2]);
+  });
+
+  it('applyScopeConstraint yields the builder: chainable, runs only when awaited', async () => {
+    const service = new AuthzService({ store, scopes: ownershipScopes() });
+    const constraint = await service.scope({ id: '7' }, 'posts');
+
+    const q = applyScopeConstraint(postsQuery(db), constraint);
+    /* still a builder — the sync primitive never executes */
+    expect(typeof (q as unknown as { where?: unknown }).where).toBe('function');
+    expect(typeof (q as unknown as { exec?: unknown }).exec).toBe('function');
+    expect(await idsOf(q as never)).toEqual([1, 2]);
+  });
+
+  it('the services/main singleton satisfies the narrow service parameter (type-level)', () => {
+    /* Compiles only because `accessibleBy` takes the structural slice it uses (`scope`)
+     * instead of the full `AuthzService` — the docs pass the singleton. */
+    const singleton: ScopeResolvingService = {} as AuthzQueryService;
+    expect(singleton).toBeDefined();
   });
 });
