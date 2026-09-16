@@ -112,13 +112,17 @@ Source: `docs/query-scopes.mdx`
 ### Scope by a specific action, then keep chaining
 
 `action` defaults to `'viewAny'`; a wildcard grant covering it short-circuits
-to allow-all before any filter runs.
+to allow-all before any filter runs. The awaited `accessibleBy` resolves to the
+rows, so to chain clauses after the scope resolve the halves yourself —
+`applyScopeConstraint` is synchronous and never executes.
 
 ```ts
-const editable = await accessibleBy(Post.query(), authz, user, Post, {
-  action: 'posts.edit',
-})
-const recent = await editable.orderBy('created_at', 'desc').limit(20)
+import { applyScopeConstraint } from '@adonis-agora/authz/scope'
+
+const constraint = await authz.scope(user, Post, { action: 'posts.edit' })
+const recent = await applyScopeConstraint(Post.query(), constraint)
+  .orderBy('created_at', 'desc')
+  .limit(20)
 ```
 
 Source: `docs/query-scopes.mdx`
