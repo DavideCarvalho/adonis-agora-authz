@@ -194,19 +194,28 @@ Once registered, filter any collection with `accessibleBy` — see the full
 contract and the `orWhere` caveat in
 [Concepts → Query scopes](/docs/authz/concepts#query-scopes-accessibleby):
 
-`accessibleBy` returns the **query builder** with the scope applied, not the
-rows — awaiting it resolves the constraint, awaiting the builder runs the query:
+`accessibleBy` resolves the constraint, applies it to the query builder you passed,
+and **the promise resolves to the rows** — a Lucid builder is thenable (`then()` runs
+`exec()`), so the await already executes the query:
 
 ```ts
 import { accessibleBy } from '@adonis-agora/authz/scope'
 
 // Only the posts this user may see (owner ∪ published, per the filter above).
-const scoped = await accessibleBy(Post.query(), authz, user, Post)
-const posts = await scoped
+const posts = await accessibleBy(Post.query(), authz, user, Post)
+// super-admin: every post; non-privileged: ownership/tenant WHERE injected;
+// unknown resource: no rows (fail-closed).
+```
 
-// Scope by a specific action (defaults to 'viewAny'), then keep chaining:
-const editable = await accessibleBy(Post.query(), authz, user, Post, { action: 'posts.edit' })
-const recent = await editable.orderBy('created_at', 'desc').limit(20)
+To keep chaining after the scope — a different action, then ordering/pagination —
+you need the builder, so resolve the halves yourself. `applyScopeConstraint` is
+synchronous and never executes:
+
+```ts
+const constraint = await authz.scope(user, Post, { action: 'posts.edit' })
+const recent = await applyScopeConstraint(Post.query(), constraint)
+  .orderBy('created_at', 'desc')
+  .limit(20)
 ```
 
 ### Splitting resolve from apply

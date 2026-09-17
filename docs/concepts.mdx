@@ -214,17 +214,28 @@ Import the helpers from the `@adonis-agora/authz/scope` subpath.
   producer side (the `scopes` config key and the `eq`/`where`/`and`/`or` DSL).
 </Callout>
 
-`accessibleBy` resolves the constraint and applies it to the **query builder you
-passed**, returning that same builder — it does not run the query. So there are
-two awaits: one for the constraint resolution, one for the query itself.
+`accessibleBy` resolves the constraint and applies it to the query builder you
+passed. **The promise resolves to the rows, not to the builder** — a Lucid builder
+is thenable (`then()` runs `exec()`), so `await`ing the helper already runs the
+query: one await, and you hold the rows.
 
 ```ts
 import { accessibleBy } from '@adonis-agora/authz/scope'
 
-const scoped = await accessibleBy(Post.query(), authz, user, Post)
-const posts = await scoped // …or `scoped.exec()` — now the rows
+const posts = await accessibleBy(Post.query(), authz, user, Post)
 // super-admin: every post; non-privileged: ownership/tenant WHERE injected;
 // unknown resource: no rows (fail-closed).
+```
+
+Need to keep chaining after the scope (filter, order, paginate)? Then you want a
+builder, and the resolved value is an array — resolve the two halves yourself.
+`authz.scope()` gives the constraint and `applyScopeConstraint()` is synchronous and
+never executes:
+
+```ts
+const constraint = await authz.scope(user, Post)
+const q = applyScopeConstraint(Post.query(), constraint)
+const posts = await q.where('published', true).orderBy('title') // runs once, here
 ```
 
 <Callout type="warn">
