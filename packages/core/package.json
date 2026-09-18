@@ -140,7 +140,7 @@
     "testcontainers": "12.1.0",
     "typescript": "7.0.2",
     "unplugin-swc": "1.6.0",
-    "vitest": "5.0.0"
+    "vitest": "5.0.1"
   },
   "engines": {
     "node": ">=20.6.0"
