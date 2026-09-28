@@ -27,6 +27,19 @@ interface ManyToManyLike {
 
 type RowLike = Record<string, unknown> & { $extras: Record<string, unknown> };
 
+/** One instance per related primary key (rows without a readable key are kept as-is). */
+function distinctByKey(rows: RowLike[]): RowLike[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const key = (row as { $primaryKeyValue?: unknown }).$primaryKeyValue;
+    if (key === undefined || key === null) return true;
+    const k = String(key);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
 /** Marca a instância já normalizada — a relação é um singleton por modelo, patch uma vez. */
 const NORMALIZED = Symbol.for('@adonis-agora/authz/normalized-relation');
 
@@ -78,6 +91,12 @@ function normalizeRelation(relation: unknown): void {
   }
   rel.localKey = subjectKey;
 
+  // A role visible through several pivot rows — held via two sources (manual + SCIM), or
+  // globally AND in the tenant being read — joins in once per row. Keep one instance per
+  // role, like `getRolesForSubject` (DISTINCT) does.
+  const setRelated = rel.setRelated.bind(rel);
+  rel.setRelated = (parent, related) => setRelated(parent, distinctByKey(related as RowLike[]));
+
   rel.setRelatedForMany = (parents, related) => {
     const alias = rel.pivotAlias(rel.pivotForeignKey);
     for (const parent of parents as RowLike[]) {
@@ -115,6 +134,11 @@ export interface AuthzRolesRelationOptions {
    * dentro de qualquer tenant. Só o pedido global é exclusivo (traz apenas globais).
    */
   tenantId?: string;
+  /**
+   * Only the assignments recorded under this `source` (`'manual'`, `'scim'`, …). Default:
+   * every source — a role held via several sources still appears ONCE on a preload.
+   */
+  source?: string;
   /**
    * O atributo do modelo do host que o pivô referencia em `subject_id`. Default: a chave
    * primária do próprio modelo (`Model.primaryKey`), seja ela `id`, `teamId` ou outra —
@@ -194,6 +218,7 @@ export function authzRolesRelation(options: AuthzRolesRelationOptions = {}) {
       } else {
         query.whereInPivot('tenant_id', [GLOBAL_TENANT, tenantId]);
       }
+      if (options.source !== undefined) query.wherePivot('source', options.source);
     },
   };
 }

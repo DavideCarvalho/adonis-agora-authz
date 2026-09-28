@@ -141,7 +141,7 @@ So the returned object is:
 ## Options
 
 ```ts
-authzRolesRelation({ tables, subjectType, tenantId, localKey })
+authzRolesRelation({ tables, subjectType, tenantId, source, localKey })
 ```
 
 | Option     | Default              | When you need it                                                                                          |
@@ -149,6 +149,7 @@ authzRolesRelation({ tables, subjectType, tenantId, localKey })
 | `tables`   | the default names    | The store was configured with [table overrides](/docs/authz/config#stores). Only `subjectRole` is read here — the roles table name lives on the model's `static table`. |
 | `subjectType` | `'user'`          | This model is not the default subject kind — i.e. `resolveSubjectRef` returns another `type` for it. It must match what `assignRole` wrote. |
 | `tenantId` | `''` (global)        | The relation should read a tenant's assignments as well as the global ones.                                |
+| `source`   | every source         | Read only the assignments of one [source](/docs/authz/roles#role-sources-manual-vs-ssoscim) (e.g. `'scim'`). Without it, a role held via several sources still preloads **once**. |
 | `localKey` | the model's primary key | The pivot references an attribute that is **not** the primary key. |
 
 The tenant filter mirrors the store's, so the relation and

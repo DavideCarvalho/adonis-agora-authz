@@ -203,6 +203,59 @@ for (const backend of backends) {
       expect(await s.countSubjectsForRole('admin')).toBe(1);
     });
 
+    it('role sources: upgrades a pre-sources pivot with the documented key-widening SQL', async () => {
+      const tables = nextTables();
+      await createAuthzTables(db, { tables });
+      const pivot = tables.subjectRole;
+      // Recreate the pivot as it was before role sources existed.
+      await db.rawQuery(`DROP TABLE ${pivot}`);
+      await db.rawQuery(
+        `CREATE TABLE ${pivot} (
+          subject_type VARCHAR(191) NOT NULL,
+          subject_id VARCHAR(191) NOT NULL,
+          role_id VARCHAR(191) NOT NULL,
+          tenant_id VARCHAR(191) NOT NULL DEFAULT '',
+          PRIMARY KEY (subject_type, subject_id, role_id, tenant_id)
+        )`,
+      );
+      const s = new LucidPermissionStore(db as unknown as LucidDatabase, {
+        tables,
+        autoCreateSchema: false,
+      });
+      const alice = { type: 'user', id: '1' };
+      await db.rawQuery(`INSERT INTO ${pivot} (subject_type, subject_id, role_id, tenant_id)
+        VALUES ('user', '1', '${await s.createRole('editor')}', '')`);
+
+      // 1. ensureSchema adds the column non-destructively (and is idempotent).
+      await s.ensureSchema();
+      await s.ensureSchema();
+      expect(await s.getRoleAssignments(alice)).toEqual([
+        { role: 'editor', source: 'manual', tenantId: null },
+      ]);
+
+      // 2. The documented SQL (docs/roles.mdx, "Role sources") widens the key.
+      const widen = backend.dialectPattern.test('postgres')
+        ? [
+            'ALTER TABLE authz_subject_role DROP CONSTRAINT authz_subject_role_pkey',
+            'ALTER TABLE authz_subject_role ADD PRIMARY KEY (subject_type, subject_id, role_id, tenant_id, source)',
+          ]
+        : [
+            `ALTER TABLE authz_subject_role
+               MODIFY role_id VARCHAR(191) CHARACTER SET ascii NOT NULL,
+               DROP PRIMARY KEY,
+               ADD PRIMARY KEY (subject_type, subject_id, role_id, tenant_id, source)`,
+          ];
+      for (const sql of widen) await db.rawQuery(sql.replaceAll('authz_subject_role', pivot));
+
+      await s.assignRole(alice, 'editor', { source: 'scim' });
+      await s.setSubjectRoles(alice, ['editor', 'auditor'], { source: 'scim' });
+      await s.removeRole(alice, 'editor', { source: 'manual' });
+      expect(await s.getRoleAssignments(alice)).toEqual([
+        { role: 'auditor', source: 'scim', tenantId: null },
+        { role: 'editor', source: 'scim', tenantId: null },
+      ]);
+    });
+
     it('the ambient resolveClient joins writes into the transaction, rollbacks included', async () => {
       const tables = nextTables();
       await createAuthzTables(db, { tables });

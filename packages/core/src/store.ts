@@ -25,6 +25,63 @@ export interface StoreOptions {
 }
 
 /**
+ * The source a role assignment is recorded under when none is given. Every assignment made
+ * before sources existed — and every `assignRole` without `source` — is a `'manual'` one.
+ */
+export const DEFAULT_ROLE_SOURCE = 'manual';
+
+/** Longest accepted role-assignment `source` (the Lucid column is `VARCHAR(64)`). */
+export const MAX_ROLE_SOURCE_LENGTH = 64;
+
+/**
+ * Validate a role-assignment `source` (non-empty, at most {@link MAX_ROLE_SOURCE_LENGTH}
+ * characters) and return it, defaulting to {@link DEFAULT_ROLE_SOURCE}. Shared by every store
+ * so they reject the same inputs.
+ */
+export function normalizeRoleSource(source: string | undefined): string {
+  if (source === undefined) return DEFAULT_ROLE_SOURCE;
+  if (typeof source !== 'string' || source.length === 0) {
+    throw new Error('@adonis-agora/authz: a role-assignment source must be a non-empty string.');
+  }
+  if (source.length > MAX_ROLE_SOURCE_LENGTH) {
+    throw new Error(
+      `@adonis-agora/authz: role-assignment source ${JSON.stringify(source)} is longer than ${MAX_ROLE_SOURCE_LENGTH} characters.`,
+    );
+  }
+  return source;
+}
+
+/**
+ * The scope of a role assignment: the tenant ({@link TenantScope}) plus the assignment's
+ * `source` — who put it there (`'manual'` for the admin UI / API, `'scim'`, `'sso'`, …).
+ *
+ * The same role held via two sources is two assignments; removing one keeps the role.
+ */
+export interface RoleAssignmentScope extends TenantScope {
+  /**
+   * Who owns the assignment. Defaults to {@link DEFAULT_ROLE_SOURCE} (`'manual'`) on
+   * `assignRole`. On `removeRole`, omit it to remove the role from EVERY source.
+   */
+  source?: string;
+}
+
+/** One stored role assignment, as returned by {@link PermissionStore.getRoleAssignments}. */
+export interface RoleAssignment {
+  role: string;
+  source: string;
+  /** The tenant the assignment is scoped to; `null` for a global assignment. */
+  tenantId: string | null;
+}
+
+/** Options of {@link PermissionStore.setSubjectRoles}. */
+export interface SetSubjectRolesOptions extends StoreOptions {
+  /** The source whose assignments are replaced. Default {@link DEFAULT_ROLE_SOURCE}. */
+  source?: string;
+  /** The tenant whose assignments are replaced (exact match). Default: global. */
+  tenantId?: string;
+}
+
+/**
  * The DB-backed RBAC store contract — ported from nestjs-authz's
  * `TypeOrmAuthzStore` public API. Implementations are the "thin store" Bouncer
  * abilities consult at check time.
@@ -36,6 +93,9 @@ export interface StoreOptions {
  * - Tenant visibility: a global request (`''`) sees only global rows; a
  *   tenant request sees global rows AND that tenant's rows. A tenant-scoped
  *   assignment never leaks into an unscoped check.
+ * - Role assignments carry a `source` (default `'manual'`). One (subject, role, tenant)
+ *   may be held via several sources — one row each; role reads and member counts stay
+ *   DISTINCT across sources.
  * - `subjectHasPermission` matches permission NAMES exactly. Wildcard expansion is
  *   the caller's job (it reads `getPermissionsForSubject` and runs the matcher).
  * - Every data method takes a trailing {@link StoreOptions}; the client it
@@ -65,20 +125,51 @@ export interface PermissionStore {
     opts?: StoreOptions,
   ): Promise<void>;
 
-  /** Assign a role to a user (optionally tenant-scoped). */
+  /**
+   * Assign a role to a user (optionally tenant-scoped), recorded under `scope.source`
+   * (default `'manual'`). Idempotent per (user, role, tenant, source).
+   */
   assignRole(
     user: SubjectRef,
     roleName: string,
-    scope?: TenantScope,
+    scope?: RoleAssignmentScope,
     opts?: StoreOptions,
   ): Promise<void>;
-  /** Remove a role assignment matching the exact tenant scope. */
+  /**
+   * Remove a role assignment matching the exact tenant scope. Without `scope.source` the role
+   * is removed from EVERY source (the pre-sources meaning); with it, only that source's
+   * assignment goes and the role survives if another source still grants it.
+   */
   removeRole(
     user: SubjectRef,
     roleName: string,
-    scope?: TenantScope,
+    scope?: RoleAssignmentScope,
     opts?: StoreOptions,
   ): Promise<void>;
+
+  /**
+   * Replace ONE source's role assignments for a user in ONE tenant scope (exact match; default
+   * global) with `roleNames`: missing roles are created and assigned, that source's other
+   * assignments are removed. Assignments from other sources and other tenants are untouched —
+   * the sync primitive for SSO/SCIM (`setSubjectRoles(user, groups, { source: 'scim' })`) that
+   * never clobbers manual grants. Atomic: the Lucid store runs it in one transaction (or joins
+   * the client it was given).
+   */
+  setSubjectRoles(
+    user: SubjectRef,
+    roleNames: readonly string[],
+    options?: SetSubjectRolesOptions,
+  ): Promise<void>;
+
+  /**
+   * Every role assignment of a user — one entry per (role, source, tenant) — with the same
+   * tenant visibility as {@link getRolesForSubject}. `tenantId` is `null` for global rows.
+   */
+  getRoleAssignments(
+    user: SubjectRef,
+    scope?: TenantScope,
+    opts?: StoreOptions,
+  ): Promise<RoleAssignment[]>;
 
   /**
    * Delete a role outright: revokes its permission grants, removes every user
@@ -101,7 +192,7 @@ export interface PermissionStore {
     opts?: StoreOptions,
   ): Promise<void>;
 
-  /** Role names for a user, tenant-filtered. */
+  /** DISTINCT role names for a user, tenant-filtered (a role held via two sources appears once). */
   getRolesForSubject(user: SubjectRef, scope?: TenantScope, opts?: StoreOptions): Promise<string[]>;
   /**
    * Reverse of {@link getRolesForSubject}: every user that holds `role` in the

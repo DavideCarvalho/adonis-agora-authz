@@ -99,6 +99,24 @@ export async function notifyCoordinators(tenantId: string, message: string) {
 
 Source: `docs/roles.mdx`
 
+### Sync IdP roles without clobbering manual ones (role sources)
+
+Every store assignment has a `source` (default `'manual'`). An SSO/SCIM sync
+replaces ONLY its own rows with `setSubjectRoles` (transactional); a role held
+via two sources is two rows, so the manual grant survives the IdP dropping it.
+
+```ts
+await authz.store.setSubjectRoles(ref, groups, { source: 'scim', tenantId })
+await authz.store.removeRole(ref, 'editor', { source: 'scim' }) // only SCIM's row
+await authz.store.removeRole(ref, 'editor')                      // every source
+await authz.store.getRoleAssignments(ref) // [{ role, source, tenantId }]
+```
+
+Existing Lucid schemas get the column from `ensureSchema`, but the pivot's
+primary key must be widened once by hand — SQL in `docs/roles.mdx`.
+
+Source: `docs/roles.mdx` ("Role sources")
+
 ### Config-only grants via roleGrants
 
 Map effective roles onto permissions/wildcards without seeding the store; the

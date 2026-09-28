@@ -1,5 +1,6 @@
 import { resolveAuthzService } from '../services/main.js';
 import type { AuthzService } from './authz_service.js';
+import type { RoleAssignmentScope } from './store.js';
 import type { SubjectRef, TenantScope } from './subject_ref.js';
 
 /**
@@ -9,8 +10,10 @@ import type { SubjectRef, TenantScope } from './subject_ref.js';
 export interface HasPermissions {
   /** This model's polymorphic user reference (resolved via the service). */
   authzRef(): SubjectRef;
-  assignRole(role: string, scope?: TenantScope): Promise<void>;
-  removeRole(role: string, scope?: TenantScope): Promise<void>;
+  /** Assign a role; `scope.source` records who owns it (default `'manual'`). */
+  assignRole(role: string, scope?: RoleAssignmentScope): Promise<void>;
+  /** Remove a role; without `scope.source` it is removed from every source. */
+  removeRole(role: string, scope?: RoleAssignmentScope): Promise<void>;
   givePermission(permission: string): Promise<void>;
   revokePermission(permission: string): Promise<void>;
   getRoles(scope?: TenantScope): Promise<string[]>;
@@ -52,7 +55,7 @@ export function hasPermissions(
         );
       }
 
-      async assignRole(role: string, scope?: TenantScope): Promise<void> {
+      async assignRole(role: string, scope?: RoleAssignmentScope): Promise<void> {
         const service = await authzService();
         const ref = service.refOf(this);
         if (!ref)
@@ -62,7 +65,7 @@ export function hasPermissions(
         await service.store.assignRole(ref, role, scope);
       }
 
-      async removeRole(role: string, scope?: TenantScope): Promise<void> {
+      async removeRole(role: string, scope?: RoleAssignmentScope): Promise<void> {
         const service = await authzService();
         const ref = service.refOf(this);
         if (!ref) return;

@@ -198,3 +198,105 @@ Two things worth knowing about how it composes:
   is still a grant: it goes through the matcher, respects tenancy, and shows up in
   `effectivePermissions`. A super-admin role is invisible to all three.
 </Callout>
+
+## Role sources (manual vs SSO/SCIM)
+
+Every store assignment records **who put it there** in a `source` string. The default is
+`'manual'` (the admin UI, the API, `node ace authz:assign`), and everything assigned before
+sources existed is manual too. An IdP sync writes under its own source, so it can never
+clobber a grant an admin made by hand.
+
+```ts
+import authz from '@adonis-agora/authz/services/main'
+
+// An admin grants `editor` by hand (source: 'manual').
+await authz.store.assignRole(ref, 'editor')
+
+// The SCIM/SSO sync REPLACES only its own assignments: it adds/removes
+// SCIM rows, and never touches manual ones (or other tenants).
+await authz.store.setSubjectRoles(ref, ['editor', 'auditor'], { source: 'scim' })
+await authz.store.setSubjectRoles(ref, ['auditor'], { source: 'scim', tenantId: 'acme' })
+
+// The IdP drops `editor` → the SCIM row goes, the manual one keeps the role.
+await authz.store.setSubjectRoles(ref, ['auditor'], { source: 'scim' })
+
+await authz.store.getRoleAssignments(ref)
+// [{ role: 'auditor', source: 'scim', tenantId: null },
+//  { role: 'editor', source: 'manual', tenantId: null }]
+```
+
+- A role held via two sources is **two rows**; removing one source keeps the role.
+  `getRolesForSubject`, `can`/`hasRole`, `getSubjectsForRole` and the member counts stay
+  **distinct** — a role is never listed or counted twice.
+- `assignRole(user, role, { tenantId?, source? })` — idempotent per source.
+- `removeRole(user, role, { tenantId?, source? })` — without `source`, the role goes from
+  **every** source (what `removeRole` always meant); with it, only that source's row goes.
+- `setSubjectRoles(user, roles, { source?, tenantId? })` — replaces one source's rows in one
+  tenant scope (exact tenant, default global); creates missing roles. It runs in **one
+  transaction** on the Lucid store, or joins the client you pass (`client`, `withClient`,
+  `resolveClient`).
+- `getRoleAssignments(user, scope?)` — every row as `{ role, source, tenantId }`
+  (`tenantId: null` = global), with the usual tenant visibility.
+- A `source` is a non-empty string of at most 64 characters.
+
+### Migrating an existing Lucid schema
+
+New tables are created with a `source VARCHAR(64) NOT NULL DEFAULT 'manual'` column that is
+part of the subject-role primary key `(subject_type, subject_id, role_id, tenant_id, source)`.
+On MySQL, `role_id` in that table is declared `CHARACTER SET ascii` (role ids are UUIDs), which
+keeps the five-column key under InnoDB's 3072-byte limit with utf8mb4.
+
+For a database created by an **earlier version**:
+
+1. **The column heals itself.** `ensureSchema()` / `createAuthzTables()` add `source`
+   non-destructively (`ADD COLUMN … NOT NULL DEFAULT 'manual'`); every existing assignment
+   becomes a manual one. With `autoCreateSchema: true` (the default) this happens on boot.
+   With `autoCreateSchema: false`, add a migration that calls `createAuthzTables(db)` again
+   (it is idempotent) — the store's queries need the column.
+2. **Widen the primary key by hand.** The old key is `(subject_type, subject_id, role_id,
+   tenant_id)`, so the same role can't be stored under a second source yet. Until you widen
+   it, a second source's insert is silently ignored (the role stays recorded only under its
+   first source). Everything else works. Run the SQL for your dialect once. It uses the
+   default names, so adjust them if you override `tables`:
+
+**PostgreSQL**
+
+```sql
+ALTER TABLE authz_subject_role DROP CONSTRAINT authz_subject_role_pkey;
+ALTER TABLE authz_subject_role
+  ADD PRIMARY KEY (subject_type, subject_id, role_id, tenant_id, source);
+```
+
+**MySQL / MariaDB**
+
+```sql
+ALTER TABLE authz_subject_role
+  MODIFY role_id VARCHAR(191) CHARACTER SET ascii NOT NULL,
+  DROP PRIMARY KEY,
+  ADD PRIMARY KEY (subject_type, subject_id, role_id, tenant_id, source);
+```
+
+**SQLite** can't alter a primary key, so rebuild the table. If you configured
+`subjectIdType`, use `INTEGER`/`BIGINT` for `subject_id`:
+
+```sql
+BEGIN;
+CREATE TABLE authz_subject_role_new (
+  subject_type VARCHAR(191) NOT NULL,
+  subject_id VARCHAR(191) NOT NULL,
+  role_id VARCHAR(191) NOT NULL,
+  tenant_id VARCHAR(191) NOT NULL DEFAULT '',
+  source VARCHAR(64) NOT NULL DEFAULT 'manual',
+  PRIMARY KEY (subject_type, subject_id, role_id, tenant_id, source)
+);
+INSERT INTO authz_subject_role_new (subject_type, subject_id, role_id, tenant_id, source)
+  SELECT subject_type, subject_id, role_id, tenant_id, source FROM authz_subject_role;
+DROP TABLE authz_subject_role;
+ALTER TABLE authz_subject_role_new RENAME TO authz_subject_role;
+CREATE INDEX IF NOT EXISTS authz_subject_role_subject_idx
+  ON authz_subject_role (subject_type, subject_id);
+COMMIT;
+```
+
+In a Lucid migration, run these statements with `this.defer((db) => db.rawQuery(...))`.
+The repository's test suite runs this exact SQL on real Postgres 16, MySQL 8 and SQLite.

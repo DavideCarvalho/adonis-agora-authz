@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import type { PermissionStore } from '../store.js';
+import {
+  normalizeRoleSource,
+  type PermissionStore,
+  type RoleAssignment,
+  type RoleAssignmentScope,
+  type SetSubjectRolesOptions,
+} from '../store.js';
 import {
   GLOBAL_TENANT,
   normalizeTenant,
@@ -12,6 +18,7 @@ interface SubjectRoleRow {
   subjectId: string;
   roleId: string;
   tenantId: string;
+  source: string;
 }
 
 interface SubjectPermissionRow {
@@ -75,22 +82,35 @@ export class MemoryPermissionStore implements PermissionStore {
     this.rolePermissions.delete(compositeKey(roleId, permissionId));
   }
 
-  async assignRole(user: SubjectRef, roleName: string, scope?: TenantScope): Promise<void> {
+  async assignRole(user: SubjectRef, roleName: string, scope?: RoleAssignmentScope): Promise<void> {
+    const source = normalizeRoleSource(scope?.source);
     const roleId = await this.createRole(roleName);
-    const tenantId = normalizeTenant(scope);
+    this.addAssignment(user, roleId, normalizeTenant(scope), source);
+  }
+
+  private addAssignment(user: SubjectRef, roleId: string, tenantId: string, source: string): void {
     const exists = this.subjectRoles.some(
       (r) =>
         r.subjectType === user.type &&
         r.subjectId === user.id &&
         r.roleId === roleId &&
-        r.tenantId === tenantId,
+        r.tenantId === tenantId &&
+        r.source === source,
     );
     if (!exists) {
-      this.subjectRoles.push({ subjectType: user.type, subjectId: user.id, roleId, tenantId });
+      this.subjectRoles.push({
+        subjectType: user.type,
+        subjectId: user.id,
+        roleId,
+        tenantId,
+        source,
+      });
     }
   }
 
-  async removeRole(user: SubjectRef, roleName: string, scope?: TenantScope): Promise<void> {
+  async removeRole(user: SubjectRef, roleName: string, scope?: RoleAssignmentScope): Promise<void> {
+    // Omitted source → every source (the pre-sources meaning of removeRole).
+    const source = scope?.source === undefined ? undefined : normalizeRoleSource(scope.source);
     const roleId = this.roles.get(roleName);
     if (!roleId) return;
     const tenantId = normalizeTenant(scope);
@@ -100,9 +120,52 @@ export class MemoryPermissionStore implements PermissionStore {
           r.subjectType === user.type &&
           r.subjectId === user.id &&
           r.roleId === roleId &&
-          r.tenantId === tenantId
+          r.tenantId === tenantId &&
+          (source === undefined || r.source === source)
         ),
     );
+  }
+
+  async setSubjectRoles(
+    user: SubjectRef,
+    roleNames: readonly string[],
+    options: SetSubjectRolesOptions = {},
+  ): Promise<void> {
+    const source = normalizeRoleSource(options.source);
+    const tenantId = normalizeTenant(
+      options.tenantId === undefined ? undefined : { tenantId: options.tenantId },
+    );
+    const wanted = new Set<string>();
+    for (const name of roleNames) wanted.add(await this.createRole(name));
+    // Single synchronous swap below: no await between filter and push, so it is atomic here.
+    this.subjectRoles = this.subjectRoles.filter(
+      (r) =>
+        !(
+          r.subjectType === user.type &&
+          r.subjectId === user.id &&
+          r.tenantId === tenantId &&
+          r.source === source &&
+          !wanted.has(r.roleId)
+        ),
+    );
+    for (const roleId of wanted) this.addAssignment(user, roleId, tenantId, source);
+  }
+
+  async getRoleAssignments(user: SubjectRef, scope?: TenantScope): Promise<RoleAssignment[]> {
+    const requested = normalizeTenant(scope);
+    const out: RoleAssignment[] = [];
+    for (const r of this.subjectRoles) {
+      if (r.subjectType !== user.type || r.subjectId !== user.id) continue;
+      if (!this.tenantVisible(r.tenantId, requested)) continue;
+      const role = this.roleIdToName(r.roleId);
+      if (!role) continue;
+      out.push({
+        role,
+        source: r.source,
+        tenantId: r.tenantId === GLOBAL_TENANT ? null : r.tenantId,
+      });
+    }
+    return out;
   }
 
   /** Idempotent like the Lucid store: unknown name is a no-op; members' rows and the role go together. */
