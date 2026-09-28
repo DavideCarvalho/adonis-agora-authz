@@ -20,6 +20,7 @@ metadata:
 sources:
   - DavideCarvalho/adonis-authz:docs/bouncer-integration.mdx
   - DavideCarvalho/adonis-authz:docs/service.mdx
+  - DavideCarvalho/adonis-authz:docs/decision-providers.mdx
   - DavideCarvalho/adonis-authz:docs/concepts.mdx
   - DavideCarvalho/adonis-authz:packages/core/src/authz_service.ts
   - DavideCarvalho/adonis-authz:packages/core/src/permission_matcher.ts
@@ -134,6 +135,34 @@ defineConfig({
 ```
 
 Source: `docs/service.mdx`, `docs/config.mdx`
+
+### Delegate to an external policy engine (Cerbos) with `decisionProvider`
+
+A `decisionProvider` in `config/authz.ts` runs right after super-admin and can
+allow, **deny** or abstain (`undefined`) — unlike the grant-only store. Pass the
+`resource` so it (and the `superAdmin` hook's 3rd arg) can see it; the Bouncer
+`can` ability forwards its resource automatically. `authz.canMany` batches into
+one `decideMany`; `authz.scope`/`accessibleBy` consult `planScope`.
+
+```ts title="config/authz.ts"
+import { CerbosDecisionProvider } from '@adonis-agora/authz/cerbos'
+
+defineConfig({
+  decisionProvider: new CerbosDecisionProvider({
+    client: new HTTP(env.get('CERBOS_URL')),
+    principal: (user, { ref }) => ref && { id: ref.id, roles: (user as User).roles },
+    resource: (_p, post) => (post instanceof Post ? { kind: 'post', id: String(post.id) } : undefined),
+  }),
+})
+```
+
+```ts
+await authz.can(user, 'update', { resource: post })          // Cerbos decides for Posts
+const { allowed, reason, message } = await authz.check(user, 'update', { resource: post })
+const flags = await authz.canMany(user, posts.map((p) => ({ permission: 'update', resource: p })))
+```
+
+Source: `docs/decision-providers.mdx`
 
 ### Coalesce reads with a per-request PermissionCache
 

@@ -19,6 +19,10 @@ export type { AuthorizeByRolesOptions } from './authorize.js';
 // Dashboard authorization hook factory (shared by telescope/durable/media/agent dashboards).
 export { authorizeByRoles } from './authorize.js';
 export type {
+  AuthzCheckOptions,
+  AuthzCheckRequest,
+  AuthzDecision,
+  AuthzDecisionReason,
   AuthzServiceOptions,
   SuperAdminHook,
   TenantResolver,
@@ -28,6 +32,14 @@ export { AuthzService } from './authz_service.js';
 export type { AuthzAbilities } from './bouncer/abilities.js';
 // Bouncer integration helpers.
 export { defineAuthzAbilities } from './bouncer/abilities.js';
+export type {
+  DecisionContext,
+  DecisionProvider,
+  DecisionRequest,
+  DecisionVerdict,
+} from './decision_provider.js';
+// External policy decision point seam (Cerbos adapter at `@adonis-agora/authz/cerbos`).
+export { normalizeVerdict } from './decision_provider.js';
 export type { AuthzConfig } from './define_config.js';
 // Drivers-in-core config idiom.
 export { defineConfig, stores } from './define_config.js';

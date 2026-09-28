@@ -43,6 +43,12 @@ node ace authz:grant editor posts.edit
 node ace authz:assign editor 42
 ```
 
+Need resource-aware allow **and deny** from an external policy engine? Plug a
+`decisionProvider` into `config/authz.ts` — a Cerbos adapter ships at
+`@adonis-agora/authz/cerbos` (no extra runtime dependency; bring your own
+`@cerbos/http` client). It runs right after the super-admin check, batches
+`authz.canMany`, and maps Cerbos query plans onto `accessibleBy` scopes.
+
 See the [docs](./docs) for concepts (wildcards, tenancy), config drivers, the
 Lucid mixin, ace commands and testing.
 

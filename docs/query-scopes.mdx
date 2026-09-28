@@ -26,6 +26,8 @@ A registered filter is only consulted **after** the privileged short-circuits, s
 scoping stays consistent with single-resource `can()` decisions. For `scope(user, resource, { action })`:
 
 1. **Super-admin** (hook or global super-admin role) → `allow-all` (no filter).
+   - A [decision provider](/docs/authz/decision-providers)'s `planScope` (e.g. a Cerbos
+     query plan), if configured → its constraint as-is; `undefined` abstains.
 2. A **wildcard permission grant** for `action` (default `'viewAny'`) → `allow-all`.
 3. The resource's **registered scope filter** → its constraint, fed the user's
    effective roles/permissions/tenant so it derives from the SAME authz data.

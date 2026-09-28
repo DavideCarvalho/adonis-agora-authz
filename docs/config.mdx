@@ -171,6 +171,22 @@ defineConfig({
   it short-circuits even when a matching grant exists.
 </Callout>
 
+## `decisionProvider`
+
+An external policy decision point (Cerbos, OPA, …) consulted right after the
+super-admin check: it can allow, deny or abstain on `can()`, batch `canMany()`,
+and plan query scopes. See [External policy engines](/docs/authz/decision-providers);
+a Cerbos adapter ships at `@adonis-agora/authz/cerbos`.
+
+```ts
+import { CerbosDecisionProvider } from '@adonis-agora/authz/cerbos'
+
+defineConfig({
+  // ...
+  decisionProvider: new CerbosDecisionProvider({ client, principal, resource }),
+})
+```
+
 ## `superAdminRoles`
 
 Global role names that short-circuit every check to **allow** — no rows seeded,
