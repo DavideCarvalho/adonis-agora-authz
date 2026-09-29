@@ -68,9 +68,11 @@ export class RedisPermissionStore implements PermissionStore {
 | `givePermissionToRole(role, permission)` | Attach a permission to a role, creating either by name as needed. |
 | `revokePermissionFromRole(role, permission)` | Detach it. A no-op when either side is absent. |
 | `getRolePermissions(role)` | The permission names attached to a role. |
+| `getPermissionsForRoles(roles)` | `{ [role]: sorted permission names }` in one query. Every existing role is a key (`[]` without grants); unknown roles are absent. |
+| `syncRolePermissions(role, permissions)` | Replace the role's grants with exactly this list, creating role/permissions by name. Atomic. |
 | `listRoles()` | Every role name known to the store. |
 | `listPermissions()` | Every permission name known to the store. |
-| `deleteRole(role)` | Remove a role outright — revokes its grants, every user assignment, and the role row. Idempotent; an unknown name is a no-op. Whether to refuse a still-populated role is the host's call (`countSubjectsForRole` first). |
+| `deleteRole(role)` | Remove a role outright — revokes its grants, every user assignment (all tenants and sources), and the role row, atomically. Returns whether the role existed; an unknown name is a no-op returning `false`. Whether to refuse a still-populated role is the host's call (`countSubjectsForRole` first). |
 
 **Assignments & grants**
 
@@ -80,6 +82,8 @@ export class RedisPermissionStore implements PermissionStore {
 | `removeRole(user, role, scope?)` | Remove the assignment matching that **exact** tenant scope. |
 | `giveSubjectPermission(user, permission)` | Grant a permission straight to a user. |
 | `revokeSubjectPermission(user, permission)` | Revoke that direct grant. Role-derived permissions survive. |
+| `removeSubject(user)` | Delete every role assignment (all tenants and sources) and direct grant of the user, atomically. |
+| `listRoleAssignments(filter?)` | Raw `{ subjectType, subjectId, role, source, tenantId }` rows, filtered by `tenantId` (omitted = all, `null` = global only, a string = only that tenant's scoped rows), `role` (name or list), `subject`, `source`; ordered by (subjectType, subjectId, role, source, tenantId). |
 
 **Reads**
 

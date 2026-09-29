@@ -83,15 +83,19 @@ export {
 export type {
   PermissionStore,
   RoleAssignment,
+  RoleAssignmentFilter,
   RoleAssignmentScope,
   SetSubjectRolesOptions,
   StoreOptions,
   StoreQueryClient,
+  SubjectRoleAssignment,
 } from './store.js';
 export {
+  compareSubjectRoleAssignments,
   DEFAULT_ROLE_SOURCE,
   MAX_ROLE_SOURCE_LENGTH,
   normalizeRoleSource,
+  roleFilterNames,
 } from './store.js';
 export type {
   LucidStoreConfig,

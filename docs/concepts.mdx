@@ -24,7 +24,11 @@ await authz.store.giveSubjectPermission({ type: 'user', id: '1' }, 'billing.view
 // Administration, without any host SQL against the store's tables:
 await authz.store.countSubjectsForRole('editor')       // the "N users" KPI
 await authz.store.countSubjectsByRole()                // whole matrix: { editor: 1, ... }
-await authz.store.deleteRole('editor')              // grants + memberships + row, idempotent
+await authz.store.deleteRole('editor')              // grants + memberships + row → true; unknown → false
+await authz.store.syncRolePermissions('viewer', ['posts.view'])  // replace a role's grants
+await authz.store.getPermissionsForRoles(['editor', 'viewer'])   // { viewer: ['posts.view'] }
+await authz.store.listRoleAssignments({ tenantId: 'acme' })      // raw rows of that tenant
+await authz.store.removeSubject({ type: 'user', id: '1' })       // account deleted
 ```
 
 Every store method can run **inside the host's database transaction** — per call
@@ -161,8 +165,10 @@ Hosts with integer ids may give the pivots their native key type
 | `givePermissionToRole(role, permission)` | Attach; creates either side by name when missing. |
 | `revokePermissionFromRole(role, permission)` | Detach; no-op when either side is absent. |
 | `getRolePermissions(role)` | The permission names attached to a role. |
+| `getPermissionsForRoles(roles)` | `{ [role]: permissionNames }` for many roles in one query. Every existing role is a key (`[]` when it has no grants); unknown roles are absent. |
+| `syncRolePermissions(role, permissions)` | Replaces the role's grants with exactly this list (spatie's `syncPermissions`), creating the role/permissions by name. Transactional. |
 | `listRoles()` / `listPermissions()` | Every known name (what `node ace authz:list` reads). |
-| `deleteRole(name)` | Deletes the role outright — revokes its grants, removes every user assignment, deletes the row. Idempotent (an unknown name is a no-op). Whether to refuse a still-populated role is **your** decision: count first. |
+| `deleteRole(name)` → `boolean` | Deletes the role outright — revokes its grants, removes every user assignment (all tenants and sources), deletes the row, in one transaction. Returns whether the role existed (an unknown name is a no-op returning `false`). Whether to refuse a still-populated role is **your** decision: count first. |
 
 **Assignments & direct grants**
 
@@ -172,6 +178,7 @@ Hosts with integer ids may give the pivots their native key type
 | `removeRole(user, role, scope?)` | Removes the assignment matching the **exact** tenant scope — from **every** source, or only `scope.source` when given. |
 | `setSubjectRoles(user, roles, { source?, tenantId? })` | Replaces ONE source's assignments in ONE tenant scope (transactional); other sources are untouched. |
 | `giveSubjectPermission(user, permission)` / `revokeSubjectPermission(...)` | Direct grants — tenant-independent by design. |
+| `removeSubject(user)` | Forgets the user: every role assignment (all tenants and sources) and every direct grant, in one transaction — for account deletion. |
 
 **Reads**
 
@@ -180,6 +187,7 @@ Hosts with integer ids may give the pivots their native key type
 | `getRolesForSubject(user, scope?)` | Distinct role names, with the tenant-visibility rules above. |
 | `getRoleAssignments(user, scope?)` | Every assignment as `{ role, source, tenantId }` (`tenantId: null` = global), same visibility. |
 | `getSubjectsForRole(role, scope?)` | The reverse: every `{ type, id }` holding the role. |
+| `listRoleAssignments({ tenantId?, role?, subject?, source? })` | Raw `{ subjectType, subjectId, role, source, tenantId }` rows for admin listings, ordered by (subjectType, subjectId, role, source, tenantId). `tenantId` omitted = every tenant; `null` = global rows only; a string = **only** that tenant's scoped rows (globals are not included — unlike the visibility rule above). `role` takes a name or a list. |
 | `countSubjectsForRole(role, scope?)` | Same visibility, reduced to a number — the "N users" KPI of a roles screen without transferring one ref per member. |
 | `countSubjectsByRole(scope?)` | Every role → member count in one `GROUP BY` pass; roles nobody holds come back as `0` (a complete matrix, not just rows with members). |
 | `getPermissionsForSubject(user, scope?)` | The raw granted names — role-derived ∪ direct. Wildcards are **not** expanded (the service's matcher does that). |
