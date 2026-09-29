@@ -40,6 +40,7 @@ export default class AuthzProvider {
         resolveGlobalRoleMembers,
         roleGrants,
         scopes,
+        decisionProvider,
       } = config;
 
       if (!providers || Object.keys(providers).length === 0) {
@@ -78,6 +79,7 @@ export default class AuthzProvider {
         ...(resolveGlobalRoleMembers !== undefined ? { resolveGlobalRoleMembers } : {}),
         ...(roleGrants !== undefined ? { roleGrants } : {}),
         ...(registry !== undefined ? { scopes: registry } : {}),
+        ...(decisionProvider !== undefined ? { decisionProvider } : {}),
       });
     });
   }

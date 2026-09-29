@@ -1,0 +1,136 @@
+---
+title: External policy engines
+description: Hand decisions to an external policy decision point (Cerbos, OPA, …) with the DecisionProvider seam — allow, deny or abstain on can(), batch checks with canMany(), and plan query scopes for accessibleBy(). Ships a Cerbos adapter at @adonis-agora/authz/cerbos.
+icon: Scale
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The RBAC store is **grant-only**: it can say "yes, a role grants `posts.edit`", never "no".
+A **decision provider** is the authoritative, resource-aware counterpart — a seam for an
+external policy decision point (PDP) such as [Cerbos](https://cerbos.dev), OPA/OpenFGA or a
+remote authz service. It can **allow**, **deny** or **abstain** on a check, batch a list page's
+checks into one round-trip, and turn the engine's query plan into the
+[scope constraint](/docs/authz/query-scopes) that `accessibleBy` compiles to a `WHERE`.
+
+## Configuring it
+
+```ts title="config/authz.ts"
+import { defineConfig, stores } from '@adonis-agora/authz'
+import { CerbosDecisionProvider } from '@adonis-agora/authz/cerbos'
+import { HTTP } from '@cerbos/http'
+import env from '#start/env'
+import Post from '#models/post'
+
+export default defineConfig({
+  default: 'lucid',
+  stores: { lucid: stores.lucid() },
+  decisionProvider: new CerbosDecisionProvider({
+    client: new HTTP(env.get('CERBOS_URL')), // or (user, ctx) => per-tenant client | undefined
+    principal: (user, { ref }) =>
+      ref && { id: ref.id, roles: (user as User).roles, attr: { tenantId: (user as User).tenantId } },
+    resource: (_permission, post) =>
+      post instanceof Post
+        ? { kind: 'app:post', id: String(post.id), attr: { owner: post.ownerId, status: post.status } }
+        : undefined, // not a Post → abstain, RBAC decides
+    scope: {
+      resource: (model) => (model === Post ? { kind: 'app:post' } : undefined),
+      field: (attribute) => ({ id: 'id', owner: 'owner_id', status: 'status' })[attribute],
+    },
+  }),
+})
+```
+
+Any object implementing `DecisionProvider` works — the Cerbos adapter is just one:
+
+```ts
+import type { DecisionProvider } from '@adonis-agora/authz'
+
+const provider: DecisionProvider = {
+  // user = the host user as passed to the check; ctx = { ref, tenant } already resolved
+  decide(user, permission, resource, ctx) {
+    if (!(resource instanceof Invoice)) return undefined // abstain
+    return resource.lockedAt ? { allowed: false, message: 'Invoice is locked' } : undefined
+  },
+  // optional: decideMany(user, requests, ctx) and planScope(user, resourceKey, action, ctx)
+}
+```
+
+A verdict is `true` / `{ allowed: true }` (allow), `false` / `{ allowed: false, message? }`
+(deny), or `undefined` / `null` (abstain — no opinion, keep resolving).
+
+## Precedence
+
+For `authz.can(user, permission, { resource })`, `authz.check(...)`, `authz.canMany(...)` and the
+Bouncer `can` ability:
+
+1. **Super-admin** — the `superAdmin` hook (it now also receives the `resource` as its 3rd
+   argument) and `superAdminRoles`. Allow/deny short-circuit.
+2. **Decision provider** `decide` — allow/deny short-circuit; `undefined` abstains.
+3. **RBAC** — the store's grants ∪ `roleGrants` over the effective roles, wildcard-aware.
+4. Otherwise deny.
+
+The provider is consulted for **anonymous** callers too (`user` is whatever you passed, `ctx.ref`
+is `undefined`), so an engine can allow public access; abstain to keep the default anonymous
+deny. The Bouncer abilities themselves still reject guests before calling the service, so
+public access goes through `authz.can(null, …)` / `authz.scope(null, …)`.
+
+Role checks (`hasRole` / `hasAnyRole`) do **not** go through the provider — roles are data,
+not decisions. Your own Bouncer abilities and policies run outside the service; they see the
+provider's verdict only if they delegate to `authz.can`.
+
+<Callout>
+  `authz.check(user, permission, options?)` returns `{ allowed, reason, message? }` where
+  `reason` is `'super-admin' | 'decision-provider' | 'permission' | 'anonymous' | 'no-grant'`.
+  The Bouncer `can` ability uses it, so a provider's deny `message` becomes the
+  `E_AUTHORIZATION_FAILURE` message.
+</Callout>
+
+## Batching: `canMany` / `checkMany`
+
+```ts
+const flags = await authz.canMany(user, posts.map((post) => ({ permission: 'update', resource: post })))
+```
+
+Super-admin is resolved per item first; the rest go to `decideMany` in **one** call (the Cerbos
+adapter sends one `CheckResources` request, de-duplicating resources and chunking by
+`maxBatchSize`, default 50). Without `decideMany` — or when it throws or returns the wrong number
+of verdicts — each item falls back to its own `decide`. RBAC reads share one per-request cache.
+
+## Query scopes: `planScope`
+
+`authz.scope(user, Model, { action })` (and therefore `accessibleBy`) consults `planScope`
+**right after super-admin**, before the permission grant and the registered scope filter. A
+returned constraint is used as-is; `undefined` abstains. `planScope` is consulted for anonymous
+users too.
+
+The Cerbos adapter calls `PlanResources` and maps the plan with `cerbosPlanToScope`:
+
+- `KIND_ALWAYS_ALLOWED` → `allow-all`, `KIND_ALWAYS_DENIED` → `deny-all`;
+- `and` / `or` → groups, `not` pushed down to the leaves (De Morgan);
+- `eq ne lt gt le ge in` with the operands in either order; `eq null` → `isNull`;
+- anything else (arithmetic, lambdas, membership on an attribute, principal variables, unmapped
+  attributes) throws `CerbosPlanUnsupportedError` — which the adapter turns into `deny-all`.
+
+`field` maps a Cerbos resource attribute to the **column** `accessibleBy` filters on. The
+default keeps plain names as-is and **rejects nested attributes** (`owner.id`): in the scope AST
+a dotted field means `table.column`, so map nested attributes explicitly (a qualified
+`'posts.owner_id'` is fine). Mapped columns must match `SAFE_IDENTIFIER`.
+
+## Failure mode
+
+The Cerbos adapter fails **closed** by default: an unreachable PDP denies, and an unsupported
+query plan scopes to no rows. Set `onFailure: 'abstain'` to fall back to your own RBAC instead,
+and `onError(error, { phase, ability })` to observe failures. A custom provider's thrown errors
+propagate (the check fails loudly).
+
+## Testing against a real Cerbos
+
+The repo's integration spec runs against a real PDP loaded with
+`packages/core/test/fixtures/cerbos/doc.yaml`:
+
+```sh
+docker run --rm -d --name authz-cerbos -p 3592:3592 \
+  -v "$PWD/packages/core/test/fixtures/cerbos:/policies:ro" ghcr.io/cerbos/cerbos:0.55.0 server
+CERBOS_TEST_URL=http://127.0.0.1:3592 pnpm --filter @adonis-agora/authz exec vitest run test/cerbos_integration.spec.ts
+```

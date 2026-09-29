@@ -80,22 +80,32 @@ The wildcard-aware permission check — the one the `can` Bouncer ability wraps.
 await authz.can(user, 'posts.edit')
 await authz.can(user, 'posts.edit', { scope: { tenantId: 'acme' } })
 await authz.can(user, 'posts.edit', { cache })
+await authz.can(user, 'posts.edit', { resource: post })
 ```
 
-| Option  | Type              | Meaning |
-| ------- | ----------------- | ------- |
-| `scope` | `TenantScope?`    | Explicit tenant. Omit to use the configured resolvers. |
-| `cache` | `PermissionCache?`| Share one grant read across many checks. |
+| Option     | Type              | Meaning |
+| ---------- | ----------------- | ------- |
+| `scope`    | `TenantScope?`    | Explicit tenant. Omit to use the configured resolvers. |
+| `cache`    | `PermissionCache?`| Share one grant read across many checks. |
+| `resource` | `unknown`         | What the check is about. RBAC ignores it; the `superAdmin` hook and a [decision provider](/docs/authz/decision-providers) receive it. |
 
 It resolves in this order:
 
 1. the [super-admin verdict](#super-admin-resolution) — may allow **or** deny;
-2. the user's granted permissions — the store's grants unioned with the
+2. the [decision provider](/docs/authz/decision-providers), if configured — may
+   allow, deny or abstain (also consulted for anonymous users);
+3. the user's granted permissions — the store's grants unioned with the
    `roleGrants` mapped over their [effective roles](/docs/authz/roles) — run
    through the [wildcard matcher](/docs/authz/concepts#wildcard-matching);
-3. otherwise deny.
+4. otherwise deny.
 
-An anonymous or unmappable user is always `false`.
+Without a decision provider, an anonymous or unmappable user is always `false`.
+
+`check(user, permission, options?)` is the same resolution returning
+`{ allowed, reason, message? }` (`reason`: `'super-admin'`, `'decision-provider'`,
+`'permission'`, `'anonymous'` or `'no-grant'`). `canMany(user, [{ permission, resource? }])` /
+`checkMany(...)` batch checks: one shared cache, and one `decideMany` round-trip to the
+decision provider.
 
 ## `effectivePermissions(user, scope?)`
 
@@ -200,8 +210,8 @@ each entry point. Its shape follows the caller:
 
 | Caller | `ability` argument |
 | ------ | ------------------ |
-| `can(user, 'posts.edit')` | `'posts.edit'` |
-| `scope(user, Post, { action: 'posts.edit' })` | `'posts.edit'` |
+| `can(user, 'posts.edit')` | `'posts.edit'` (3rd arg: `options.resource`, when passed) |
+| `scope(user, Post, { action: 'posts.edit' })` | `'posts.edit'` (3rd arg: `Post`) |
 | `hasRole(user, 'admin')` | `'role:admin'` |
 | `hasAnyRole(user, ['a', 'b'])` | `'role:a,b'` |
 

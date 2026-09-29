@@ -16,6 +16,9 @@ import { getBootedApp } from './booted_app.js';
 export type AuthzQueryService = Pick<
   AuthzService,
   | 'can'
+  | 'check'
+  | 'canMany'
+  | 'checkMany'
   | 'scope'
   | 'hasRole'
   | 'hasAnyRole'
@@ -97,6 +100,9 @@ const store = lazyStore(async () => (await resolveAuthzService()).store);
 // surfaces as a rejected promise, not a sync throw — these methods are typed as returning promises.
 const service: AuthzQueryService = {
   can: async (...args) => (await resolveAuthzService()).can(...args),
+  check: async (...args) => (await resolveAuthzService()).check(...args),
+  canMany: async (...args) => (await resolveAuthzService()).canMany(...args),
+  checkMany: async (...args) => (await resolveAuthzService()).checkMany(...args),
   scope: async (...args) => (await resolveAuthzService()).scope(...args),
   hasRole: async (...args) => (await resolveAuthzService()).hasRole(...args),
   hasAnyRole: async (...args) => (await resolveAuthzService()).hasAnyRole(...args),

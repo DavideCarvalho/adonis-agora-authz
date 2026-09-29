@@ -1,0 +1,24 @@
+# Resource policy used by test/cerbos_integration.spec.ts (run against a real Cerbos PDP).
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: default
+  resource: doc
+  rules:
+    - actions: ["read"]
+      effect: EFFECT_ALLOW
+      roles: ["user"]
+    - actions: ["update"]
+      effect: EFFECT_ALLOW
+      roles: ["user"]
+      condition:
+        match:
+          expr: request.resource.attr.owner == request.principal.id
+    - actions: ["delete"]
+      effect: EFFECT_ALLOW
+      roles: ["user"]
+      condition:
+        match:
+          all:
+            of:
+              - expr: request.resource.attr.owner == request.principal.id
+              - expr: request.resource.attr.status != "published"

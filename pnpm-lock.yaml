@@ -209,6 +209,9 @@ importers:
       '@adonisjs/lucid':
         specifier: 22.4.2
         version: 22.4.2(@adonisjs/assembler@8.5.2(typescript@7.0.2))(@adonisjs/core@7.5.2(@adonisjs/assembler@8.5.2(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.0.3)(luxon@3.7.2)(mysql2@3.24.4(@types/node@26.6.2))(pg@8.23.0)(supports-color@10.2.2)
+      '@cerbos/http':
+        specifier: 0.30.0
+        version: 0.30.0(@bufbuild/protobuf@2.15.0)(@cerbos/api@0.11.1)
       '@tanstack/intent':
         specifier: 0.4.0
         version: 0.4.0
@@ -653,6 +656,26 @@ packages:
   '@bramus/specificity@2.4.2':
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
+
+  '@bufbuild/protobuf@2.15.0':
+    resolution: {integrity: sha512-DAheWUkVr/SJTWCc+lg9dhY0eN4SaWlf4+bG1KzHeXbnqt0AfB/NX0Z+VunGlM1ki1B4zVvye27MpKh/svySUA==}
+
+  '@cerbos/api@0.11.1':
+    resolution: {integrity: sha512-ykTAo32GNbdtpS0rtI9LAPb7rtJ4zLcweiWWevxg+XsLcpBdZlU+6P2Gd5peq3HyMar39YITSp8/yG16dm+Wuw==}
+    engines: {node: '>= 22'}
+
+  '@cerbos/core@0.33.1':
+    resolution: {integrity: sha512-bySOVed3a5Pqsei904vm2SZgqlM1SSW67itms+JKlRYCx0cgDqqjPOl2pXGvn6461pWZ1YezKGrUr9MloVb6UA==}
+    engines: {node: '>= 22'}
+    peerDependencies:
+      '@bufbuild/protobuf': ^2.14.1
+
+  '@cerbos/http@0.30.0':
+    resolution: {integrity: sha512-Hdf9K+lDF0cMCLZa7/IbhssliJom5EMybbiMlMZNy9nVAhZ3nbvI6GHoqxt2C+k+xT1/NAxek2MCneMRCaAFqQ==}
+    engines: {node: '>= 22'}
+    peerDependencies:
+      '@bufbuild/protobuf': ^2.13.0
+      '@cerbos/api': ^0.11.0
 
   '@changesets/apply-release-plan@8.1.1':
     resolution: {integrity: sha512-nk2Hbq3M9NeHMdaIRBDvawKrQJzXB9sGyBUE5yWnIKtvdcNCPj75zBekJYr0gTT2ecJH3eFeTrc8eisPImcv0Q==}
@@ -3232,6 +3255,10 @@ packages:
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
+  uuid@14.0.2:
+    resolution: {integrity: sha512-xZe/16rV4aa+HGSOCiY2YeLT1OybRLrrkL/Rqaq7p7GMVXjFh+6wN4oMYgjFmnSnhY8t6Xpdl2l9qmnHYuMHwQ==}
+    hasBin: true
+
   validator@13.15.35:
     resolution: {integrity: sha512-TQ5pAGhd5whStmqWvYF4OjQROlmv9SMFVt37qoCBdqRffuuklWYQlCNnEs2ZaIBD1kZRNnikiZOS1eqgkar0iw==}
     engines: {node: '>= 0.10'}
@@ -3792,6 +3819,24 @@ snapshots:
   '@bramus/specificity@2.4.2':
     dependencies:
       css-tree: 3.2.1
+
+  '@bufbuild/protobuf@2.15.0': {}
+
+  '@cerbos/api@0.11.1':
+    dependencies:
+      '@bufbuild/protobuf': 2.15.0
+
+  '@cerbos/core@0.33.1(@bufbuild/protobuf@2.15.0)':
+    dependencies:
+      '@bufbuild/protobuf': 2.15.0
+      '@cerbos/api': 0.11.1
+      uuid: 14.0.2
+
+  '@cerbos/http@0.30.0(@bufbuild/protobuf@2.15.0)(@cerbos/api@0.11.1)':
+    dependencies:
+      '@bufbuild/protobuf': 2.15.0
+      '@cerbos/api': 0.11.1
+      '@cerbos/core': 0.33.1(@bufbuild/protobuf@2.15.0)
 
   '@changesets/apply-release-plan@8.1.1':
     dependencies:
@@ -6199,6 +6244,8 @@ snapshots:
       vite: 7.3.5(@types/node@26.6.2)(yaml@2.9.0)
 
   util-deprecate@1.0.2: {}
+
+  uuid@14.0.2: {}
 
   validator@13.15.35: {}
 

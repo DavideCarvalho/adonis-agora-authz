@@ -7,6 +7,7 @@
     "service",
     "roles",
     "query-scopes",
+    "decision-providers",
     "config",
     "bouncer-integration",
     "middleware",

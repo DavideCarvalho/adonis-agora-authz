@@ -81,8 +81,10 @@ export interface AuthzAbilities {
  *
  * - `can(user, permission, resource?)` — true when the user's grants (with
  *   wildcards, e.g. `posts.*` ⊇ `posts.edit`) satisfy `permission`. The optional
- *   `resource` is accepted for ergonomic call sites but RBAC grants are
- *   model-less, so it is not consulted by default.
+ *   `resource` is forwarded to the service: RBAC grants are model-less and ignore
+ *   it, but the `superAdmin` hook and a configured `decisionProvider` (e.g.
+ *   Cerbos) receive it. A decision provider's deny message becomes the Bouncer
+ *   deny message.
  * - `hasRole(user, role)` — true when the user holds the named role.
  *
  * Both deny anonymous users (no `allowGuest`).
@@ -99,14 +101,21 @@ export interface AuthzAbilities {
  * ```
  */
 export function defineAuthzAbilities(
-  service: Pick<AuthzService | AuthzQueryService, 'can' | 'hasRole'> = lazyService,
+  service: Pick<AuthzService | AuthzQueryService, 'can' | 'hasRole'> &
+    Partial<Pick<AuthzService | AuthzQueryService, 'check'>> = lazyService,
 ): AuthzAbilities {
   const { AuthorizationResponse, Bouncer } = requireBouncer();
-  const can = Bouncer.ability(async (user: unknown, permission: string, _resource?: unknown) => {
-    const allowed = await service.can(user, permission);
-    return allowed
+  const can = Bouncer.ability(async (user: unknown, permission: string, resource?: unknown) => {
+    const options = resource === undefined ? {} : { resource };
+    // `check` carries the deciding source's message (e.g. a decision provider's deny reason);
+    // a minimal custom service with only `can` still works.
+    const decision =
+      typeof service.check === 'function'
+        ? await service.check(user, permission, options)
+        : { allowed: await service.can(user, permission, options), message: undefined };
+    return decision.allowed
       ? AuthorizationResponse.allow()
-      : AuthorizationResponse.deny(`Missing permission: ${permission}`, 403);
+      : AuthorizationResponse.deny(decision.message ?? `Missing permission: ${permission}`, 403);
   });
 
   const hasRole = Bouncer.ability(async (user: unknown, role: string) => {

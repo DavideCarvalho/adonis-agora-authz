@@ -1,4 +1,5 @@
 import type { SuperAdminHook, TenantResolver } from './authz_service.js';
+import type { DecisionProvider } from './decision_provider.js';
 import type { ScopeRegistry } from './scope.js';
 import { type StoreProvider, stores } from './stores/factory.js';
 import type { ResolveSubjectRef, SubjectRef, SubjectRefInput, TenantScope } from './subject_ref.js';
@@ -68,6 +69,13 @@ export interface AuthzConfig {
    * registry (every resource is deny-all / fail-closed until registered).
    */
   scopes?: ScopeRegistry | ((registry: ScopeRegistry) => void);
+  /**
+   * External policy decision point (Cerbos, OPA, …) — see {@link DecisionProvider}. Runs right
+   * after the super-admin check: it can allow, deny or abstain (`undefined`) on `authz.can` /
+   * the Bouncer `can` ability / `authz.canMany`, and plan query scopes for `authz.scope` /
+   * `accessibleBy`. A Cerbos adapter ships at `@adonis-agora/authz/cerbos`.
+   */
+  decisionProvider?: DecisionProvider;
 }
 
 /** A declarative roles → permissions map for `authz:sync`. */

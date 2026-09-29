@@ -25,6 +25,7 @@
     "multi-tenancy",
     "lucid",
     "agora",
+    "cerbos",
     "tanstack-intent"
   ],
   "author": "Davi Carvalho <davi@goflip.ai>",
@@ -82,6 +83,11 @@
       "import": "./dist/src/http.js",
       "default": "./dist/src/http.js"
     },
+    "./cerbos": {
+      "types": "./dist/src/cerbos/index.d.ts",
+      "import": "./dist/src/cerbos/index.js",
+      "default": "./dist/src/cerbos/index.js"
+    },
     "./testing": {
       "types": "./dist/src/testing.d.ts",
       "import": "./dist/src/testing.js",
@@ -126,6 +132,7 @@
     "@adonisjs/bouncer": "4.0.1",
     "@adonisjs/core": "7.5.2",
     "@adonisjs/lucid": "22.4.2",
+    "@cerbos/http": "0.30.0",
     "@tanstack/intent": "0.4.0",
     "@testcontainers/mysql": "12.1.0",
     "@testcontainers/postgresql": "12.1.0",

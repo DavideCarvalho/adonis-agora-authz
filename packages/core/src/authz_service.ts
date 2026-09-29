@@ -1,4 +1,10 @@
 import { globalRolesFromContext } from './agora/context.js';
+import {
+  type DecisionContext,
+  type DecisionProvider,
+  type DecisionVerdict,
+  normalizeVerdict,
+} from './decision_provider.js';
 import { PermissionCache } from './permission_cache.js';
 import { permissionSatisfied } from './permission_matcher.js';
 import {
@@ -22,8 +28,11 @@ import {
 export { tenantFromContext } from './agora/context.js';
 
 /**
- * Super-admin hook (ported from nestjs-authz). Receives the mapped {@link SubjectRef}
- * and the ability/permission being checked.
+ * Super-admin hook (ported from nestjs-authz). Receives the mapped {@link SubjectRef},
+ * the ability/permission being checked and — when there is one — the resource: the
+ * `resource` passed to {@link AuthzService.can} / the Bouncer `can` ability, or the
+ * {@link ResourceKey} for {@link AuthzService.scope} (so a hook can scope its bypass).
+ * Role checks pass no resource.
  *
  * - `true`  → allow (short-circuit).
  * - `false` → deny (short-circuit). Super-admin is the only hook whose `false`
@@ -33,7 +42,51 @@ export { tenantFromContext } from './agora/context.js';
 export type SuperAdminHook = (
   user: SubjectRef,
   ability: string,
+  resource?: unknown,
 ) => boolean | undefined | Promise<boolean | undefined>;
+
+/**
+ * Why a permission check resolved the way it did — the "why" behind a 403 (or a grant).
+ *
+ * - `super-admin` — the `superAdmin` hook or a `superAdminRoles` role decided;
+ * - `decision-provider` — the external {@link DecisionProvider} allowed or denied;
+ * - `permission` — an RBAC grant (store or `roleGrants`, wildcard-aware) satisfied it;
+ * - `anonymous` — no user could be mapped (and nothing above allowed);
+ * - `no-grant` — a known user without a matching grant.
+ */
+export type AuthzDecisionReason =
+  | 'super-admin'
+  | 'decision-provider'
+  | 'permission'
+  | 'anonymous'
+  | 'no-grant';
+
+/** The outcome of {@link AuthzService.check}: the verdict, its reason and an optional message. */
+export interface AuthzDecision {
+  allowed: boolean;
+  reason: AuthzDecisionReason;
+  /** A human-readable reason, when the deciding source supplied one (e.g. a decision provider). */
+  message?: string;
+}
+
+/** Options accepted by {@link AuthzService.check} / {@link AuthzService.can}. */
+export interface AuthzCheckOptions {
+  /** Explicit tenant scope (else resolved from the service's tenant config). */
+  scope?: TenantScope;
+  /** A per-request cache to coalesce store reads. */
+  cache?: PermissionCache;
+  /**
+   * The resource the check is about (e.g. a model instance). Handed to the `superAdmin` hook
+   * and the {@link DecisionProvider}; RBAC grants are model-less and ignore it.
+   */
+  resource?: unknown;
+}
+
+/** One item of {@link AuthzService.checkMany} / {@link AuthzService.canMany}. */
+export interface AuthzCheckRequest {
+  permission: string;
+  resource?: unknown;
+}
 
 /** Reads the active tenant for the current request (e.g. from HTTP context). */
 export type TenantResolver = () => string | undefined | TenantScope | undefined;
@@ -100,6 +153,13 @@ export interface AuthzServiceOptions {
    * host may also register via {@link AuthzService.scopes}.
    */
   scopes?: ScopeRegistry;
+  /**
+   * External policy decision point (Cerbos, OPA, …). Consulted right after the super-admin
+   * check by {@link AuthzService.can}/{@link AuthzService.check}/{@link AuthzService.canMany}
+   * (`decide`/`decideMany`) and by {@link AuthzService.scope} (`planScope`). It can allow,
+   * deny or abstain (`undefined`). See {@link DecisionProvider} for the full precedence.
+   */
+  decisionProvider?: DecisionProvider;
 }
 
 function normalizeTenantResolver(value: string | TenantScope | undefined): TenantScope | undefined {
@@ -115,9 +175,10 @@ function normalizeTenantResolver(value: string | TenantScope | undefined): Tenan
  * `posts.edit`). Roles are checked exactly.
  *
  * Resolution order for {@link can} mirrors the port:
- *   1. super-admin hook (may allow or deny);
- *   2. wildcard permission grant from the store (grant-only);
- *   3. otherwise deny.
+ *   1. super-admin hook / `superAdminRoles` (may allow or deny);
+ *   2. the optional {@link DecisionProvider} (may allow, deny or abstain);
+ *   3. wildcard permission grant from the store ∪ `roleGrants` (grant-only);
+ *   4. otherwise deny.
  */
 export class AuthzService {
   readonly store: PermissionStore;
@@ -146,6 +207,9 @@ export class AuthzService {
   /** The query-scope registry (resource → scope filter). See {@link scope}. */
   readonly scopes: ScopeRegistry;
 
+  /** The external decision point, when configured. See {@link DecisionProvider}. */
+  readonly decisionProvider: DecisionProvider | undefined;
+
   constructor(options: AuthzServiceOptions) {
     this.store = options.store;
     this.superAdmin = options.superAdmin;
@@ -158,6 +222,7 @@ export class AuthzService {
     this.resolveRoleMembersFn = options.resolveRoleMembers;
     this.resolveGlobalRoleMembersFn = options.resolveGlobalRoleMembers;
     this.scopes = options.scopes ?? new ScopeRegistry();
+    this.decisionProvider = options.decisionProvider;
   }
 
   /** Map a host user object to a canonical {@link SubjectRef} (or undefined). */
@@ -196,9 +261,16 @@ export class AuthzService {
    * It applies the {@link SuperAdminHook} first (the only hook whose `false`
    * denies), then the global super-admin roles (feature C).
    */
-  private async superAdminVerdict(ref: SubjectRef, ability: string): Promise<boolean | undefined> {
+  private async superAdminVerdict(
+    ref: SubjectRef,
+    ability: string,
+    resource?: unknown,
+  ): Promise<boolean | undefined> {
     if (this.superAdmin) {
-      const verdict = await this.superAdmin(ref, ability);
+      const verdict =
+        resource === undefined
+          ? await this.superAdmin(ref, ability)
+          : await this.superAdmin(ref, ability, resource);
       if (verdict === true) return true;
       if (verdict === false) return false;
     }
@@ -301,31 +373,181 @@ export class AuthzService {
 
   /**
    * Does the user hold `permission` (with wildcard matching)? Honors the
-   * super-admin hook. Pass a `cache` to coalesce reads across a request.
+   * super-admin hook and the {@link DecisionProvider}. Pass a `cache` to coalesce
+   * reads across a request, and `resource` to let the super-admin hook / decision
+   * provider see what the check is about. See {@link check} for the reasoned form.
    */
-  async can(
+  async can(user: unknown, permission: string, options: AuthzCheckOptions = {}): Promise<boolean> {
+    return (await this.check(user, permission, options)).allowed;
+  }
+
+  /**
+   * {@link can} with the "why": the verdict, the {@link AuthzDecisionReason} and the deciding
+   * source's message (e.g. a decision provider's deny message). Resolution order:
+   *   1. super-admin (hook or global role) — allow/deny;
+   *   2. {@link DecisionProvider.decide} — allow/deny, `undefined` abstains (also for anonymous);
+   *   3. anonymous → deny;
+   *   4. RBAC grant (store ∪ `roleGrants`, wildcard-aware) → allow, else deny.
+   */
+  async check(
     user: unknown,
     permission: string,
-    options: { scope?: TenantScope; cache?: PermissionCache } = {},
-  ): Promise<boolean> {
+    options: AuthzCheckOptions = {},
+  ): Promise<AuthzDecision> {
+    return this.resolveCheck(user, this.refOf(user), permission, options, undefined);
+  }
+
+  /**
+   * Batch {@link can}: one boolean per request, in order. With a {@link DecisionProvider} that
+   * implements `decideMany`, the whole batch costs ONE engine round-trip; RBAC reads share one
+   * per-request cache.
+   */
+  async canMany(
+    user: unknown,
+    requests: AuthzCheckRequest[],
+    options: Omit<AuthzCheckOptions, 'resource'> = {},
+  ): Promise<boolean[]> {
+    return (await this.checkMany(user, requests, options)).map((d) => d.allowed);
+  }
+
+  /**
+   * Batch {@link check}. Super-admin is resolved per item first; the items it does not decide go
+   * to {@link DecisionProvider.decideMany} in a single call (falling back to per-item `decide`
+   * when `decideMany` is absent, throws, or returns the wrong number of verdicts); the rest
+   * resolve through RBAC with a shared cache (unless one is passed).
+   */
+  async checkMany(
+    user: unknown,
+    requests: AuthzCheckRequest[],
+    options: Omit<AuthzCheckOptions, 'resource'> = {},
+  ): Promise<AuthzDecision[]> {
     const ref = this.refOf(user);
-    if (!ref) return false;
+    const cache = options.cache ?? this.createCache();
+    const base: AuthzCheckOptions = { ...options, cache };
+    const results: Array<AuthzDecision | undefined> = [];
+    const pending: number[] = [];
+    for (const [index, request] of requests.entries()) {
+      const superAdmin = ref
+        ? await this.superAdminVerdict(ref, request.permission, request.resource)
+        : undefined;
+      if (superAdmin !== undefined) {
+        results[index] = { allowed: superAdmin, reason: 'super-admin' };
+      } else {
+        results[index] = undefined;
+        pending.push(index);
+      }
+    }
 
-    const superAdmin = await this.superAdminVerdict(ref, permission);
-    if (superAdmin !== undefined) return superAdmin;
+    const prefetched = await this.prefetchDecisions(
+      user,
+      ref,
+      pending.map((i) => requests[i] as AuthzCheckRequest),
+      options.scope,
+    );
+    for (const [position, index] of pending.entries()) {
+      const request = requests[index] as AuthzCheckRequest;
+      results[index] = await this.resolveCheck(
+        user,
+        ref,
+        request.permission,
+        { ...base, resource: request.resource },
+        prefetched ? { verdict: prefetched[position] } : undefined,
+        true,
+      );
+    }
+    return results as AuthzDecision[];
+  }
 
-    const scope = this.currentScope(options.scope);
-    // Single permission-union site: store grants ∪ roleGrants over the effective roles
+  /**
+   * One {@link DecisionProvider.decideMany} round-trip for a batch, when supported. `undefined`
+   * → per-item `decide`. A failing batch call degrades to per-item calls, never fails the batch.
+   */
+  private async prefetchDecisions(
+    user: unknown,
+    ref: SubjectRef | undefined,
+    requests: AuthzCheckRequest[],
+    scope: TenantScope | undefined,
+  ): Promise<DecisionVerdict[] | undefined> {
+    const provider = this.decisionProvider;
+    if (!provider || typeof provider.decideMany !== 'function' || requests.length === 0) {
+      return undefined;
+    }
+    try {
+      const verdicts = await provider.decideMany(
+        user,
+        requests.map((r) =>
+          r.resource === undefined
+            ? { ability: r.permission }
+            : { ability: r.permission, resource: r.resource },
+        ),
+        this.decisionContext(ref, scope),
+      );
+      if (!Array.isArray(verdicts) || verdicts.length !== requests.length) return undefined;
+      return verdicts;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private decisionContext(ref: SubjectRef | undefined, scope?: TenantScope): DecisionContext {
+    return { ref, tenant: this.currentScope(scope) };
+  }
+
+  /** The single decision path behind {@link check}/{@link checkMany}. */
+  private async resolveCheck(
+    user: unknown,
+    ref: SubjectRef | undefined,
+    permission: string,
+    options: AuthzCheckOptions,
+    prefetched: { verdict: DecisionVerdict } | undefined,
+    superAdminResolved = false,
+  ): Promise<AuthzDecision> {
+    // 1. Super-admin (hook or global role), with the resource so a hook can scope its bypass.
+    if (ref && !superAdminResolved) {
+      const superAdmin = await this.superAdminVerdict(ref, permission, options.resource);
+      if (superAdmin !== undefined) return { allowed: superAdmin, reason: 'super-admin' };
+    }
+
+    // 2. External decision point: authoritative allow OR deny; `undefined` abstains.
+    //    Consulted for anonymous callers too, so an engine may allow public access.
+    const provider = this.decisionProvider;
+    if (provider) {
+      const verdict = normalizeVerdict(
+        prefetched
+          ? prefetched.verdict
+          : await provider.decide(
+              user,
+              permission,
+              options.resource,
+              this.decisionContext(ref, options.scope),
+            ),
+      );
+      if (verdict.allowed !== undefined) {
+        return verdict.message !== undefined
+          ? { allowed: verdict.allowed, reason: 'decision-provider', message: verdict.message }
+          : { allowed: verdict.allowed, reason: 'decision-provider' };
+      }
+    }
+
+    // 3. Anonymous → deny.
+    if (!ref) return { allowed: false, reason: 'anonymous' };
+
+    // 4. RBAC. Single permission-union site: store grants ∪ roleGrants over the effective roles
     // (context ∪ resolveRoles ∪ store — feature C generalized by the resolveRoles seam).
     // Both reads go through the cache when one is passed: one role resolution and
     // one permission read per (user, tenant) per request.
+    const scope = this.currentScope(options.scope);
     const roles = options.cache
       ? await options.cache.getRoles(ref, scope)
       : await this.effectiveRolesForRef(ref, scope);
     const granted = options.cache
       ? await options.cache.getPermissions(ref, scope)
       : await this.store.getPermissionsForSubject(ref, scope);
-    return permissionSatisfied([...granted, ...this.rolePermissionGrants(roles)], permission);
+    const allowed = permissionSatisfied(
+      [...granted, ...this.rolePermissionGrants(roles)],
+      permission,
+    );
+    return { allowed, reason: allowed ? 'permission' : 'no-grant' };
   }
 
   /**
@@ -336,7 +558,10 @@ export class AuthzService {
    *
    * Mirrors {@link can}'s resolution order so scoping stays consistent with
    * single-resource decisions:
-   *   1. super-admin (hook or global role) grants → `allow-all` (no filter);
+   *   1. super-admin (hook or global role) grants → `allow-all` (no filter); the hook
+   *      receives the `resource` key as its 3rd argument;
+   *   1b. the {@link DecisionProvider}'s `planScope` → its constraint as-is (e.g. a
+   *      Cerbos query plan); `undefined` abstains. Consulted for anonymous users too;
    *   2. a wildcard permission grant for `action` → `allow-all`;
    *   3. the resource's registered scope filter → its constraint (fed the user's
    *      effective roles/permissions/tenant so it derives from the SAME authz data);
@@ -352,16 +577,28 @@ export class AuthzService {
   ): Promise<ScopeConstraint> {
     const action = options.action ?? 'viewAny';
     const ref = this.refOf(user);
-    // 4 (anonymous): no user → deny-all.
-    if (!ref) return scopeNone;
 
     // 1. Super-admin (hook or global role) → allow-all. A `false` here actively
     //    denies, mirroring `can`.
-    const superAdmin = await this.superAdminVerdict(ref, action);
-    if (superAdmin === true) return scopeAll;
-    if (superAdmin === false) return scopeNone;
+    if (ref) {
+      const superAdmin = await this.superAdminVerdict(ref, action, resource);
+      if (superAdmin === true) return scopeAll;
+      if (superAdmin === false) return scopeNone;
+    }
 
     const tenant = this.currentScope(options.scope);
+
+    // 1b. External decision point's query plan (e.g. Cerbos PlanResources) → used as-is;
+    //     `undefined` abstains.
+    const planner = this.decisionProvider;
+    if (planner && typeof planner.planScope === 'function') {
+      const planned = await planner.planScope(user, resource, action, { ref, tenant });
+      if (planned !== undefined) return planned;
+    }
+
+    // 4 (anonymous): no user → deny-all.
+    if (!ref) return scopeNone;
+
     const granted = options.cache
       ? await options.cache.getPermissions(ref, tenant)
       : await this.store.getPermissionsForSubject(ref, tenant);
