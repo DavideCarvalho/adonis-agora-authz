@@ -132,7 +132,7 @@
     "@adonisjs/bouncer": "4.0.1",
     "@adonisjs/core": "7.5.2",
     "@adonisjs/lucid": "22.4.2",
-    "@cerbos/http": "0.30.0",
+    "@cerbos/http": "0.30.1",
     "@tanstack/intent": "0.4.0",
     "@testcontainers/mysql": "12.1.0",
     "@testcontainers/postgresql": "12.1.0",
