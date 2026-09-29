@@ -109,3 +109,130 @@ describe('createAuthzTables dialect detection (Postgres → TIMESTAMP)', () => {
     expect(rolesDdl).toContain('TIMESTAMP');
   });
 });
+
+describe('role sources: the subject-role pivot', () => {
+  let db: Database;
+
+  beforeEach(() => {
+    db = makeMemoryDatabase();
+  });
+  afterEach(async () => {
+    await db.manager.closeAll();
+  });
+
+  const alice = { type: 'user', id: '1' };
+
+  /** The pivot exactly as createAuthzTables created it before role sources existed. */
+  async function createPreSourcesSchema(): Promise<void> {
+    await createAuthzTables(asLucidDatabase(db));
+    await db.rawQuery(`DROP TABLE ${AUTHZ_TABLES.subjectRole}`);
+    await db.rawQuery(
+      `CREATE TABLE ${AUTHZ_TABLES.subjectRole} (
+        subject_type VARCHAR(191) NOT NULL,
+        subject_id VARCHAR(191) NOT NULL,
+        role_id VARCHAR(191) NOT NULL,
+        tenant_id VARCHAR(191) NOT NULL DEFAULT '',
+        PRIMARY KEY (subject_type, subject_id, role_id, tenant_id)
+      )`,
+    );
+  }
+
+  it('new tables carry source in the primary key', async () => {
+    await createAuthzTables(asLucidDatabase(db));
+    const columns = (await db.rawQuery(`PRAGMA table_info(${AUTHZ_TABLES.subjectRole})`)) as Array<{
+      name: string;
+      pk: number;
+      dflt_value: string | null;
+      notnull: number;
+    }>;
+    const source = columns.find((c) => c.name === 'source');
+    expect(source).toMatchObject({ notnull: 1, dflt_value: "'manual'" });
+    expect(source!.pk).toBeGreaterThan(0);
+  });
+
+  it('ensureSchema adds the column to a pre-sources table, keeping rows as manual', async () => {
+    await createPreSourcesSchema();
+    const roleId = 'r-1';
+    await db.rawQuery(`INSERT INTO ${AUTHZ_TABLES.roles} (id, name) VALUES (?, ?)`, [
+      roleId,
+      'editor',
+    ]);
+    await db.rawQuery(
+      `INSERT INTO ${AUTHZ_TABLES.subjectRole} (subject_type, subject_id, role_id, tenant_id) VALUES (?, ?, ?, '')`,
+      ['user', '1', roleId],
+    );
+
+    const store = new LucidPermissionStore(asLucidDatabase(db));
+    await store.ensureSchema();
+    await store.ensureSchema(); // idempotent
+    expect(await store.getRoleAssignments(alice)).toEqual([
+      { role: 'editor', source: 'manual', tenantId: null },
+    ]);
+    // The old key still covers (subject, role, tenant): a second source is ignored until the
+    // key is widened — the documented manual step.
+    await store.assignRole(alice, 'editor', { source: 'scim' });
+    expect(await store.getRoleAssignments(alice)).toHaveLength(1);
+  });
+
+  it('the documented SQLite key-widening SQL makes two sources per role work', async () => {
+    await createPreSourcesSchema();
+    const store = new LucidPermissionStore(asLucidDatabase(db));
+    await store.assignRole(alice, 'editor', { tenantId: 't1' });
+
+    // Keep in sync with docs/roles.mdx ("Role sources" → SQLite).
+    await db.transaction(async (trx) => {
+      await trx.rawQuery(`CREATE TABLE authz_subject_role_new (
+        subject_type VARCHAR(191) NOT NULL,
+        subject_id VARCHAR(191) NOT NULL,
+        role_id VARCHAR(191) NOT NULL,
+        tenant_id VARCHAR(191) NOT NULL DEFAULT '',
+        source VARCHAR(64) NOT NULL DEFAULT 'manual',
+        PRIMARY KEY (subject_type, subject_id, role_id, tenant_id, source)
+      )`);
+      await trx.rawQuery(`INSERT INTO authz_subject_role_new (subject_type, subject_id, role_id, tenant_id, source)
+        SELECT subject_type, subject_id, role_id, tenant_id, source FROM authz_subject_role`);
+      await trx.rawQuery('DROP TABLE authz_subject_role');
+      await trx.rawQuery('ALTER TABLE authz_subject_role_new RENAME TO authz_subject_role');
+      await trx.rawQuery(
+        'CREATE INDEX IF NOT EXISTS authz_subject_role_subject_idx ON authz_subject_role (subject_type, subject_id)',
+      );
+    });
+
+    await store.assignRole(alice, 'editor', { tenantId: 't1', source: 'scim' });
+    await store.removeRole(alice, 'editor', { tenantId: 't1', source: 'manual' });
+    expect(await store.getRoleAssignments(alice, { tenantId: 't1' })).toEqual([
+      { role: 'editor', source: 'scim', tenantId: 't1' },
+    ]);
+  });
+});
+
+describe('role sources: dialect DDL', () => {
+  function recordingClient(dialect: string) {
+    const sql: string[] = [];
+    const rawQuery = async (q: string) => {
+      sql.push(q);
+      return [];
+    };
+    const client = { rawQuery, dialect: { name: dialect } };
+    return { client: client as unknown as Parameters<typeof createAuthzTables>[0], sql };
+  }
+
+  it('Postgres adds the column with ADD COLUMN IF NOT EXISTS', async () => {
+    const { client, sql } = recordingClient('postgres');
+    await createAuthzTables(client);
+    expect(sql).toContain(
+      `ALTER TABLE ${AUTHZ_TABLES.subjectRole} ADD COLUMN IF NOT EXISTS source VARCHAR(64) NOT NULL DEFAULT 'manual'`,
+    );
+  });
+
+  it('MySQL keeps the 5-column key under 3072 bytes (ASCII role_id) and checks before adding', async () => {
+    const { client, sql } = recordingClient('mysql');
+    await createAuthzTables(client);
+    const ddl = sql.find((s) =>
+      s.includes(`CREATE TABLE IF NOT EXISTS ${AUTHZ_TABLES.subjectRole}`),
+    );
+    expect(ddl).toContain('role_id VARCHAR(191) CHARACTER SET ascii NOT NULL');
+    expect(ddl).toContain('PRIMARY KEY (subject_type, subject_id, role_id, tenant_id, source)');
+    expect(sql.some((s) => s.includes('information_schema.columns'))).toBe(true);
+  });
+});

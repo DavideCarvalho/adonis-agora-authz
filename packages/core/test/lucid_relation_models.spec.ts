@@ -76,6 +76,17 @@ class GetterRecipeUser extends BaseModel {
   declare roles: ManyToMany<typeof AuthzRoleModel>;
 }
 
+/** The same uuid users, reading only the SCIM-synced assignments. */
+class ScimUser extends BaseModel {
+  static table = 'users_uuid';
+
+  @column({ isPrimary: true })
+  declare id: string;
+
+  @manyToMany(() => AuthzRoleModel, authzRolesRelation({ source: 'scim' }))
+  declare roles: ManyToMany<typeof AuthzRoleModel>;
+}
+
 /** Host model with TEXT ids (uuid-style). */
 class UuidUser extends BaseModel {
   static table = 'users_uuid';
@@ -238,6 +249,29 @@ describe('authzRolesRelation — runtime preload on TEXT pivots (issues #74/#84)
 
     const [user] = await UuidUser.query().where('id', 'u-1').preload('roles');
     expect(user!.roles.map((r) => r.name)).toEqual(['GLOBAL']);
+  });
+
+  it('a role held via two sources preloads ONCE; `source` narrows to one source', async () => {
+    await db.rawQuery(`INSERT INTO users_uuid (id, email) VALUES (?, ?)`, ['u-1', 'a@b.c']);
+    await db.rawQuery(`INSERT INTO users_uuid (id, email) VALUES (?, ?)`, ['u-2', 'b@b.c']);
+    const store = new LucidPermissionStore(asLucidDatabase(db));
+    await store.assignRole({ type: 'user', id: 'u-1' }, 'EDITOR');
+    await store.assignRole({ type: 'user', id: 'u-1' }, 'EDITOR', { source: 'scim' });
+    await store.assignRole({ type: 'user', id: 'u-1' }, 'VIEWER');
+    await store.assignRole({ type: 'user', id: 'u-2' }, 'EDITOR', { source: 'scim' });
+
+    // Many parents (setRelatedForMany) and a single parent (setRelated) both dedupe.
+    const users = await UuidUser.query().orderBy('id').preload('roles');
+    expect(users.map((u) => u.roles.map((r) => r.name).sort())).toEqual([
+      ['EDITOR', 'VIEWER'],
+      ['EDITOR'],
+    ]);
+    const one = await UuidUser.findOrFail('u-1');
+    await one.load('roles');
+    expect(one.roles.map((r) => r.name).sort()).toEqual(['EDITOR', 'VIEWER']);
+
+    const [scimOnly] = await ScimUser.query().where('id', 'u-1').preload('roles');
+    expect(scimOnly!.roles.map((r) => r.name)).toEqual(['EDITOR']);
   });
 });
 

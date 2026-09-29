@@ -50,6 +50,12 @@ export interface LucidQueryClient {
 export interface LucidDatabase extends LucidQueryClient {
   dialect?: { name?: string };
   connection?(name?: string): { dialect?: { name?: string } };
+  /**
+   * Lucid's managed transaction (`db.transaction(async (trx) => …)`): commits when the callback
+   * resolves, rolls back when it throws. Optional in the mirror — a client without it (e.g. a
+   * migration's deferred client) just runs multi-statement writes without one.
+   */
+  transaction?<T>(callback: (trx: LucidQueryClient) => Promise<T>): Promise<T>;
 }
 
 /** Table-name overrides (defaults match {@link AUTHZ_TABLES}). */
@@ -85,6 +91,77 @@ export function isPostgres(dialect: string | undefined): boolean {
 
 export function isMysql(dialect: string | undefined): boolean {
   return !!dialect && /mysql|mariadb/i.test(dialect);
+}
+
+export function isSqlite(dialect: string | undefined): boolean {
+  return !!dialect && /sqlite/i.test(dialect);
+}
+
+/**
+ * The `source` column of the subject-role pivot (who owns an assignment: `'manual'`, `'scim'`,
+ * …). `VARCHAR(64)` keeps the widened primary key under MySQL's 3072-byte InnoDB key limit.
+ */
+const SOURCE_COLUMN = "source VARCHAR(64) NOT NULL DEFAULT 'manual'";
+
+/**
+ * Normalize a raw-query result into its row array. MySQL-family drivers resolve raw SELECTs to
+ * the node-mysql pair `[rows, fields]` — the rows are the FIRST element, not the array itself.
+ * Row objects are never arrays, so an array as the first element is the unmistakable signature
+ * of that shape. Postgres resolves to `{ rows }`, sqlite to the array.
+ */
+export function rowsOf(result: unknown): Record<string, unknown>[] {
+  if (Array.isArray(result) && Array.isArray(result[0])) {
+    return result[0] as Record<string, unknown>[];
+  }
+  if (Array.isArray(result)) return result as Record<string, unknown>[];
+  if (result && typeof result === 'object' && 'rows' in result) {
+    const rows = (result as { rows: unknown }).rows;
+    return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
+  }
+  return [];
+}
+
+/**
+ * Add the `source` column to a subject-role pivot created before role sources existed —
+ * NON-destructively (`ADD COLUMN … NOT NULL DEFAULT 'manual'`, so every existing assignment
+ * becomes a manual one). A no-op when the column is already there.
+ *
+ * It does NOT widen the primary key: an old table keeps `(subject_type, subject_id, role_id,
+ * tenant_id)` as its key, so the same role cannot be stored under two sources until you widen
+ * it (see the "Role sources" migration notes in the docs for the exact SQL).
+ */
+async function ensureSourceColumn(db: LucidDatabase, table: string, dialect: string | undefined) {
+  if (isPostgres(dialect)) {
+    await db.rawQuery(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${SOURCE_COLUMN}`);
+    return;
+  }
+  if (isSqlite(dialect)) {
+    const columns = rowsOf(await db.rawQuery(`PRAGMA table_info(${table})`));
+    if (columns.some((c) => c.name === 'source')) return;
+    await db.rawQuery(`ALTER TABLE ${table} ADD COLUMN ${SOURCE_COLUMN}`);
+    return;
+  }
+  if (isMysql(dialect)) {
+    const found = rowsOf(
+      await db.rawQuery(
+        `SELECT COUNT(*) AS n FROM information_schema.columns
+         WHERE table_schema = DATABASE() AND table_name = ? AND column_name = 'source'`,
+        [table],
+      ),
+    );
+    if (Number(found[0]?.n ?? 0) > 0) return;
+  }
+  // MySQL (checked above) and any unknown dialect: add, tolerating a concurrent/duplicate add.
+  try {
+    await db.rawQuery(`ALTER TABLE ${table} ADD COLUMN ${SOURCE_COLUMN}`);
+  } catch (err) {
+    const e = err as { code?: string; errno?: number; message?: string };
+    const dup =
+      e.code === 'ER_DUP_FIELDNAME' ||
+      e.errno === 1060 ||
+      /duplicate column|already exists/i.test(e.message ?? '');
+    if (!dup) throw err;
+  }
 }
 
 /**
@@ -209,15 +286,22 @@ export async function createAuthzTables(
     )`,
   );
 
+  // `source` is part of the key: the same (subject, role, tenant) may be held via several
+  // sources (manual + SCIM), one row each. On MySQL `role_id` (always an ASCII UUID) is declared
+  // ASCII so the five-column key stays under InnoDB's 3072-byte limit with utf8mb4.
+  const roleIdColumn = mysql ? 'VARCHAR(191) CHARACTER SET ascii' : 'VARCHAR(191)';
   await run(
     `CREATE TABLE IF NOT EXISTS ${t.subjectRole} (
       subject_type VARCHAR(191) NOT NULL,
       subject_id ${subjectId} NOT NULL,
-      role_id VARCHAR(191) NOT NULL,
+      role_id ${roleIdColumn} NOT NULL,
       tenant_id VARCHAR(191) NOT NULL DEFAULT '',
-      PRIMARY KEY (subject_type, subject_id, role_id, tenant_id)
+      ${SOURCE_COLUMN},
+      PRIMARY KEY (subject_type, subject_id, role_id, tenant_id, source)
     )`,
   );
+  // Tables created before role sources existed: add the column (non-destructive).
+  await ensureSourceColumn(db, t.subjectRole, dialect);
   await createIndex(
     `${t.subjectRole}_subject_idx`,
     false,

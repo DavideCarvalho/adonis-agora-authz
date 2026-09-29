@@ -168,15 +168,17 @@ Hosts with integer ids may give the pivots their native key type
 
 | Method | Contract |
 | ------ | -------- |
-| `assignRole(user, role, scope?)` | Idempotent; creates the role when it does not exist. `scope` defaults to global. |
-| `removeRole(user, role, scope?)` | Removes the assignment matching the **exact** tenant scope. |
+| `assignRole(user, role, scope?)` | Idempotent; creates the role when it does not exist. `scope` defaults to global; `scope.source` records who owns the assignment (default `'manual'`) — see [role sources](/docs/authz/roles#role-sources-manual-vs-ssoscim). |
+| `removeRole(user, role, scope?)` | Removes the assignment matching the **exact** tenant scope — from **every** source, or only `scope.source` when given. |
+| `setSubjectRoles(user, roles, { source?, tenantId? })` | Replaces ONE source's assignments in ONE tenant scope (transactional); other sources are untouched. |
 | `giveSubjectPermission(user, permission)` / `revokeSubjectPermission(...)` | Direct grants — tenant-independent by design. |
 
 **Reads**
 
 | Method | Contract |
 | ------ | -------- |
-| `getRolesForSubject(user, scope?)` | Role names, with the tenant-visibility rules above. |
+| `getRolesForSubject(user, scope?)` | Distinct role names, with the tenant-visibility rules above. |
+| `getRoleAssignments(user, scope?)` | Every assignment as `{ role, source, tenantId }` (`tenantId: null` = global), same visibility. |
 | `getSubjectsForRole(role, scope?)` | The reverse: every `{ type, id }` holding the role. |
 | `countSubjectsForRole(role, scope?)` | Same visibility, reduced to a number — the "N users" KPI of a roles screen without transferring one ref per member. |
 | `countSubjectsByRole(scope?)` | Every role → member count in one `GROUP BY` pass; roles nobody holds come back as `0` (a complete matrix, not just rows with members). |

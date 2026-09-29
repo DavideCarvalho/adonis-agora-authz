@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PermissionStore } from './store.js';
+import type { PermissionStore, RoleAssignment } from './store.js';
 import type { SubjectRef } from './subject_ref.js';
 
 /** Factory producing a FRESH, isolated store for each test. */
@@ -273,6 +273,170 @@ export function runPermissionStoreContract(name: string, factory: StoreFactory):
     it('deleteRole is idempotent on an unknown role', async () => {
       const store = await factory();
       await expect(store.deleteRole('ghost')).resolves.toBeUndefined();
+    });
+
+    describe('role sources', () => {
+      const sorted = (list: RoleAssignment[]) =>
+        [...list].sort((x, y) =>
+          `${x.role}|${x.source}|${x.tenantId ?? ''}`.localeCompare(
+            `${y.role}|${y.source}|${y.tenantId ?? ''}`,
+          ),
+        );
+
+      it("records assignments under the 'manual' source by default", async () => {
+        const store = await factory();
+        await store.assignRole(alice, 'editor');
+        expect(await store.getRoleAssignments(alice)).toEqual([
+          { role: 'editor', source: 'manual', tenantId: null },
+        ]);
+      });
+
+      it('holds the same role via two sources as two assignments, one role', async () => {
+        const store = await factory();
+        await store.givePermissionToRole('editor', 'posts.edit');
+        await store.assignRole(alice, 'editor');
+        await store.assignRole(alice, 'editor', { source: 'scim' });
+        // Idempotent per source.
+        await store.assignRole(alice, 'editor', { source: 'scim' });
+        await store.assignRole(bob, 'editor', { source: 'scim' });
+
+        expect(sorted(await store.getRoleAssignments(alice))).toEqual([
+          { role: 'editor', source: 'manual', tenantId: null },
+          { role: 'editor', source: 'scim', tenantId: null },
+        ]);
+        // Reads and counts stay DISTINCT across sources.
+        expect(await store.getRolesForSubject(alice)).toEqual(['editor']);
+        expect(await store.getPermissionsForSubject(alice)).toEqual(['posts.edit']);
+        expect(await store.getSubjectsForRole('editor')).toHaveLength(2);
+        expect(await store.countSubjectsForRole('editor')).toBe(2);
+        expect((await store.countSubjectsByRole()).editor).toBe(2);
+      });
+
+      it('removeRole with a source removes only that source (the role survives)', async () => {
+        const store = await factory();
+        await store.givePermissionToRole('editor', 'posts.edit');
+        await store.assignRole(alice, 'editor');
+        await store.assignRole(alice, 'editor', { source: 'scim' });
+
+        await store.removeRole(alice, 'editor', { source: 'scim' });
+        expect(await store.getRoleAssignments(alice)).toEqual([
+          { role: 'editor', source: 'manual', tenantId: null },
+        ]);
+        expect(await store.subjectHasPermission(alice, 'posts.edit')).toBe(true);
+      });
+
+      it('removeRole without a source removes the role from EVERY source', async () => {
+        const store = await factory();
+        await store.assignRole(alice, 'editor');
+        await store.assignRole(alice, 'editor', { source: 'scim' });
+        await store.assignRole(alice, 'editor', { source: 'sso' });
+
+        await store.removeRole(alice, 'editor');
+        expect(await store.getRoleAssignments(alice)).toEqual([]);
+        expect(await store.getRolesForSubject(alice)).toEqual([]);
+        expect(await store.countSubjectsForRole('editor')).toBe(0);
+      });
+
+      it('removeRole stays tenant-exact, with or without a source', async () => {
+        const store = await factory();
+        await store.assignRole(alice, 'editor');
+        await store.assignRole(alice, 'editor', { tenantId: 't1', source: 'scim' });
+        await store.removeRole(alice, 'editor', { tenantId: 't1' });
+        expect(await store.getRoleAssignments(alice, { tenantId: 't1' })).toEqual([
+          { role: 'editor', source: 'manual', tenantId: null },
+        ]);
+      });
+
+      it('setSubjectRoles replaces ONLY that source, leaving other sources untouched', async () => {
+        const store = await factory();
+        await store.givePermissionToRole('editor', 'posts.edit');
+        await store.assignRole(alice, 'editor');
+        await store.assignRole(alice, 'viewer');
+
+        await store.setSubjectRoles(alice, ['editor', 'auditor'], { source: 'scim' });
+        expect(sorted(await store.getRoleAssignments(alice))).toEqual([
+          { role: 'auditor', source: 'scim', tenantId: null },
+          { role: 'editor', source: 'manual', tenantId: null },
+          { role: 'editor', source: 'scim', tenantId: null },
+          { role: 'viewer', source: 'manual', tenantId: null },
+        ]);
+
+        // The IdP drops `editor`: the SCIM row goes, the manual grant keeps the role.
+        await store.setSubjectRoles(alice, ['auditor'], { source: 'scim' });
+        expect(sorted(await store.getRoleAssignments(alice))).toEqual([
+          { role: 'auditor', source: 'scim', tenantId: null },
+          { role: 'editor', source: 'manual', tenantId: null },
+          { role: 'viewer', source: 'manual', tenantId: null },
+        ]);
+        expect(await store.subjectHasPermission(alice, 'posts.edit')).toBe(true);
+
+        // An empty set clears that source only.
+        await store.setSubjectRoles(alice, [], { source: 'scim' });
+        expect((await store.getRolesForSubject(alice)).sort()).toEqual(['editor', 'viewer']);
+      });
+
+      it("setSubjectRoles defaults to the 'manual' source and creates missing roles", async () => {
+        const store = await factory();
+        await store.assignRole(alice, 'editor', { source: 'scim' });
+        await store.assignRole(alice, 'viewer');
+
+        await store.setSubjectRoles(alice, ['brand-new', 'brand-new']);
+        expect(sorted(await store.getRoleAssignments(alice))).toEqual([
+          { role: 'brand-new', source: 'manual', tenantId: null },
+          { role: 'editor', source: 'scim', tenantId: null },
+        ]);
+        expect(await store.listRoles()).toContain('brand-new');
+        // Idempotent.
+        await store.setSubjectRoles(alice, ['brand-new']);
+        expect(await store.getRoleAssignments(alice)).toHaveLength(2);
+      });
+
+      it('setSubjectRoles is tenant-scoped (exact tenant) and per-subject', async () => {
+        const store = await factory();
+        await store.assignRole(alice, 'editor', { source: 'scim' });
+        await store.assignRole(alice, 'viewer', { tenantId: 't2', source: 'scim' });
+        await store.assignRole(bob, 'editor', { tenantId: 't1', source: 'scim' });
+
+        await store.setSubjectRoles(alice, ['auditor'], { source: 'scim', tenantId: 't1' });
+        expect(sorted(await store.getRoleAssignments(alice, { tenantId: 't1' }))).toEqual([
+          { role: 'auditor', source: 'scim', tenantId: 't1' },
+          { role: 'editor', source: 'scim', tenantId: null },
+        ]);
+        expect(await store.getRoleAssignments(alice, { tenantId: 't2' })).toEqual(
+          expect.arrayContaining([{ role: 'viewer', source: 'scim', tenantId: 't2' }]),
+        );
+        // A global request sees only global assignments.
+        expect(await store.getRoleAssignments(alice)).toEqual([
+          { role: 'editor', source: 'scim', tenantId: null },
+        ]);
+        // Another subject is untouched.
+        expect(await store.getRoleAssignments(bob, { tenantId: 't1' })).toEqual([
+          { role: 'editor', source: 'scim', tenantId: 't1' },
+        ]);
+
+        // A global sync does not touch the tenant rows.
+        await store.setSubjectRoles(alice, [], { source: 'scim' });
+        expect(sorted(await store.getRoleAssignments(alice, { tenantId: 't1' }))).toEqual([
+          { role: 'auditor', source: 'scim', tenantId: 't1' },
+        ]);
+      });
+
+      it('deleteRole removes the role from every source', async () => {
+        const store = await factory();
+        await store.assignRole(alice, 'editor');
+        await store.assignRole(alice, 'editor', { source: 'scim' });
+        await store.deleteRole('editor');
+        expect(await store.getRoleAssignments(alice)).toEqual([]);
+      });
+
+      it('rejects an empty or over-long source', async () => {
+        const store = await factory();
+        await expect(store.assignRole(alice, 'editor', { source: '' })).rejects.toThrow(/source/);
+        await expect(
+          store.setSubjectRoles(alice, ['editor'], { source: 'x'.repeat(65) }),
+        ).rejects.toThrow(/source/);
+        expect(await store.getRoleAssignments(alice)).toEqual([]);
+      });
     });
   });
 }

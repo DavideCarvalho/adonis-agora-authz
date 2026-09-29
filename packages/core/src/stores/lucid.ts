@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import type { PermissionStore, StoreOptions, StoreQueryClient } from '../store.js';
+import {
+  normalizeRoleSource,
+  type PermissionStore,
+  type RoleAssignment,
+  type RoleAssignmentScope,
+  type SetSubjectRolesOptions,
+  type StoreOptions,
+  type StoreQueryClient,
+} from '../store.js';
 import {
   GLOBAL_TENANT,
   normalizeTenant,
@@ -16,6 +24,7 @@ import {
   isMysql,
   type LucidDatabase,
   type LucidQueryClient,
+  rowsOf,
 } from './lucid-schema.js';
 
 // Re-exported for backward compatibility: these types originated here before the
@@ -56,21 +65,9 @@ export interface LucidPermissionStoreOptions {
   resolveClient?: () => StoreQueryClient | undefined;
 }
 
-function toRows(result: unknown): Record<string, unknown>[] {
-  // MySQL-family drivers resolve raw SELECTs to the node-mysql pair
-  // `[rows, fields]` — the rows are the FIRST element, not the array itself.
-  // Row objects are never arrays, so an array as the first element is the
-  // unmistakable signature of that shape. Verified only by a real MySQL run.
-  if (Array.isArray(result) && Array.isArray(result[0])) {
-    return result[0] as Record<string, unknown>[];
-  }
-  if (Array.isArray(result)) return result as Record<string, unknown>[];
-  if (result && typeof result === 'object' && 'rows' in result) {
-    const rows = (result as { rows: unknown }).rows;
-    return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
-  }
-  return [];
-}
+// MySQL's `[rows, fields]` pair, pg's `{ rows }` and sqlite's array → the rows.
+// Verified only by a real MySQL run (see lucid_store_testcontainers.spec.ts).
+const toRows = rowsOf;
 
 /**
  * Lucid-backed {@link PermissionStore}. Uses parameterized `rawQuery` against a
@@ -275,18 +272,28 @@ export class LucidPermissionStore implements PermissionStore {
   async assignRole(
     user: SubjectRef,
     roleName: string,
-    scope?: TenantScope,
+    scope?: RoleAssignmentScope,
     opts?: StoreOptions,
   ): Promise<void> {
+    const source = normalizeRoleSource(scope?.source);
     const roleId = await this.createRole(roleName, opts);
-    const tenantId = normalizeTenant(scope);
+    await this.insertAssignment(user, roleId, normalizeTenant(scope), source, opts);
+  }
+
+  private async insertAssignment(
+    user: SubjectRef,
+    roleId: string,
+    tenantId: string,
+    source: string,
+    opts?: StoreOptions,
+  ): Promise<void> {
     await this.run(
       this.insertIgnore(
         this.t.subjectRole,
-        ['subject_type', 'subject_id', 'role_id', 'tenant_id'],
-        '?, ?, ?, ?',
+        ['subject_type', 'subject_id', 'role_id', 'tenant_id', 'source'],
+        '?, ?, ?, ?, ?',
       ),
-      [user.type, this.subjectId(user.id), roleId, tenantId],
+      [user.type, this.subjectId(user.id), roleId, tenantId, source],
       opts,
     );
   }
@@ -294,18 +301,103 @@ export class LucidPermissionStore implements PermissionStore {
   async removeRole(
     user: SubjectRef,
     roleName: string,
-    scope?: TenantScope,
+    scope?: RoleAssignmentScope,
     opts?: StoreOptions,
   ): Promise<void> {
+    // Omitted source → every source (the pre-sources meaning of removeRole).
+    const source = scope?.source === undefined ? undefined : normalizeRoleSource(scope.source);
     await this.ready(opts);
     const roleId = await this.findRoleId(roleName, opts);
     if (!roleId) return;
     const tenantId = normalizeTenant(scope);
-    await this.run(
-      `DELETE FROM ${this.t.subjectRole} WHERE subject_type = ? AND subject_id = ? AND role_id = ? AND tenant_id = ?`,
-      [user.type, this.subjectId(user.id), roleId, tenantId],
+    const sql = `DELETE FROM ${this.t.subjectRole} WHERE subject_type = ? AND subject_id = ? AND role_id = ? AND tenant_id = ?`;
+    const bindings = [user.type, this.subjectId(user.id), roleId, tenantId];
+    if (source === undefined) await this.run(sql, bindings, opts);
+    else await this.run(`${sql} AND source = ?`, [...bindings, source], opts);
+  }
+
+  /**
+   * Replace one source's assignments in one tenant scope. Runs in ONE transaction: when the
+   * call already resolves to a host client (`opts.client`, a {@link withClient} view, the
+   * `resolveClient` config) it joins that client — the host owns the transaction — otherwise
+   * it opens `db.transaction(...)` on the root connection (after the schema gate, so no DDL
+   * runs inside it).
+   */
+  async setSubjectRoles(
+    user: SubjectRef,
+    roleNames: readonly string[],
+    options: SetSubjectRolesOptions = {},
+  ): Promise<void> {
+    const source = normalizeRoleSource(options.source);
+    const tenantId = normalizeTenant(
+      options.tenantId === undefined ? undefined : { tenantId: options.tenantId },
+    );
+    this.subjectId(user.id); // fail loud on a bad id before opening anything
+    const opts: StoreOptions = options.client ? { client: options.client } : {};
+    await this.ready(opts);
+
+    const hostClient = opts.client ?? this.scopedClient ?? this.resolveClientFn?.();
+    if (hostClient || typeof this.db.transaction !== 'function') {
+      await this.replaceAssignments(user, roleNames, tenantId, source, opts);
+      return;
+    }
+    await this.db.transaction(async (trx) => {
+      await this.replaceAssignments(user, roleNames, tenantId, source, {
+        client: trx as StoreQueryClient,
+      });
+    });
+  }
+
+  private async replaceAssignments(
+    user: SubjectRef,
+    roleNames: readonly string[],
+    tenantId: string,
+    source: string,
+    opts: StoreOptions,
+  ): Promise<void> {
+    const roleIds: string[] = [];
+    for (const name of new Set(roleNames)) roleIds.push(await this.createRole(name, opts));
+
+    const base = `DELETE FROM ${this.t.subjectRole} WHERE subject_type = ? AND subject_id = ? AND tenant_id = ? AND source = ?`;
+    const bindings: unknown[] = [user.type, this.subjectId(user.id), tenantId, source];
+    if (roleIds.length === 0) {
+      await this.run(base, bindings, opts);
+    } else {
+      await this.run(
+        `${base} AND role_id NOT IN (${roleIds.map(() => '?').join(', ')})`,
+        [...bindings, ...roleIds],
+        opts,
+      );
+    }
+    for (const roleId of roleIds) {
+      await this.insertAssignment(user, roleId, tenantId, source, opts);
+    }
+  }
+
+  async getRoleAssignments(
+    user: SubjectRef,
+    scope?: TenantScope,
+    opts?: StoreOptions,
+  ): Promise<RoleAssignment[]> {
+    await this.ready(opts);
+    const tenant = this.tenantClause(scope);
+    const rows = await this.query(
+      `SELECT r.name AS name, ur.source AS source, ur.tenant_id AS tenant_id
+       FROM ${this.t.subjectRole} ur
+       JOIN ${this.t.roles} r ON r.id = ur.role_id
+       WHERE ur.subject_type = ? AND ur.subject_id = ? AND ${tenant.sql}
+       ORDER BY r.name, ur.source, ur.tenant_id`,
+      [user.type, this.subjectId(user.id), ...tenant.bindings],
       opts,
     );
+    return rows.map((r) => {
+      const tenantId = String(r.tenant_id ?? '');
+      return {
+        role: r.name as string,
+        source: r.source as string,
+        tenantId: tenantId === GLOBAL_TENANT ? null : tenantId,
+      };
+    });
   }
 
   async deleteRole(name: string, opts?: StoreOptions): Promise<void> {

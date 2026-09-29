@@ -82,6 +82,25 @@ describe('authz service singleton — store and cache', () => {
     expect(make).toHaveBeenCalledTimes(1);
   });
 
+  it('forwards the role-source methods (setSubjectRoles, getRoleAssignments)', async () => {
+    const store = {
+      setSubjectRoles: vi.fn().mockResolvedValue(undefined),
+      getRoleAssignments: vi
+        .fn()
+        .mockResolvedValue([{ role: 'editor', source: 'scim', tenantId: null }]),
+    };
+    const { setBootedApp } = await import('./booted_app.js');
+    setBootedApp({ container: { make: vi.fn().mockResolvedValue({ store }) } } as never);
+    const { default: service } = await import('./main.js');
+
+    const ref = { type: 'user', id: '1' };
+    await service.store.setSubjectRoles(ref, ['editor'], { source: 'scim' });
+    expect(store.setSubjectRoles).toHaveBeenCalledWith(ref, ['editor'], { source: 'scim' });
+    await expect(service.store.getRoleAssignments(ref)).resolves.toEqual([
+      { role: 'editor', source: 'scim', tenantId: null },
+    ]);
+  });
+
   it('createCache() is sync and memoizes over the lazily-resolved service', async () => {
     const store = {
       getRolesForSubject: vi.fn().mockResolvedValue(['editor']),

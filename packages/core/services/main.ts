@@ -63,6 +63,8 @@ function lazyStore(pick: () => Promise<PermissionStore>): PermissionStore {
     revokePermissionFromRole: forward('revokePermissionFromRole'),
     assignRole: forward('assignRole'),
     removeRole: forward('removeRole'),
+    setSubjectRoles: forward('setSubjectRoles'),
+    getRoleAssignments: forward('getRoleAssignments'),
     deleteRole: forward('deleteRole'),
     giveSubjectPermission: forward('giveSubjectPermission'),
     revokeSubjectPermission: forward('revokeSubjectPermission'),

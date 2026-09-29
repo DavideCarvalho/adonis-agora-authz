@@ -80,7 +80,19 @@ export {
   whereIn,
 } from './scope.js';
 // Store contract & implementations.
-export type { PermissionStore, StoreOptions, StoreQueryClient } from './store.js';
+export type {
+  PermissionStore,
+  RoleAssignment,
+  RoleAssignmentScope,
+  SetSubjectRolesOptions,
+  StoreOptions,
+  StoreQueryClient,
+} from './store.js';
+export {
+  DEFAULT_ROLE_SOURCE,
+  MAX_ROLE_SOURCE_LENGTH,
+  normalizeRoleSource,
+} from './store.js';
 export type {
   LucidStoreConfig,
   MemoryStoreConfig,

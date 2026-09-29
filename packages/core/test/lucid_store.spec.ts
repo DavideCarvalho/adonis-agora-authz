@@ -1,7 +1,7 @@
 import type { Database } from '@adonisjs/lucid/database';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StoreQueryClient } from '../src/store.js';
-import { LucidPermissionStore } from '../src/stores/lucid.js';
+import { type LucidDatabase, LucidPermissionStore } from '../src/stores/lucid.js';
 import { asLucidDatabase, makeMemoryDatabase } from './lucid_helpers.js';
 
 describe('LucidPermissionStore (sqlite)', () => {
@@ -35,6 +35,59 @@ describe('LucidPermissionStore (sqlite)', () => {
     expect(await store.subjectHasPermission(user, 'billing.view', { tenantId: 'globex' })).toBe(
       false,
     );
+  });
+
+  describe('setSubjectRoles is transactional', () => {
+    const alice = { type: 'user', id: '1' };
+
+    /** The same db, but every INSERT into the subject-role pivot inside a transaction fails. */
+    function failingInsideTransactions(): LucidDatabase {
+      const base = asLucidDatabase(db);
+      return {
+        rawQuery: (sql, bindings) => base.rawQuery(sql, bindings),
+        connection: (name?: string) => base.connection!(name),
+        transaction: (callback) =>
+          db.transaction((trx) =>
+            callback({
+              rawQuery: async (sql, bindings) => {
+                if (sql.startsWith('INSERT') && sql.includes('authz_subject_role')) {
+                  throw new Error('boom');
+                }
+                return trx.rawQuery(sql, bindings as never);
+              },
+            }),
+          ),
+      };
+    }
+
+    it('rolls back the whole replace when a write fails', async () => {
+      const store = new LucidPermissionStore(asLucidDatabase(db));
+      await store.assignRole(alice, 'editor', { source: 'scim' });
+
+      const failing = new LucidPermissionStore(failingInsideTransactions());
+      await expect(failing.setSubjectRoles(alice, ['auditor'], { source: 'scim' })).rejects.toThrow(
+        'boom',
+      );
+
+      // The DELETE of `editor` and the creation of `auditor` were rolled back with it.
+      expect(await store.getRoleAssignments(alice)).toEqual([
+        { role: 'editor', source: 'scim', tenantId: null },
+      ]);
+      expect(await store.listRoles()).not.toContain('auditor');
+    });
+
+    it('joins a host client instead of opening its own transaction', async () => {
+      const store = new LucidPermissionStore(asLucidDatabase(db));
+      await store.ensureSchema();
+      const transaction = vi.spyOn(db, 'transaction');
+      const trx = await db.transaction();
+      transaction.mockClear();
+      await store.setSubjectRoles(alice, ['editor'], { source: 'scim', client: trx });
+      await store.withClient(trx).setSubjectRoles(alice, ['viewer'], { source: 'sso' });
+      expect(transaction).not.toHaveBeenCalled();
+      await trx.rollback();
+      expect(await store.getRoleAssignments(alice)).toEqual([]);
+    });
   });
 
   it('honors autoCreateSchema:false (manual ensureSchema)', async () => {
