@@ -66,6 +66,9 @@ function lazyStore(pick: () => Promise<PermissionStore>): PermissionStore {
     setSubjectRoles: forward('setSubjectRoles'),
     getRoleAssignments: forward('getRoleAssignments'),
     deleteRole: forward('deleteRole'),
+    syncRolePermissions: forward('syncRolePermissions'),
+    listRoleAssignments: forward('listRoleAssignments'),
+    removeSubject: forward('removeSubject'),
     giveSubjectPermission: forward('giveSubjectPermission'),
     revokeSubjectPermission: forward('revokeSubjectPermission'),
     getRolesForSubject: forward('getRolesForSubject'),
@@ -77,6 +80,7 @@ function lazyStore(pick: () => Promise<PermissionStore>): PermissionStore {
     listRoles: forward('listRoles'),
     listPermissions: forward('listPermissions'),
     getRolePermissions: forward('getRolePermissions'),
+    getPermissionsForRoles: forward('getPermissionsForRoles'),
     withClient: (client: StoreQueryClient) =>
       lazyStore(async () => (await pick()).withClient(client)),
   } as PermissionStore;

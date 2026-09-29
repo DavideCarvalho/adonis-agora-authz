@@ -1,10 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import {
+  compareSubjectRoleAssignments,
   normalizeRoleSource,
   type PermissionStore,
   type RoleAssignment,
+  type RoleAssignmentFilter,
   type RoleAssignmentScope,
+  roleFilterNames,
   type SetSubjectRolesOptions,
+  type SubjectRoleAssignment,
 } from '../store.js';
 import {
   GLOBAL_TENANT,
@@ -169,14 +173,66 @@ export class MemoryPermissionStore implements PermissionStore {
   }
 
   /** Idempotent like the Lucid store: unknown name is a no-op; members' rows and the role go together. */
-  async deleteRole(name: string): Promise<void> {
+  async deleteRole(name: string): Promise<boolean> {
     const roleId = this.roles.get(name);
-    if (!roleId) return;
+    if (!roleId) return false;
     this.roles.delete(name);
     this.subjectRoles = this.subjectRoles.filter((r) => r.roleId !== roleId);
+    this.dropRolePermissions(roleId);
+    return true;
+  }
+
+  private dropRolePermissions(roleId: string): void {
     for (const rp of [...this.rolePermissions]) {
       if ((JSON.parse(rp) as string[])[0] === roleId) this.rolePermissions.delete(rp);
     }
+  }
+
+  async syncRolePermissions(roleName: string, permissionNames: readonly string[]): Promise<void> {
+    const roleId = await this.createRole(roleName);
+    const permissionIds: string[] = [];
+    for (const name of new Set(permissionNames)) {
+      permissionIds.push(await this.createPermission(name));
+    }
+    // Synchronous swap: no await between the drop and the re-adds, so it is atomic here.
+    this.dropRolePermissions(roleId);
+    for (const permissionId of permissionIds) {
+      this.rolePermissions.add(compositeKey(roleId, permissionId));
+    }
+  }
+
+  async listRoleAssignments(filter: RoleAssignmentFilter = {}): Promise<SubjectRoleAssignment[]> {
+    const roleNames = roleFilterNames(filter.role);
+    const wanted = roleNames === undefined ? undefined : new Set(roleNames);
+    const tenant = filter.tenantId === undefined ? undefined : (filter.tenantId ?? GLOBAL_TENANT);
+    const out: SubjectRoleAssignment[] = [];
+    for (const r of this.subjectRoles) {
+      if (tenant !== undefined && r.tenantId !== tenant) continue;
+      if (
+        filter.subject &&
+        (r.subjectType !== filter.subject.type || r.subjectId !== filter.subject.id)
+      ) {
+        continue;
+      }
+      if (filter.source !== undefined && r.source !== filter.source) continue;
+      const role = this.roleIdToName(r.roleId);
+      if (!role || (wanted && !wanted.has(role))) continue;
+      out.push({
+        subjectType: r.subjectType,
+        subjectId: r.subjectId,
+        role,
+        source: r.source,
+        tenantId: r.tenantId === GLOBAL_TENANT ? null : r.tenantId,
+      });
+    }
+    return out.sort(compareSubjectRoleAssignments);
+  }
+
+  async removeSubject(user: SubjectRef): Promise<void> {
+    const other = (r: { subjectType: string; subjectId: string }) =>
+      r.subjectType !== user.type || r.subjectId !== user.id;
+    this.subjectRoles = this.subjectRoles.filter(other);
+    this.subjectPermissions = this.subjectPermissions.filter(other);
   }
 
   async giveSubjectPermission(user: SubjectRef, permissionName: string): Promise<void> {
@@ -316,6 +372,15 @@ export class MemoryPermissionStore implements PermissionStore {
         const name = this.permissionIdToName(permissionId);
         if (name) out.push(name);
       }
+    }
+    return out;
+  }
+
+  async getPermissionsForRoles(roleNames: readonly string[]): Promise<Record<string, string[]>> {
+    const out: Record<string, string[]> = {};
+    for (const name of new Set(roleNames)) {
+      if (!this.roles.has(name)) continue;
+      out[name] = (await this.getRolePermissions(name)).sort();
     }
     return out;
   }

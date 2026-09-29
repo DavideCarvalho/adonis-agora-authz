@@ -112,6 +112,12 @@ await authz.store.removeRole(ref, 'editor')                      // every source
 await authz.store.getRoleAssignments(ref) // [{ role, source, tenantId }]
 ```
 
+Admin screens: `listRoleAssignments({ tenantId, role, subject, source })` returns raw
+`{ subjectType, subjectId, role, source, tenantId }` rows (`tenantId: null` = global only; a
+string = that tenant's scoped rows only, no globals). `syncRolePermissions(role, names)` replaces
+a role's grants, `getPermissionsForRoles(roles)` batches role → permissions, `deleteRole(role)`
+returns whether it existed, and `removeSubject(ref)` forgets a deleted account.
+
 Existing Lucid schemas get the column from `ensureSchema`, but the pivot's
 primary key must be widened once by hand — SQL in `docs/roles.mdx`.
 

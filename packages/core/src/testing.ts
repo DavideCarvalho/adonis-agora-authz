@@ -255,7 +255,7 @@ export function runPermissionStoreContract(name: string, factory: StoreFactory):
       await store.assignRole(alice, 'editor');
       await store.assignRole(bob, 'editor', { tenantId: 't1' });
 
-      await store.deleteRole('editor');
+      expect(await store.deleteRole('editor')).toBe(true);
 
       expect(await store.listRoles()).not.toContain('editor');
       expect(await store.getRolesForSubject(alice)).not.toContain('editor');
@@ -272,7 +272,124 @@ export function runPermissionStoreContract(name: string, factory: StoreFactory):
 
     it('deleteRole is idempotent on an unknown role', async () => {
       const store = await factory();
-      await expect(store.deleteRole('ghost')).resolves.toBeUndefined();
+      await expect(store.deleteRole('ghost')).resolves.toBe(false);
+    });
+
+    describe('admin management', () => {
+      const bot: SubjectRef = { type: 'bot', id: '9' };
+      const row = (
+        subject: SubjectRef,
+        role: string,
+        source = 'manual',
+        tenantId: string | null = null,
+      ) => ({ subjectType: subject.type, subjectId: subject.id, role, source, tenantId });
+
+      it('deleteRole reports whether the role existed and drops every tenant/source assignment', async () => {
+        const store = await factory();
+        await store.syncRolePermissions('editor', ['posts.edit', 'posts.view']);
+        await store.givePermissionToRole('viewer', 'posts.view');
+        await store.assignRole(alice, 'editor');
+        await store.assignRole(alice, 'editor', { source: 'scim' });
+        await store.assignRole(bob, 'editor', { tenantId: 't1' });
+        await store.assignRole(bob, 'viewer', { tenantId: 't1' });
+
+        expect(await store.deleteRole('editor')).toBe(true);
+        expect(await store.deleteRole('editor')).toBe(false);
+
+        expect(await store.listRoleAssignments()).toEqual([row(bob, 'viewer', 'manual', 't1')]);
+        expect(await store.getPermissionsForRoles(['editor', 'viewer'])).toEqual({
+          viewer: ['posts.view'],
+        });
+        // Permissions themselves are kept.
+        expect([...(await store.listPermissions())].sort()).toEqual(['posts.edit', 'posts.view']);
+      });
+
+      it('syncRolePermissions replaces the set, creating role/permissions when missing', async () => {
+        const store = await factory();
+        await store.givePermissionToRole('viewer', 'posts.view');
+        await store.syncRolePermissions('editor', ['posts.edit', 'posts.view', 'posts.edit']);
+        expect(await store.getRolePermissions('editor')).toEqual(['posts.edit', 'posts.view']);
+        await store.syncRolePermissions('editor', ['posts.view', 'posts.delete']);
+        expect(await store.getPermissionsForRoles(['editor'])).toEqual({
+          editor: ['posts.delete', 'posts.view'],
+        });
+        await store.syncRolePermissions('editor', []);
+        expect(await store.getPermissionsForRoles(['editor', 'viewer'])).toEqual({
+          editor: [],
+          viewer: ['posts.view'],
+        });
+        await store.assignRole(alice, 'editor');
+        expect(await store.subjectHasPermission(alice, 'posts.view')).toBe(false);
+      });
+
+      it('getPermissionsForRoles: existing roles (even empty) are keys, unknown roles are absent', async () => {
+        const store = await factory();
+        await store.givePermissionToRole('editor', 'posts.edit');
+        await store.createRole('empty');
+        expect(await store.getPermissionsForRoles(['editor', 'empty', 'ghost'])).toEqual({
+          editor: ['posts.edit'],
+          empty: [],
+        });
+        expect(await store.getPermissionsForRoles([])).toEqual({});
+      });
+
+      it('listRoleAssignments filters by tenant (omitted / null / exact), role, subject, source', async () => {
+        const store = await factory();
+        await store.assignRole(bob, 'viewer');
+        await store.assignRole(alice, 'editor', { tenantId: 't1' });
+        await store.assignRole(alice, 'admin');
+        await store.assignRole(alice, 'editor', { tenantId: 't1', source: 'scim' });
+        await store.assignRole(bot, 'viewer', { tenantId: 't2' });
+
+        expect(await store.listRoleAssignments()).toEqual([
+          row(bot, 'viewer', 'manual', 't2'),
+          row(alice, 'admin'),
+          row(alice, 'editor', 'manual', 't1'),
+          row(alice, 'editor', 'scim', 't1'),
+          row(bob, 'viewer'),
+        ]);
+        expect(await store.listRoleAssignments({ tenantId: null })).toEqual([
+          row(alice, 'admin'),
+          row(bob, 'viewer'),
+        ]);
+        // A tenant id lists ONLY that tenant's scoped rows — globals are not included.
+        expect(await store.listRoleAssignments({ tenantId: 't1' })).toEqual([
+          row(alice, 'editor', 'manual', 't1'),
+          row(alice, 'editor', 'scim', 't1'),
+        ]);
+        expect(await store.listRoleAssignments({ tenantId: 'nobody' })).toEqual([]);
+        expect(await store.listRoleAssignments({ role: 'viewer' })).toEqual([
+          row(bot, 'viewer', 'manual', 't2'),
+          row(bob, 'viewer'),
+        ]);
+        expect(
+          await store.listRoleAssignments({ role: ['admin', 'viewer', 'ghost'], tenantId: null }),
+        ).toEqual([row(alice, 'admin'), row(bob, 'viewer')]);
+        expect(await store.listRoleAssignments({ role: [] })).toEqual([]);
+        expect(await store.listRoleAssignments({ subject: alice, source: 'scim' })).toEqual([
+          row(alice, 'editor', 'scim', 't1'),
+        ]);
+      });
+
+      it('removeSubject drops every assignment and direct grant of that subject only', async () => {
+        const store = await factory();
+        await store.givePermissionToRole('editor', 'posts.edit');
+        await store.assignRole(alice, 'editor');
+        await store.assignRole(alice, 'editor', { tenantId: 't1', source: 'scim' });
+        await store.giveSubjectPermission(alice, 'billing.view');
+        await store.assignRole(bob, 'editor');
+        await store.giveSubjectPermission(bob, 'billing.view');
+
+        await store.removeSubject(alice);
+
+        expect(await store.listRoleAssignments({ subject: alice })).toEqual([]);
+        expect(await store.getPermissionsForSubject(alice, { tenantId: 't1' })).toEqual([]);
+        expect([...(await store.getPermissionsForSubject(bob))].sort()).toEqual([
+          'billing.view',
+          'posts.edit',
+        ]);
+        expect(await store.getRolePermissions('editor')).toEqual(['posts.edit']);
+      });
     });
 
     describe('role sources', () => {

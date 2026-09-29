@@ -1,12 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import {
+  compareSubjectRoleAssignments,
   normalizeRoleSource,
   type PermissionStore,
   type RoleAssignment,
+  type RoleAssignmentFilter,
   type RoleAssignmentScope,
+  roleFilterNames,
   type SetSubjectRolesOptions,
   type StoreOptions,
   type StoreQueryClient,
+  type SubjectRoleAssignment,
 } from '../store.js';
 import {
   GLOBAL_TENANT,
@@ -336,16 +340,24 @@ export class LucidPermissionStore implements PermissionStore {
     const opts: StoreOptions = options.client ? { client: options.client } : {};
     await this.ready(opts);
 
-    const hostClient = opts.client ?? this.scopedClient ?? this.resolveClientFn?.();
-    if (hostClient || typeof this.db.transaction !== 'function') {
-      await this.replaceAssignments(user, roleNames, tenantId, source, opts);
-      return;
-    }
-    await this.db.transaction(async (trx) => {
-      await this.replaceAssignments(user, roleNames, tenantId, source, {
-        client: trx as StoreQueryClient,
-      });
-    });
+    await this.atomically(opts, (tx) =>
+      this.replaceAssignments(user, roleNames, tenantId, source, tx),
+    );
+  }
+
+  /**
+   * Run `fn` atomically. When the call already resolves to a host client (`opts.client`, a
+   * {@link withClient} view, the `resolveClient` config) it joins that client — the host owns
+   * the transaction — otherwise it opens `db.transaction(...)` on the root connection. Callers
+   * pass the schema gate first, so no DDL runs inside it.
+   */
+  private async atomically<T>(
+    opts: StoreOptions | undefined,
+    fn: (opts: StoreOptions) => Promise<T>,
+  ): Promise<T> {
+    const hostClient = opts?.client ?? this.scopedClient ?? this.resolveClientFn?.();
+    if (hostClient || typeof this.db.transaction !== 'function') return fn(opts ?? {});
+    return this.db.transaction((trx) => fn({ client: trx as StoreQueryClient }));
   }
 
   private async replaceAssignments(
@@ -400,14 +412,106 @@ export class LucidPermissionStore implements PermissionStore {
     });
   }
 
-  async deleteRole(name: string, opts?: StoreOptions): Promise<void> {
+  async deleteRole(name: string, opts?: StoreOptions): Promise<boolean> {
     await this.ready(opts);
-    const roleId = await this.findRoleId(name, opts);
-    if (!roleId) return;
-    // Child rows first so the delete is safe under a dialect that enforces FKs.
-    await this.run(`DELETE FROM ${this.t.rolePermission} WHERE role_id = ?`, [roleId], opts);
-    await this.run(`DELETE FROM ${this.t.subjectRole} WHERE role_id = ?`, [roleId], opts);
-    await this.run(`DELETE FROM ${this.t.roles} WHERE id = ?`, [roleId], opts);
+    return this.atomically(opts, async (tx) => {
+      const roleId = await this.findRoleId(name, tx);
+      if (!roleId) return false;
+      // Child rows first so the delete is safe under a dialect that enforces FKs.
+      await this.run(`DELETE FROM ${this.t.rolePermission} WHERE role_id = ?`, [roleId], tx);
+      await this.run(`DELETE FROM ${this.t.subjectRole} WHERE role_id = ?`, [roleId], tx);
+      await this.run(`DELETE FROM ${this.t.roles} WHERE id = ?`, [roleId], tx);
+      return true;
+    });
+  }
+
+  async syncRolePermissions(
+    roleName: string,
+    permissionNames: readonly string[],
+    opts?: StoreOptions,
+  ): Promise<void> {
+    await this.ready(opts);
+    await this.atomically(opts, async (tx) => {
+      const roleId = await this.createRole(roleName, tx);
+      const permissionIds: string[] = [];
+      for (const name of new Set(permissionNames)) {
+        permissionIds.push(await this.createPermission(name, tx));
+      }
+      await this.run(`DELETE FROM ${this.t.rolePermission} WHERE role_id = ?`, [roleId], tx);
+      for (const permissionId of permissionIds) {
+        await this.run(
+          this.insertIgnore(this.t.rolePermission, ['role_id', 'permission_id'], '?, ?'),
+          [roleId, permissionId],
+          tx,
+        );
+      }
+    });
+  }
+
+  async listRoleAssignments(
+    filter: RoleAssignmentFilter = {},
+    opts?: StoreOptions,
+  ): Promise<SubjectRoleAssignment[]> {
+    await this.ready(opts);
+    const where: string[] = [];
+    const bindings: unknown[] = [];
+    if (filter.tenantId !== undefined) {
+      where.push('ur.tenant_id = ?');
+      bindings.push(filter.tenantId ?? GLOBAL_TENANT);
+    }
+    const roleNames = roleFilterNames(filter.role);
+    if (roleNames !== undefined) {
+      if (roleNames.length === 0) return [];
+      where.push(`r.name IN (${roleNames.map(() => '?').join(', ')})`);
+      bindings.push(...roleNames);
+    }
+    if (filter.subject !== undefined) {
+      where.push('ur.subject_type = ?', 'ur.subject_id = ?');
+      bindings.push(filter.subject.type, this.subjectId(filter.subject.id));
+    }
+    if (filter.source !== undefined) {
+      where.push('ur.source = ?');
+      bindings.push(filter.source);
+    }
+    const rows = await this.query(
+      `SELECT ur.subject_type AS subject_type, ur.subject_id AS subject_id, r.name AS name,
+              ur.source AS source, ur.tenant_id AS tenant_id
+       FROM ${this.t.subjectRole} ur
+       JOIN ${this.t.roles} r ON r.id = ur.role_id${
+         where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''
+       }`,
+      bindings,
+      opts,
+    );
+    return rows
+      .map((r) => {
+        const tenantId = String(r.tenant_id ?? '');
+        return {
+          subjectType: r.subject_type as string,
+          subjectId: String(r.subject_id),
+          role: r.name as string,
+          source: r.source as string,
+          tenantId: tenantId === GLOBAL_TENANT ? null : tenantId,
+        };
+      })
+      .sort(compareSubjectRoleAssignments);
+  }
+
+  async removeSubject(user: SubjectRef, opts?: StoreOptions): Promise<void> {
+    const subjectId = this.subjectId(user.id);
+    await this.ready(opts);
+    await this.atomically(opts, async (tx) => {
+      await this.run(
+        `DELETE FROM ${this.t.subjectRole} WHERE subject_type = ? AND subject_id = ?`,
+        [user.type, subjectId],
+        tx,
+      );
+      await this.run(
+        `DELETE FROM ${this.t.subjectPermission} WHERE subject_type = ? AND subject_id = ?`,
+        [user.type, subjectId],
+        tx,
+      );
+    });
   }
 
   async giveSubjectPermission(
@@ -634,5 +738,35 @@ export class LucidPermissionStore implements PermissionStore {
       opts,
     );
     return rows.map((r) => r.name as string);
+  }
+
+  async getPermissionsForRoles(
+    roleNames: readonly string[],
+    opts?: StoreOptions,
+  ): Promise<Record<string, string[]>> {
+    const names = [...new Set(roleNames)];
+    const out: Record<string, string[]> = {};
+    if (names.length === 0) return out;
+    await this.ready(opts);
+    const rows = await this.query(
+      `SELECT r.name AS role, p.name AS permission
+       FROM ${this.t.roles} r
+       LEFT JOIN ${this.t.rolePermission} rp ON rp.role_id = r.id
+       LEFT JOIN ${this.t.permissions} p ON p.id = rp.permission_id
+       WHERE r.name IN (${names.map(() => '?').join(', ')})`,
+      names,
+      opts,
+    );
+    for (const row of rows) {
+      const role = row.role as string;
+      let list = out[role];
+      if (!list) {
+        list = [];
+        out[role] = list;
+      }
+      if (row.permission != null) list.push(row.permission as string);
+    }
+    for (const list of Object.values(out)) list.sort();
+    return out;
   }
 }

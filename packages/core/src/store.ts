@@ -73,6 +73,60 @@ export interface RoleAssignment {
   tenantId: string | null;
 }
 
+/**
+ * One stored role assignment together with the subject holding it — a raw pivot row, as returned
+ * by {@link PermissionStore.listRoleAssignments} (admin listings such as "every member's roles in
+ * tenant T" or "who holds role R").
+ */
+export interface SubjectRoleAssignment extends RoleAssignment {
+  subjectType: string;
+  /** The subject id, always a string (also on `integer`/`bigint` pivots). */
+  subjectId: string;
+}
+
+/** Filter of {@link PermissionStore.listRoleAssignments}. Every field is optional; they AND together. */
+export interface RoleAssignmentFilter {
+  /**
+   * - omitted: no tenant filter — global AND every tenant's assignments;
+   * - `null`: global assignments only;
+   * - a string: exactly that tenant's scoped assignments. Global assignments are NOT included
+   *   (unlike the permission reads, where a global assignment is visible in every tenant) — list
+   *   them with `null` in a second call when you need both.
+   */
+  tenantId?: string | null;
+  /** Only assignments of this role, or of any of these roles (an empty list matches nothing). */
+  role?: string | readonly string[];
+  /** Only this subject's assignments. */
+  subject?: SubjectRef;
+  /** Only assignments from this source (`'manual'`, `'scim'`, …). */
+  source?: string;
+}
+
+/**
+ * Deterministic order of {@link PermissionStore.listRoleAssignments}:
+ * `(subjectType, subjectId, role, source, tenantId)`, by code unit (not locale), so every store
+ * returns the same order for the same data.
+ */
+export function compareSubjectRoleAssignments(
+  a: SubjectRoleAssignment,
+  b: SubjectRoleAssignment,
+): number {
+  const ka = [a.subjectType, a.subjectId, a.role, a.source, a.tenantId ?? ''];
+  const kb = [b.subjectType, b.subjectId, b.role, b.source, b.tenantId ?? ''];
+  for (let i = 0; i < ka.length; i++) {
+    const l = ka[i] as string;
+    const r = kb[i] as string;
+    if (l !== r) return l < r ? -1 : 1;
+  }
+  return 0;
+}
+
+/** {@link RoleAssignmentFilter.role} as a deduped list (`undefined` = no role filter). */
+export function roleFilterNames(role: RoleAssignmentFilter['role']): string[] | undefined {
+  if (role === undefined) return undefined;
+  return typeof role === 'string' ? [role] : [...new Set(role)];
+}
+
 /** Options of {@link PermissionStore.setSubjectRoles}. */
 export interface SetSubjectRolesOptions extends StoreOptions {
   /** The source whose assignments are replaced. Default {@link DEFAULT_ROLE_SOURCE}. */
@@ -173,11 +227,42 @@ export interface PermissionStore {
 
   /**
    * Delete a role outright: revokes its permission grants, removes every user
-   * assignment, deletes the role row. Idempotent — an unknown name is a no-op.
+   * assignment (all tenants, all sources), deletes the role row — atomically (the Lucid store
+   * runs it in one transaction, or joins the client it was given). Returns whether the role
+   * existed; an unknown name is a no-op returning `false`. The permissions themselves are kept.
    * Whether to refuse a role that still has members is the HOST's decision
    * (call {@link countSubjectsForRole} first); the store just deletes.
    */
-  deleteRole(name: string, opts?: StoreOptions): Promise<void>;
+  deleteRole(name: string, opts?: StoreOptions): Promise<boolean>;
+
+  /**
+   * REPLACE a role's permission set with exactly `permissionNames` (spatie's
+   * `syncPermissions`): grants not in the list are revoked, missing ones added, and the role and
+   * permissions are created by name when missing. Atomic like {@link setSubjectRoles}. An empty
+   * list leaves the role with no permissions.
+   */
+  syncRolePermissions(
+    roleName: string,
+    permissionNames: readonly string[],
+    opts?: StoreOptions,
+  ): Promise<void>;
+
+  /**
+   * Every subject role assignment matching `filter`, as raw rows — for admin listings. See
+   * {@link RoleAssignmentFilter} for the `tenantId` semantics (a tenant id lists ONLY that
+   * tenant's scoped rows). Ordered by `(subjectType, subjectId, role, source, tenantId)`.
+   */
+  listRoleAssignments(
+    filter?: RoleAssignmentFilter,
+    opts?: StoreOptions,
+  ): Promise<SubjectRoleAssignment[]>;
+
+  /**
+   * Forget a subject: delete every role assignment (all tenants, all sources) and every direct
+   * permission grant of it, atomically — e.g. when the account is deleted. Roles and
+   * permissions are kept.
+   */
+  removeSubject(user: SubjectRef, opts?: StoreOptions): Promise<void>;
 
   /** Grant a permission directly to a user (tenant-independent). */
   giveSubjectPermission(
@@ -237,6 +322,15 @@ export interface PermissionStore {
   listPermissions(opts?: StoreOptions): Promise<string[]>;
   /** List the permission names attached to a role. */
   getRolePermissions(roleName: string, opts?: StoreOptions): Promise<string[]>;
+  /**
+   * The permission names of each named role, in one query (no N+1). Every EXISTING requested
+   * role is a key — mapped to `[]` when it has no permissions; roles that don't exist are ABSENT.
+   * Names are sorted.
+   */
+  getPermissionsForRoles(
+    roleNames: readonly string[],
+    opts?: StoreOptions,
+  ): Promise<Record<string, string[]>>;
 
   /**
    * A view of this store whose SQL runs on `client` — the store's transaction
