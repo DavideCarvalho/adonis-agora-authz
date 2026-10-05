@@ -146,7 +146,7 @@
     "reflect-metadata": "0.2.2",
     "testcontainers": "12.2.0",
     "typescript": "7.0.2",
-    "unplugin-swc": "1.6.0",
+    "unplugin-swc": "2.0.0",
     "vitest": "5.0.3"
   },
   "engines": {
