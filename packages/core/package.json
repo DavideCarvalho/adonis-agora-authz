@@ -130,7 +130,7 @@
   "devDependencies": {
     "@adonisjs/assembler": "8.5.2",
     "@adonisjs/bouncer": "4.0.1",
-    "@adonisjs/core": "7.5.2",
+    "@adonisjs/core": "7.6.0",
     "@adonisjs/lucid": "22.4.2",
     "@cerbos/http": "0.30.1",
     "@tanstack/intent": "0.5.4",
