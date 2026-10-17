@@ -48,6 +48,11 @@ node ace authz:assign editor 42
 See the [docs](./docs) for concepts (wildcards, tenancy), config drivers, the
 Lucid mixin, ace commands and testing.
 
+## Sponsors
+
+Every Agora library is MIT and stays free. The work is funded by partners and
+sponsors — [become one](https://davidecarvalho.github.io/agora/partners).
+
 ## License
 
 MIT
