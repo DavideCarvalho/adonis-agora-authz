@@ -1,5 +1,11 @@
 # @adonis-agora/authz-react
 
+## 0.3.0
+
+### Minor Changes
+
+- [#160](https://github.com/DavideCarvalho/adonis-agora-authz/pull/160) [`1afb3a1`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/1afb3a1e84996cbe740fd955d96ef7d197b49cc0) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Drop Node.js 20 and 22: `engines.node` is now `>=24`. Node 20 reached end-of-life on 2026-04-30, and AdonisJS 7, which these packages require as a peer, needs Node 24 or later (`@adonisjs/core` declares `engines.node >=24.0.0`). The supported lines are the ones Node still maintains that AdonisJS 7 accepts: 24 and 26, both tested in CI.
+
 ## 0.2.2
 
 ### Patch Changes
