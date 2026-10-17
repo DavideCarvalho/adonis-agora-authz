@@ -2,6 +2,7 @@ import type { Database } from '@adonisjs/lucid/database';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LucidPermissionStore } from '../src/stores/lucid.js';
 import { AUTHZ_TABLES, createAuthzTables, dropAuthzTables } from '../src/stores/lucid-schema.js';
+import { runLegacySubjectPivotScenarios } from './legacy_subject_pivots.js';
 import { asLucidDatabase, makeMemoryDatabase } from './lucid_helpers.js';
 
 async function tableExists(db: Database, name: string): Promise<boolean> {
@@ -235,4 +236,17 @@ describe('role sources: dialect DDL', () => {
     expect(ddl).toContain('PRIMARY KEY (subject_type, subject_id, role_id, tenant_id, source)');
     expect(sql.some((s) => s.includes('information_schema.columns'))).toBe(true);
   });
+});
+
+describe('upgrading from pre-0.15 subject pivots (sqlite)', () => {
+  let db: Database;
+
+  beforeEach(() => {
+    db = makeMemoryDatabase();
+  });
+  afterEach(async () => {
+    await db.manager.closeAll();
+  });
+
+  runLegacySubjectPivotScenarios('sqlite', () => db);
 });
