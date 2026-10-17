@@ -164,6 +164,114 @@ async function ensureSourceColumn(db: LucidDatabase, table: string, dialect: str
   }
 }
 
+/** Whether `table` exists, on the dialects the store supports. */
+async function tableExists(db: LucidDatabase, table: string, dialect: string | undefined) {
+  const sql = isSqlite(dialect)
+    ? `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`
+    : isMysql(dialect)
+      ? 'SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?'
+      : 'SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = ?';
+  return rowsOf(await db.rawQuery(sql, [table])).length > 0;
+}
+
+/** Whether `table` has `column`. */
+async function columnExists(
+  db: LucidDatabase,
+  table: string,
+  column: string,
+  dialect: string | undefined,
+) {
+  if (isSqlite(dialect)) {
+    return rowsOf(await db.rawQuery(`PRAGMA table_info(${table})`)).some((c) => c.name === column);
+  }
+  const schema = isMysql(dialect) ? 'DATABASE()' : 'current_schema()';
+  const sql = `SELECT column_name FROM information_schema.columns WHERE table_schema = ${schema} AND table_name = ? AND column_name = ?`;
+  return rowsOf(await db.rawQuery(sql, [table, column])).length > 0;
+}
+
+/**
+ * The subject pivots as 0.14 and earlier named them: tables `authz_user_role` /
+ * `authz_user_permission`, columns `user_type` / `user_id`. 0.15 renamed them to `subject_*`.
+ */
+const LEGACY_PIVOTS = [
+  { key: 'subjectRole', legacy: 'authz_user_role', rest: 'role_id, tenant_id' },
+  { key: 'subjectPermission', legacy: 'authz_user_permission', rest: 'permission_id' },
+] as const;
+
+/**
+ * Carry a pre-0.15 install's subject pivots over to the 0.15 names, so an upgrade keeps every
+ * role and direct permission instead of starting from new, empty tables — which is what
+ * `CREATE TABLE IF NOT EXISTS` alone did, silently: every subject lost its roles with no error.
+ *
+ * For each pivot:
+ * - only the old table exists (still on ≤ 0.14): it is renamed, columns included;
+ * - the table has its 0.15 name but `user_*` columns (an install that kept its own table names):
+ *   the columns are renamed;
+ * - both exist (an earlier 0.15+ boot created the new table empty): the old rows the new table is
+ *   missing are copied in, and the old table is renamed to `<name>_pre_subject` so they are never
+ *   copied again — re-copying would bring back assignments revoked since.
+ *
+ * Renames keep the data in place; nothing is dropped. Safe to run on every boot: once carried
+ * over, it finds nothing to do. Each step tolerates another process doing it first.
+ */
+async function migrateLegacySubjectPivots(
+  db: LucidDatabase,
+  t: Required<AuthzTableNames>,
+  dialect: string | undefined,
+): Promise<void> {
+  const mysql = isMysql(dialect);
+  // Another process may have run the same step first: fine as long as its outcome is there.
+  const step = async (sql: string, done: () => Promise<boolean>) => {
+    try {
+      await db.rawQuery(sql);
+    } catch (err) {
+      if (!(await done())) throw err;
+    }
+  };
+
+  for (const { key, legacy, rest } of LEGACY_PIVOTS) {
+    const table = t[key];
+    const hasLegacy = legacy !== table && (await tableExists(db, legacy, dialect));
+    const hasTable = await tableExists(db, table, dialect);
+
+    if (hasLegacy && !hasTable) {
+      await step(`ALTER TABLE ${legacy} RENAME TO ${table}`, () => tableExists(db, table, dialect));
+      console.warn(`[@adonis-agora/authz] Renamed ${legacy} to ${table} (0.15 naming).`);
+    }
+
+    if (await columnExists(db, table, 'user_id', dialect)) {
+      for (const [from, to] of [
+        ['user_type', 'subject_type'],
+        ['user_id', 'subject_id'],
+      ] as const) {
+        await step(`ALTER TABLE ${table} RENAME COLUMN ${from} TO ${to}`, () =>
+          columnExists(db, table, to, dialect),
+        );
+      }
+    }
+
+    if (hasLegacy && hasTable) {
+      const insert = isPostgres(dialect)
+        ? 'INSERT INTO'
+        : mysql
+          ? 'INSERT IGNORE INTO'
+          : 'INSERT OR IGNORE INTO';
+      const conflict = isPostgres(dialect) ? ' ON CONFLICT DO NOTHING' : '';
+      await db.rawQuery(
+        `${insert} ${table} (subject_type, subject_id, ${rest}) SELECT user_type, user_id, ${rest} FROM ${legacy}${conflict}`,
+      );
+      const backup = `${legacy}_pre_subject`;
+      await step(
+        `ALTER TABLE ${legacy} RENAME TO ${backup}`,
+        async () => !(await tableExists(db, legacy, dialect)),
+      );
+      console.warn(
+        `[@adonis-agora/authz] Copied the rows of ${legacy} missing from ${table}, which an earlier boot had created empty, and kept the old table as ${backup}.`,
+      );
+    }
+  }
+}
+
 /**
  * Best-effort dialect name from a Lucid client; `undefined` when it can't be read.
  * Reads a directly-exposed `dialect` first (a deferred migration query client), then
@@ -285,6 +393,10 @@ export async function createAuthzTables(
       PRIMARY KEY (role_id, permission_id)
     )`,
   );
+
+  // Before the pivots' CREATE TABLE IF NOT EXISTS, which would otherwise stand up empty
+  // tables next to a pre-0.15 install's populated ones.
+  await migrateLegacySubjectPivots(db, t, dialect);
 
   // `source` is part of the key: the same (subject, role, tenant) may be held via several
   // sources (manual + SCIM), one row each. On MySQL `role_id` (always an ASCII UUID) is declared
