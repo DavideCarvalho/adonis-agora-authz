@@ -51,7 +51,11 @@ export { default as AuthzRoleMiddleware } from './middleware.js';
 // Per-request cache.
 export { PermissionCache } from './permission_cache.js';
 // Wildcard matcher (the core of the port).
-export { permissionMatches, permissionSatisfied } from './permission_matcher.js';
+export {
+  CompiledPermissions,
+  permissionMatches,
+  permissionSatisfied,
+} from './permission_matcher.js';
 export type {
   ResourceKey,
   ScopeAll,

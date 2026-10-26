@@ -7,6 +7,7 @@ import {
 } from './decision_provider.js';
 import { PermissionCache } from './permission_cache.js';
 import { permissionSatisfied } from './permission_matcher.js';
+import { currentRequestScope } from './request_scope.js';
 import {
   normalizeScope,
   type ResourceKey,
@@ -73,7 +74,10 @@ export interface AuthzDecision {
 export interface AuthzCheckOptions {
   /** Explicit tenant scope (else resolved from the service's tenant config). */
   scope?: TenantScope;
-  /** A per-request cache to coalesce store reads. */
+  /**
+   * A cache to coalesce store reads. Defaults to the current request's cache (see
+   * {@link AuthzService.requestCache}); outside a request, each call reads the store.
+   */
   cache?: PermissionCache;
   /**
    * The resource the check is about (e.g. a model instance). Handed to the `superAdmin` hook
@@ -210,6 +214,13 @@ export class AuthzService {
   /** The external decision point, when configured. See {@link DecisionProvider}. */
   readonly decisionProvider: DecisionProvider | undefined;
 
+  /** One {@link PermissionCache} per request object (see {@link currentRequestScope}). */
+  private readonly requestCaches = new WeakMap<object, PermissionCache>();
+
+  /** Stable reference so {@link PermissionCache.matcher} memoizes across checks. */
+  private readonly grantsForRoles = (roles: readonly string[]): string[] =>
+    this.rolePermissionGrants(roles);
+
   constructor(options: AuthzServiceOptions) {
     this.store = options.store;
     this.superAdmin = options.superAdmin;
@@ -322,9 +333,8 @@ export class AuthzService {
     const ref = this.refOf(user);
     if (!ref) return [];
     const tenant = this.currentScope(scope);
-    return options.cache
-      ? options.cache.getRoles(ref, tenant)
-      : this.effectiveRolesForRef(ref, tenant);
+    const cache = options.cache ?? this.requestCache();
+    return cache ? cache.getRoles(ref, tenant) : this.effectiveRolesForRef(ref, tenant);
   }
 
   /**
@@ -340,11 +350,12 @@ export class AuthzService {
     const ref = this.refOf(user);
     if (!ref) return [];
     const tenant = this.currentScope(scope);
-    const granted = options.cache
-      ? [...(await options.cache.getPermissions(ref, tenant))]
+    const cache = options.cache ?? this.requestCache();
+    const granted = cache
+      ? [...(await cache.getPermissions(ref, tenant))]
       : await this.store.getPermissionsForSubject(ref, tenant);
-    const roles = options.cache
-      ? await options.cache.getRoles(ref, tenant)
+    const roles = cache
+      ? await cache.getRoles(ref, tenant)
       : await this.effectiveRolesForRef(ref, tenant);
     return [...new Set([...granted, ...this.rolePermissionGrants(roles)])];
   }
@@ -369,6 +380,25 @@ export class AuthzService {
    */
   createCache(): PermissionCache {
     return new PermissionCache(this.store, (ref, tenant) => this.effectiveRolesForRef(ref, tenant));
+  }
+
+  /**
+   * The cache a call uses when it is not handed one: the current request's, created on
+   * first use and keyed by the request's Agora context store (or the AdonisJS
+   * `HttpContext` when async local storage is enabled). Every `can`/`check`/`hasRole`/
+   * `scope` in one request (`user.can()`, Bouncer abilities, `/authz/can`, middleware)
+   * shares one role read and one permission read per user and tenant. `undefined`
+   * outside a request.
+   */
+  private requestCache(): PermissionCache | undefined {
+    const request = currentRequestScope();
+    if (!request) return undefined;
+    let cache = this.requestCaches.get(request);
+    if (!cache) {
+      cache = this.createCache();
+      this.requestCaches.set(request, cache);
+    }
+    return cache;
   }
 
   /**
@@ -422,7 +452,7 @@ export class AuthzService {
     options: Omit<AuthzCheckOptions, 'resource'> = {},
   ): Promise<AuthzDecision[]> {
     const ref = this.refOf(user);
-    const cache = options.cache ?? this.createCache();
+    const cache = options.cache ?? this.requestCache() ?? this.createCache();
     const base: AuthzCheckOptions = { ...options, cache };
     const results: Array<AuthzDecision | undefined> = [];
     const pending: number[] = [];
@@ -534,19 +564,21 @@ export class AuthzService {
 
     // 4. RBAC. Single permission-union site: store grants ∪ roleGrants over the effective roles
     // (context ∪ resolveRoles ∪ store — feature C generalized by the resolveRoles seam).
-    // Both reads go through the cache when one is passed: one role resolution and
-    // one permission read per (user, tenant) per request.
+    // Both reads go through the cache (the passed one, else the request's): one role
+    // resolution and one permission read per (user, tenant) per request, matched
+    // against a set compiled once.
     const scope = this.currentScope(options.scope);
-    const roles = options.cache
-      ? await options.cache.getRoles(ref, scope)
-      : await this.effectiveRolesForRef(ref, scope);
-    const granted = options.cache
-      ? await options.cache.getPermissions(ref, scope)
-      : await this.store.getPermissionsForSubject(ref, scope);
-    const allowed = permissionSatisfied(
-      [...granted, ...this.rolePermissionGrants(roles)],
-      permission,
-    );
+    const cache = options.cache ?? this.requestCache();
+    let allowed: boolean;
+    if (cache) {
+      allowed = (await cache.matcher(ref, scope, this.grantsForRoles)).satisfies(permission);
+    } else {
+      const roles = await this.effectiveRolesForRef(ref, scope);
+      const granted = await this.store.getPermissionsForSubject(ref, scope);
+      allowed =
+        permissionSatisfied(granted, permission) ||
+        permissionSatisfied(this.rolePermissionGrants(roles), permission);
+    }
     return { allowed, reason: allowed ? 'permission' : 'no-grant' };
   }
 
@@ -599,11 +631,12 @@ export class AuthzService {
     // 4 (anonymous): no user → deny-all.
     if (!ref) return scopeNone;
 
-    const granted = options.cache
-      ? await options.cache.getPermissions(ref, tenant)
+    const cache = options.cache ?? this.requestCache();
+    const granted = cache
+      ? await cache.getPermissions(ref, tenant)
       : await this.store.getPermissionsForSubject(ref, tenant);
-    const effective = options.cache
-      ? await options.cache.getRoles(ref, tenant)
+    const effective = cache
+      ? await cache.getRoles(ref, tenant)
       : await this.effectiveRolesForRef(ref, tenant);
     const permissions = [...granted, ...this.rolePermissionGrants(effective)];
 
@@ -638,8 +671,9 @@ export class AuthzService {
     if (superAdmin !== undefined) return superAdmin;
 
     const scope = this.currentScope(options.scope);
-    const roles = options.cache
-      ? await options.cache.getRoles(ref, scope)
+    const cache = options.cache ?? this.requestCache();
+    const roles = cache
+      ? await cache.getRoles(ref, scope)
       : await this.effectiveRolesForRef(ref, scope);
     return roles.includes(role);
   }
@@ -662,10 +696,9 @@ export class AuthzService {
     if (superAdmin !== undefined) return superAdmin;
 
     const scope = this.currentScope(options.scope);
+    const cache = options.cache ?? this.requestCache();
     const owned = new Set(
-      options.cache
-        ? await options.cache.getRoles(ref, scope)
-        : await this.effectiveRolesForRef(ref, scope),
+      cache ? await cache.getRoles(ref, scope) : await this.effectiveRolesForRef(ref, scope),
     );
     return roles.some((r) => owned.has(r));
   }

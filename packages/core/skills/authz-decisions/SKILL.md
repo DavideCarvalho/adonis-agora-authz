@@ -167,7 +167,11 @@ Source: `docs/decision-providers.mdx`
 ### Coalesce reads with a per-request PermissionCache
 
 One cache per request collapses N checks into one role resolution and one
-permission read per `(user, tenant)` — including concurrent ones.
+permission read per `(user, tenant)` — including concurrent ones. Inside a
+request (the `@adonis-agora/context` store, or `HttpContext` with
+`useAsyncLocalStorage`) every check without a `{ cache }` already shares the
+request's cache, so `user.can()`, Bouncer abilities and `/authz/can` need
+nothing; pass a cache explicitly to pick the scope yourself (e.g. in a job).
 
 ```ts title="app/controllers/posts_controller.ts"
 export default class PostsController {

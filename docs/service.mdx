@@ -228,6 +228,15 @@ checks would issue two dozen reads; a `PermissionCache` collapses them into one
 role resolution and one permission read per `(user, tenant)` pair, including for
 checks that run concurrently.
 
+Inside a request you get this without passing anything: when no `cache` is
+given, `can`, `check`, `canMany`, `hasRole`, `hasAnyRole`, `scope`,
+`effectiveRoles` and `effectivePermissions` use a cache bound to the current
+request (the `@adonis-agora/context` store, or the AdonisJS `HttpContext` when
+`useAsyncLocalStorage` is on). That covers `user.can()` from the mixin, the
+Bouncer abilities and `POST /authz/can`. Outside a request (no context), each
+call reads the store. Pass your own `cache` to choose the scope explicitly, as
+below.
+
 ```ts title="app/controllers/posts_controller.ts"
 import type { HttpContext } from '@adonisjs/core/http'
 import authz from '@adonis-agora/authz/services/main'
