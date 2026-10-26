@@ -89,8 +89,11 @@ await authz.hasRole(user, 'admin')
 await authz.hasAnyRole(user, ['admin', 'editor'])
 ```
 
-For a request that runs many checks, share a cache so the role resolution and
-the grant set are each read once:
+Inside a request (the `@adonis-agora/context` store, or `HttpContext` with
+`useAsyncLocalStorage`), these calls and the Bouncer `can` / `hasRole`
+abilities already share one cache per request, so the role resolution and the
+grant set are each read once without passing anything. Outside a request, or to
+pick the scope yourself, share a cache explicitly:
 
 ```ts title="app/controllers/posts_controller.ts"
 import type { HttpContext } from '@adonisjs/core/http'

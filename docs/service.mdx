@@ -300,5 +300,9 @@ the permission set.
   The cache is a per-request snapshot and never invalidates: a grant made
   mid-request does not flip a cached check (the next request's cache sees it).
   That is the point — every decision in one request is made against one state.
-  Do not keep a cache across requests.
+  Do not keep a cache across requests. The request-bound default cache behaves
+  the same way, so a long-running job that runs inside one Agora context sees
+  the grants as they were at its first check; pass a fresh `createCache()` per
+  unit of work there. A read that fails is not cached: the next check in the
+  request retries it.
 </Callout>

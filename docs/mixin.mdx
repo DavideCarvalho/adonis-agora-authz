@@ -50,6 +50,12 @@ await user.hasRole('admin')
   `resolveSubjectRef` if you store multiple subject kinds.
 </Callout>
 
-Every method above is one query for one user. Over a list of users, `getRoles()`
+`can()` and `hasRole()` go through the service, so inside a request they share
+the request's [permission cache](/docs/authz/service#the-per-request-permission-cache):
+a role or permission assigned after the request's first check for that user is
+seen from the next request, not by later checks in the same one. `getRoles()`
+and `getPermissions()` read the store directly on every call.
+
+The read methods are one query for one user. Over a list of users, `getRoles()`
 becomes one round trip per row — for that case declare a
 [roles relation](/docs/authz/roles-relation) and `preload` it.
