@@ -117,10 +117,9 @@ when nothing is seeded in the store.
 
 ## `authorizeByRoles` — the same gate for dashboards
 
-Every `@adonis-agora` dashboard (telescope, durable, media, agent) gates its
-routes with an **`authorize` hook** — a `(ctx) => boolean` decision the guard
-turns into a `401`/`403` (or honors a redirect the hook writes). `authorizeByRoles`
-is that hook, built on the exact same engine as the middleware:
+Every `@adonis-agora` dashboard (telescope, durable, media, payments, agent) gates
+its routes with an **`authorize` hook**. `authorizeByRoles` is that hook, built on
+the exact same engine as the middleware:
 
 ```ts title="config/telescope_ui.ts"
 import { defineConfig } from '@adonis-agora/telescope/ui'
@@ -142,15 +141,54 @@ export default defineConfig({
 })
 ```
 
+<Callout type="warn">
+  **Requires the dashboard lib versions that accept `AuthorizeDecision`.** Since the release that introduced `AuthorizeDecision`, `authorizeByRoles` denies
+  with an **object** — `{ allowed: false, reason }` — and an object is truthy. An
+  older dashboard that checks `if (!(await authorize(ctx)))` would read that denial
+  as **allowed**. Upgrade every dashboard you gate with it to at least:
+
+  {/* RELEASE: fill in the first versions that accept AuthorizeDecision. */}
+  - `@adonis-agora/telescope` ≥ _TBD_
+  - `@adonis-agora/durable` ≥ _TBD_
+  - `@adonis-agora/media` ≥ _TBD_
+  - `@adonis-agora/payments` ≥ _TBD_
+  - `@adonis-agora/agent` ≥ _TBD_
+
+  The older dashboards type the hook as `(ctx) => boolean | Promise<boolean>`, so
+  the mismatched pair fails your app's typecheck — don't silence it with a cast.
+</Callout>
+
+### The `authorize` contract
+
+The hook returns an `AuthorizeResult`; the type is shared by every dashboard lib
+and exported from `@adonis-agora/authz`:
+
+```ts
+export interface AuthorizeDecision {
+  allowed: boolean
+  reason?: 'unauthenticated' | 'forbidden'
+}
+export type AuthorizeResult = boolean | AuthorizeDecision
+```
+
+| Result | Dashboard answers |
+| ------ | ----------------- |
+| `true` / `{ allowed: true }` | lets the request through |
+| `{ allowed: false, reason: 'unauthenticated' }` | `401` |
+| `{ allowed: false, reason: 'forbidden' }` | `403` |
+| `false` / `{ allowed: false }` | `403` |
+| any denial after the hook wrote a redirect | the redirect |
+
 ### How it decides
 
 <Callout type="info">
   1. Resolve the user from `ctx.auth.getUser()` (authkit) or `ctx.auth.user`
      (any guard) — with or without authkit.
-  2. No user → `false` (the dashboard guard answers `401`/`403`). With
+  2. No user → `{ allowed: false, reason: 'unauthenticated' }` (`401`). With
      `loginPath`, a page navigation is redirected to your login first — see below.
-  3. Compute `authz.effectiveRoles(user, scope)` and return whether at least
-     one of `roles` is present.
+  3. Compute `authz.effectiveRoles(user, scope)`. At least one of `roles`
+     present → `true`; signed in without any of them →
+     `{ allowed: false, reason: 'forbidden' }` (`403`).
 </Callout>
 
 ### Sending an expired session to your login page
@@ -198,8 +236,9 @@ Two deliberate limits:
 | `returnToParam` | `string?` | `'redirect'` | Query parameter carrying the return-to. Use whatever your login route reads. |
 
 Want a custom decision instead of roles — an IP allow-list, an environment
-gate, a redirect to your own login page? Write the `authorize` hook by hand;
-the helper is a convenience for the common "any-of these roles" case.
+gate, a redirect to your own login page? Write the `authorize` hook by hand
+(type it with `AuthorizeResult` to get the `401`/`403` split); the helper is a
+convenience for the common "any-of these roles" case.
 
 ## `AuthzService.effectiveRoles`
 

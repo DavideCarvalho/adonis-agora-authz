@@ -36,7 +36,7 @@ export interface AuthorizeByRolesOptions {
    * preciso estar autenticado" SEM SAÍDA: o dashboard sabe dizer que falta login e
    * não sabe pedir login. O jeito de sair é ir até o app na mão, deixar a sessão
    * renovar, e voltar. Todos os dashboards @adonis-agora (telescope, durable,
-   * media, payments) honram um `location` escrito pelo hook antes de escreverem a
+   * media, payments, agent) honram um `location` escrito pelo hook antes de escreverem a
    * própria negação, então o redirect daqui prevalece.
    *
    * Ex.: `loginPath: '/auth/login'`.
@@ -50,10 +50,34 @@ export interface AuthorizeByRolesOptions {
 }
 
 /**
+ * Decisão rica de um gate de dashboard. Contrato COMPARTILHADO pelas libs de
+ * dashboard @adonis-agora (telescope, durable, media, payments, agent) — cada lib
+ * tem a sua cópia idêntica deste tipo; mantenha-as iguais.
+ *
+ * - `reason: 'unauthenticated'` → o dashboard responde `401`.
+ * - `reason: 'forbidden'` (ou ausente) → `403`.
+ * - Um redirect que o hook escreveu na response prevalece sobre os dois.
+ *
+ * ATENÇÃO: `{ allowed: false }` é um objeto, logo TRUTHY. Um consumidor que trata o
+ * resultado como booleano (`if (!(await authorize(ctx)))`) DEIXA PASSAR quem
+ * deveria ser negado. Leia sempre `result === true || result.allowed`.
+ */
+export interface AuthorizeDecision {
+  allowed: boolean;
+  reason?: 'unauthenticated' | 'forbidden';
+}
+
+/**
+ * O que um hook `authorize` de dashboard pode devolver: `true`/`false` (o
+ * contrato antigo; `false` vira `403`) ou uma {@link AuthorizeDecision}.
+ */
+export type AuthorizeResult = boolean | AuthorizeDecision;
+
+/**
  * Factory de hooks de autorização para dashboards das libs @adonis-agora
- * (telescope, durable, media, agent). Mesma semântica do middleware
- * `requireRole`, mas no formato `(ctx) => boolean` que o `authorize` dos
- * dashboards espera:
+ * (telescope, durable, media, payments, agent). Mesma semântica do middleware
+ * `requireRole`, no formato `(ctx) => Promise<AuthorizeResult>` que o
+ * `authorize` dos dashboards espera:
  *
  * ```ts
  * // config/telescope_ui.ts
@@ -69,19 +93,32 @@ export interface AuthorizeByRolesOptions {
  * `effectiveRoles` popula os papéis globais do contexto no caminho, então
  * `roles: ['ADMIN']` casa pelo claim do token ou pela role de app (DB).
  *
- * Sem usuário autenticado → `false` (nega; o guard do dashboard responde 401/403).
- * Com `loginPath`, uma navegação de página sem sessão é mandada para o login em vez
- * de morrer num 401 sem saída — ver {@link AuthorizeByRolesOptions.loginPath}.
+ * Retorno:
+ * - tem um dos papéis → `true`;
+ * - sem usuário autenticado → `{ allowed: false, reason: 'unauthenticated' }`
+ *   (o dashboard responde `401`). Com `loginPath`, uma navegação de página sem
+ *   sessão é mandada para o login em vez de morrer num 401 sem saída — ver
+ *   {@link AuthorizeByRolesOptions.loginPath};
+ * - autenticado sem nenhum dos papéis → `{ allowed: false, reason: 'forbidden' }`
+ *   (`403`).
+ *
+ * REQUISITO DE VERSÃO: a negação é um OBJETO (truthy). Só use com versões das libs
+ * de dashboard que aceitam `AuthorizeDecision` — numa versão antiga que faz
+ * `if (!(await authorize(ctx)))`, a negação passaria. As versões antigas tipam o
+ * hook como `(ctx) => boolean | Promise<boolean>`, então a combinação errada falha
+ * no typecheck do app.
  *
  * O parâmetro é `unknown` de propósito: cada lib de dashboard tipa o ctx do
  * `authorize` do seu jeito (durable: `HttpContext`; telescope: `UiHttpContext`
  * framework-light), e o helper só lê `ctx.auth` estruturalmente — então ele
  * aceita qualquer ctx e o cast é interno.
  */
-export function authorizeByRoles(options: AuthorizeByRolesOptions) {
+export function authorizeByRoles(
+  options: AuthorizeByRolesOptions,
+): (ctx: unknown) => Promise<AuthorizeResult> {
   const { roles, scope, loginPath, returnToParam = 'redirect' } = options;
 
-  return async (ctx: unknown): Promise<boolean> => {
+  return async (ctx: unknown): Promise<AuthorizeResult> => {
     const auth = (ctx as { auth?: AuthLike } | null | undefined)?.auth;
     const user = auth ? ((await auth.getUser?.()) ?? auth.user ?? null) : null;
 
@@ -91,18 +128,20 @@ export function authorizeByRoles(options: AuthorizeByRolesOptions) {
       if (loginPath !== undefined) {
         redirectToLogin(ctx as RedirectableCtx | null | undefined, loginPath, returnToParam);
       }
-      return false;
+      return { allowed: false, reason: 'unauthenticated' };
     }
 
     const authz = await app.container.make(AuthzService);
     const effective = await authz.effectiveRoles(user, scope);
-    return roles.some((role) => effective.includes(role));
+    return roles.some((role) => effective.includes(role))
+      ? true
+      : { allowed: false, reason: 'forbidden' };
   };
 }
 
 /**
  * Escreve o redirect para o login, quando faz sentido. Silencioso quando não faz —
- * o retorno do `authorize` continua sendo `false` de qualquer jeito, então falhar
+ * o retorno do `authorize` continua sendo a negação `unauthenticated` de qualquer jeito, então falhar
  * aqui só significa "o dashboard responde a negação dele", nunca um erro na tela.
  *
  * Só redireciona NAVEGAÇÃO DE PÁGINA (`Accept: text/html`). Um 302 numa chamada de

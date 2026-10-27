@@ -11,7 +11,9 @@ description: >
   accessibleBy for collections). Use when keeping route trees behind a role or
   a permission, redirecting unauthenticated or unauthorized requests in SSR /
   Inertia apps, letting the host decide the denial response, or wiring
-  start/kernel.ts middleware.
+  start/kernel.ts middleware. Also covers authorizeByRoles, the authorize hook
+  for @adonis-agora dashboards (telescope, durable, media, payments, agent),
+  which returns an AuthorizeResult (true | { allowed: false, reason }).
 metadata:
   type: core
   library: "@adonis-agora/authz"
@@ -20,6 +22,7 @@ metadata:
 sources:
   - DavideCarvalho/adonis-authz:docs/middleware.mdx
   - DavideCarvalho/adonis-authz:packages/core/src/middleware.ts
+  - DavideCarvalho/adonis-authz:packages/core/src/authorize.ts
 ---
 
 # Route guards: requireRole
@@ -124,6 +127,33 @@ const scoped = await authz.effectiveRoles(user, { tenantId: 'acme' })
 Anonymous/unmappable users yield `[]`.
 
 Source: `docs/middleware.mdx`, `docs/roles.mdx`
+
+### Gate an @adonis-agora dashboard: authorizeByRoles
+
+```ts title="config/telescope_ui.ts"
+import { defineConfig } from '@adonis-agora/telescope/ui'
+import { authorizeByRoles } from '@adonis-agora/authz'
+
+export default defineConfig({
+  authorize: authorizeByRoles({ roles: ['ADMIN'], loginPath: '/auth/login' }),
+})
+```
+
+Returns an `AuthorizeResult` (`boolean | AuthorizeDecision`, both exported):
+`true` when the user holds one of `roles`; `{ allowed: false, reason:
+'unauthenticated' }` with no session (dashboard answers `401`; with `loginPath`
+a page navigation — `Accept: text/html` — is redirected to the login first);
+`{ allowed: false, reason: 'forbidden' }` when signed in without the role (`403`,
+never redirected — it would loop).
+
+Requires the dashboard lib versions that accept `AuthorizeDecision` (see the
+version list in `docs/middleware.mdx`). The denial is an object, so it is
+truthy: an older dashboard doing `if (!(await authorize(ctx)))` would let it
+through. Older dashboards type the hook `(ctx) => boolean | Promise<boolean>`,
+so the mismatch surfaces as a typecheck error — upgrade the dashboard, never
+cast it away.
+
+Source: `docs/middleware.mdx`, `packages/core/src/authorize.ts`
 
 ## Common mistakes
 

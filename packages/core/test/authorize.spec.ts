@@ -7,8 +7,12 @@ import { authorizeByRoles } from '../src/authorize.js';
  * login. O jeito de sair era ir até o app na mão, deixar a sessão renovar, e voltar.
  *
  * Todos os testes abaixo exercitam o caminho SEM USUÁRIO, que curto-circuita antes do
- * `AuthzService` — por isso nenhum precisa do container.
+ * `AuthzService` — por isso nenhum precisa do container. Esse caminho devolve
+ * `{ allowed: false, reason: 'unauthenticated' }` (o dashboard responde 401), com ou
+ * sem redirect.
  */
+
+const UNAUTHENTICATED = { allowed: false, reason: 'unauthenticated' };
 
 /** ctx mínimo que registra o redirect escrito, com os headers e a url pedidos. */
 function fakeCtx(options: { accept?: string; url?: string; withRedirect?: boolean } = {}) {
@@ -38,7 +42,7 @@ describe('authorizeByRoles — redirect de login', () => {
     const { ctx, calls } = fakeCtx({ url: '/telescope' });
     const allowed = await authorizeByRoles({ roles: ['ADMIN'], loginPath: '/auth/login' })(ctx);
 
-    expect(allowed).toBe(false);
+    expect(allowed).toEqual(UNAUTHENTICATED);
     expect(calls.redirect).toBe('/auth/login?redirect=%2Ftelescope');
   });
 
@@ -71,7 +75,7 @@ describe('authorizeByRoles — redirect de login', () => {
     const { ctx, calls } = fakeCtx({ accept: 'application/json', url: '/telescope/api/entries' });
     const allowed = await authorizeByRoles({ roles: ['ADMIN'], loginPath: '/auth/login' })(ctx);
 
-    expect(allowed).toBe(false);
+    expect(allowed).toEqual(UNAUTHENTICATED);
     expect(calls.redirect).toBeUndefined();
   });
 
@@ -79,7 +83,7 @@ describe('authorizeByRoles — redirect de login', () => {
     const { ctx, calls } = fakeCtx({ url: '/telescope' });
     const allowed = await authorizeByRoles({ roles: ['ADMIN'] })(ctx);
 
-    expect(allowed).toBe(false);
+    expect(allowed).toEqual(UNAUTHENTICATED);
     expect(calls.redirect).toBeUndefined();
   });
 
@@ -94,12 +98,12 @@ describe('authorizeByRoles — redirect de login', () => {
     const { ctx } = fakeCtx({ url: '/telescope', withRedirect: false });
     await expect(
       authorizeByRoles({ roles: ['ADMIN'], loginPath: '/auth/login' })(ctx),
-    ).resolves.toBe(false);
+    ).resolves.toEqual(UNAUTHENTICATED);
   });
 
   it('ctx nulo ou sem auth continua negando sem estourar', async () => {
     const authorize = authorizeByRoles({ roles: ['ADMIN'], loginPath: '/auth/login' });
-    await expect(authorize(null)).resolves.toBe(false);
-    await expect(authorize({})).resolves.toBe(false);
+    await expect(authorize(null)).resolves.toEqual(UNAUTHENTICATED);
+    await expect(authorize({})).resolves.toEqual(UNAUTHENTICATED);
   });
 });
