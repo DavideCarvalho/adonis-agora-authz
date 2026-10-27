@@ -167,7 +167,15 @@ Source: `docs/decision-providers.mdx`
 ### Coalesce reads with a per-request PermissionCache
 
 One cache per request collapses N checks into one role resolution and one
-permission read per `(user, tenant)` — including concurrent ones.
+permission read per `(user, tenant)` — including concurrent ones. Inside a
+request (the `@adonis-agora/context` store, or `HttpContext` with
+`useAsyncLocalStorage`) every check without a `{ cache }` already shares the
+request's cache, so `user.can()`, Bouncer abilities and `/authz/can` need
+nothing; pass a cache explicitly to pick the scope yourself (e.g. in a job).
+The request cache is a snapshot: a grant or revocation made after the request's
+first check applies from the next request, not to later checks in the same one.
+A job running inside one Agora context should pass a fresh `createCache()` per
+unit of work. A failed read is retried, not cached.
 
 ```ts title="app/controllers/posts_controller.ts"
 export default class PostsController {

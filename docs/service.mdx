@@ -228,6 +228,15 @@ checks would issue two dozen reads; a `PermissionCache` collapses them into one
 role resolution and one permission read per `(user, tenant)` pair, including for
 checks that run concurrently.
 
+Inside a request you get this without passing anything: when no `cache` is
+given, `can`, `check`, `canMany`, `hasRole`, `hasAnyRole`, `scope`,
+`effectiveRoles` and `effectivePermissions` use a cache bound to the current
+request (the `@adonis-agora/context` store, or the AdonisJS `HttpContext` when
+`useAsyncLocalStorage` is on). That covers `user.can()` from the mixin, the
+Bouncer abilities and `POST /authz/can`. Outside a request (no context), each
+call reads the store. Pass your own `cache` to choose the scope explicitly, as
+below.
+
 ```ts title="app/controllers/posts_controller.ts"
 import type { HttpContext } from '@adonisjs/core/http'
 import authz from '@adonis-agora/authz/services/main'
@@ -291,5 +300,9 @@ the permission set.
   The cache is a per-request snapshot and never invalidates: a grant made
   mid-request does not flip a cached check (the next request's cache sees it).
   That is the point — every decision in one request is made against one state.
-  Do not keep a cache across requests.
+  Do not keep a cache across requests. The request-bound default cache behaves
+  the same way, so a long-running job that runs inside one Agora context sees
+  the grants as they were at its first check; pass a fresh `createCache()` per
+  unit of work there. A read that fails is not cached: the next check in the
+  request retries it.
 </Callout>
