@@ -1,5 +1,11 @@
 # @adonis-agora/authz-react
 
+## 0.3.1
+
+### Patch Changes
+
+- [#186](https://github.com/DavideCarvalho/adonis-agora-authz/pull/186) [`91a115d`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/91a115d2a12e828001e3a06a5e3cfd6a0fd51b50) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - perf: `useCan` and `<Can>` compile the share's `permissions` array once (exact grants in a `Set`, only wildcard grants pre-split) and reuse it for every gate that reads the same array, instead of scanning and splitting every grant per gate per render. Matching semantics are unchanged.
+
 ## 0.3.0
 
 ### Minor Changes

@@ -1,5 +1,11 @@
 # @adonis-agora/authz
 
+## 0.20.1
+
+### Patch Changes
+
+- [#186](https://github.com/DavideCarvalho/adonis-agora-authz/pull/186) [`91a115d`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/91a115d2a12e828001e3a06a5e3cfd6a0fd51b50) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - perf(lucid): `getPermissionsForSubject` reads role-derived and direct grants in one `UNION ALL` query instead of two (role-derived names still come first), and `subjectHasPermission` checks both sources in one `EXISTS … OR EXISTS …` query instead of up to two. A request's first permission check now costs 2 queries instead of 3.
+
 ## 0.20.0
 
 ### Minor Changes
