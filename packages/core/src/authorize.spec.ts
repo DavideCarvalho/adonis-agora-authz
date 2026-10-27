@@ -56,28 +56,55 @@ describe('authorizeByRoles', () => {
     await expect(authorize(makeCtx(adonisAuthLike))).resolves.toBe(true);
   });
 
-  it('nega quando o usuário não tem nenhuma das roles', async () => {
+  it('nega com reason forbidden quando o usuário está logado sem nenhuma das roles', async () => {
     const { store } = makeService();
     await store.assignRole({ type: 'user', id: 'u1' }, 'ADVISEE');
     makeSpy.mockReturnValue(new AuthzService({ store }));
 
     const authorize = authorizeByRoles({ roles: ['ADMIN'] });
-    await expect(authorize(makeCtx(authkitLike))).resolves.toBe(false);
+    await expect(authorize(makeCtx(authkitLike))).resolves.toEqual({
+      allowed: false,
+      reason: 'forbidden',
+    });
   });
 
-  it('nega usuário anônimo', async () => {
+  it('logado sem o papel: forbidden e NÃO redireciona pro login, mesmo com loginPath', async () => {
+    const { store } = makeService();
+    await store.assignRole({ type: 'user', id: 'u1' }, 'ADVISEE');
+    makeSpy.mockReturnValue(new AuthzService({ store }));
+    const redirect = vi.fn();
+    const ctx = {
+      auth: authkitLike,
+      request: { header: () => 'text/html', url: () => '/telescope' },
+      response: { redirect },
+    };
+
+    const authorize = authorizeByRoles({ roles: ['ADMIN'], loginPath: '/auth/login' });
+    await expect(authorize(ctx)).resolves.toEqual({ allowed: false, reason: 'forbidden' });
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
+  it('nega usuário anônimo com reason unauthenticated', async () => {
     const { store } = makeService();
     makeSpy.mockReturnValue(new AuthzService({ store }));
 
     const authorize = authorizeByRoles({ roles: ['ADMIN'] });
-    await expect(authorize(makeCtx(anonymousLike))).resolves.toBe(false);
+    await expect(authorize(makeCtx(anonymousLike))).resolves.toEqual({
+      allowed: false,
+      reason: 'unauthenticated',
+    });
+    // Sem usuário o AuthzService nem é consultado.
+    expect(makeSpy).not.toHaveBeenCalled();
   });
 
-  it('nega quando não há ctx.auth', async () => {
+  it('nega com reason unauthenticated quando não há ctx.auth', async () => {
     const { store } = makeService();
     makeSpy.mockReturnValue(new AuthzService({ store }));
 
     const authorize = authorizeByRoles({ roles: ['ADMIN'] });
-    await expect(authorize(makeCtx(undefined))).resolves.toBe(false);
+    await expect(authorize(makeCtx(undefined))).resolves.toEqual({
+      allowed: false,
+      reason: 'unauthenticated',
+    });
   });
 });

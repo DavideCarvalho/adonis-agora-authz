@@ -48,6 +48,18 @@ node ace authz:assign editor 42
 See the [docs](./docs) for concepts (wildcards, tenancy), config drivers, the
 Lucid mixin, ace commands and testing.
 
+## Dashboards
+
+`authorizeByRoles({ roles: ['ADMIN'] })` is the `authorize` hook for the
+`@adonis-agora` dashboards (telescope, durable, media, payments, agent). It
+returns an `AuthorizeResult`: `true`, or `{ allowed: false, reason:
+'unauthenticated' | 'forbidden' }` so the dashboard can answer `401` vs `403`.
+
+> **Requires the dashboard lib versions that accept `AuthorizeDecision`.** The
+> denial is an object (truthy); an older dashboard that treats the result as a
+> boolean would let it through. See the minimum versions in
+> [`docs/middleware.mdx`](./docs/middleware.mdx#authorizebyroles--the-same-gate-for-dashboards).
+
 ## Sponsors
 
 Every Agora library is MIT and stays free. The work is funded by partners and

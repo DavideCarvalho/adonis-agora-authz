@@ -15,7 +15,11 @@ export {
   subjectRefFromContext,
   tenantFromContext,
 } from './agora/context.js';
-export type { AuthorizeByRolesOptions } from './authorize.js';
+export type {
+  AuthorizeByRolesOptions,
+  AuthorizeDecision,
+  AuthorizeResult,
+} from './authorize.js';
 // Dashboard authorization hook factory (shared by telescope/durable/media/agent dashboards).
 export { authorizeByRoles } from './authorize.js';
 export type {
