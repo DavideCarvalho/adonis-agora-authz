@@ -37,6 +37,43 @@ describe('LucidPermissionStore (sqlite)', () => {
     );
   });
 
+  it('reads role-derived and direct grants in one query, role-derived first', async () => {
+    const base = asLucidDatabase(db);
+    const sqls: string[] = [];
+    const counting = new Proxy(base, {
+      get(target, prop, receiver) {
+        if (prop === 'rawQuery') {
+          return (sql: string, bindings?: unknown[]) => {
+            sqls.push(sql);
+            return target.rawQuery(sql, bindings as never);
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const store = new LucidPermissionStore(counting);
+    const user = { type: 'user', id: '3' };
+    await store.givePermissionToRole('editor', 'posts.edit');
+    await store.givePermissionToRole('editor', 'posts.view');
+    await store.assignRole(user, 'editor');
+    await store.giveSubjectPermission(user, 'billing.view');
+    await store.giveSubjectPermission(user, 'posts.edit');
+
+    sqls.length = 0;
+    const perms = await store.getPermissionsForSubject(user);
+    expect(sqls).toHaveLength(1);
+    expect(perms.slice(0, 2).sort()).toEqual(['posts.edit', 'posts.view']);
+    expect(perms).toHaveLength(3);
+    expect(perms[2]).toBe('billing.view');
+
+    sqls.length = 0;
+    expect(await store.subjectHasPermission(user, 'billing.view')).toBe(true);
+    expect(await store.subjectHasPermission(user, 'posts.view')).toBe(true);
+    expect(await store.subjectHasPermission(user, 'posts.delete')).toBe(false);
+    expect(sqls).toHaveLength(3);
+  });
+
   describe('setSubjectRoles is transactional', () => {
     const alice = { type: 'user', id: '1' };
 

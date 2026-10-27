@@ -1,5 +1,5 @@
 import { createElement, Fragment, type ReactNode } from 'react';
-import { permissionSatisfied } from '../matcher.js';
+import { satisfiesShared } from '../matcher.js';
 import { useAuthz } from '../use_authz.js';
 
 export interface CanProps {
@@ -26,7 +26,7 @@ export interface CanProps {
 export function Can({ children, permission, role, fallback = null }: CanProps) {
   const { roles, permissions } = useAuthz();
   let allowed = false;
-  if (permission !== undefined) allowed = permissionSatisfied(permissions, permission);
+  if (permission !== undefined) allowed = satisfiesShared(permissions, permission);
   else if (role !== undefined) allowed = roles.includes(role);
   return createElement(Fragment, null, allowed ? children : fallback);
 }

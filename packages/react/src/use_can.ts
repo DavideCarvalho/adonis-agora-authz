@@ -1,4 +1,4 @@
-import { permissionSatisfied } from './matcher.js';
+import { satisfiesShared } from './matcher.js';
 import { useAuthz } from './use_authz.js';
 
 /**
@@ -8,5 +8,5 @@ import { useAuthz } from './use_authz.js';
  */
 export function useCan(permission: string): boolean {
   const { permissions } = useAuthz();
-  return permissionSatisfied(permissions, permission);
+  return satisfiesShared(permissions, permission);
 }

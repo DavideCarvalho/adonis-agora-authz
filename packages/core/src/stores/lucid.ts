@@ -654,29 +654,25 @@ export class LucidPermissionStore implements PermissionStore {
   ): Promise<string[]> {
     await this.ready(opts);
     const tenant = this.tenantClause(scope);
-    const result = new Set<string>();
-
-    const roleDerived = await this.query(
-      `SELECT DISTINCT p.name AS name
+    // One round trip: role-derived ∪ direct grants. `src` keeps the role-derived names
+    // first (the order the two separate reads used to produce); the Set dedupes.
+    const rows = await this.query(
+      `SELECT DISTINCT p.name AS name, 0 AS src
        FROM ${this.t.subjectRole} ur
        JOIN ${this.t.rolePermission} rp ON rp.role_id = ur.role_id
        JOIN ${this.t.permissions} p ON p.id = rp.permission_id
-       WHERE ur.subject_type = ? AND ur.subject_id = ? AND ${tenant.sql}`,
-      [user.type, this.subjectId(user.id), ...tenant.bindings],
-      opts,
-    );
-    for (const row of roleDerived) result.add(row.name as string);
-
-    const direct = await this.query(
-      `SELECT p.name AS name
+       WHERE ur.subject_type = ? AND ur.subject_id = ? AND ${tenant.sql}
+       UNION ALL
+       SELECT p.name AS name, 1 AS src
        FROM ${this.t.subjectPermission} up
        JOIN ${this.t.permissions} p ON p.id = up.permission_id
-       WHERE up.subject_type = ? AND up.subject_id = ?`,
-      [user.type, this.subjectId(user.id)],
+       WHERE up.subject_type = ? AND up.subject_id = ?
+       ORDER BY src`,
+      [user.type, this.subjectId(user.id), ...tenant.bindings, user.type, this.subjectId(user.id)],
       opts,
     );
-    for (const row of direct) result.add(row.name as string);
-
+    const result = new Set<string>();
+    for (const row of rows) result.add(row.name as string);
     return [...result];
   }
 
@@ -688,28 +684,32 @@ export class LucidPermissionStore implements PermissionStore {
   ): Promise<boolean> {
     await this.ready(opts);
     const tenant = this.tenantClause(scope);
-    const roleHit = await this.query(
-      `SELECT 1 AS hit
-       FROM ${this.t.subjectRole} ur
-       JOIN ${this.t.rolePermission} rp ON rp.role_id = ur.role_id
-       JOIN ${this.t.permissions} p ON p.id = rp.permission_id
-       WHERE ur.subject_type = ? AND ur.subject_id = ? AND p.name = ? AND ${tenant.sql}
-       LIMIT 1`,
-      [user.type, this.subjectId(user.id), permission, ...tenant.bindings],
+    // One round trip for both sources; EXISTS still stops at the first matching row.
+    const rows = await this.query(
+      `SELECT CASE WHEN EXISTS (
+         SELECT 1
+         FROM ${this.t.subjectRole} ur
+         JOIN ${this.t.rolePermission} rp ON rp.role_id = ur.role_id
+         JOIN ${this.t.permissions} p ON p.id = rp.permission_id
+         WHERE ur.subject_type = ? AND ur.subject_id = ? AND p.name = ? AND ${tenant.sql}
+       ) OR EXISTS (
+         SELECT 1
+         FROM ${this.t.subjectPermission} up
+         JOIN ${this.t.permissions} p ON p.id = up.permission_id
+         WHERE up.subject_type = ? AND up.subject_id = ? AND p.name = ?
+       ) THEN 1 ELSE 0 END AS hit`,
+      [
+        user.type,
+        this.subjectId(user.id),
+        permission,
+        ...tenant.bindings,
+        user.type,
+        this.subjectId(user.id),
+        permission,
+      ],
       opts,
     );
-    if (roleHit.length > 0) return true;
-
-    const directHit = await this.query(
-      `SELECT 1 AS hit
-       FROM ${this.t.subjectPermission} up
-       JOIN ${this.t.permissions} p ON p.id = up.permission_id
-       WHERE up.subject_type = ? AND up.subject_id = ? AND p.name = ?
-       LIMIT 1`,
-      [user.type, this.subjectId(user.id), permission],
-      opts,
-    );
-    return directHit.length > 0;
+    return Number(rows[0]?.hit ?? 0) === 1;
   }
 
   async listRoles(opts?: StoreOptions): Promise<string[]> {
