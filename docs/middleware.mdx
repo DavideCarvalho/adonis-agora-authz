@@ -147,12 +147,11 @@ export default defineConfig({
   older dashboard that checks `if (!(await authorize(ctx)))` would read that denial
   as **allowed**. Upgrade every dashboard you gate with it to at least:
 
-  {/* RELEASE: fill in the first versions that accept AuthorizeDecision. */}
-  - `@adonis-agora/telescope` ≥ _TBD_
-  - `@adonis-agora/durable` ≥ _TBD_
-  - `@adonis-agora/media` ≥ _TBD_
-  - `@adonis-agora/payments` ≥ _TBD_
-  - `@adonis-agora/agent` ≥ _TBD_
+  - `@adonis-agora/telescope` ≥ 0.26.0
+  - `@adonis-agora/durable` ≥ 0.56.0
+  - `@adonis-agora/media` ≥ 0.28.0
+  - `@adonis-agora/payments` ≥ 0.22.0
+  - `@adonis-agora/agent` ≥ 0.91.0
 
   The older dashboards type the hook as `(ctx) => boolean | Promise<boolean>`, so
   the mismatched pair fails your app's typecheck — don't silence it with a cast.
