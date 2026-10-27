@@ -23,9 +23,10 @@ export function permissionMatches(granted: string, required: string): boolean {
   if (granted === required) return true;
   if (granted === '*') return true;
 
-  const grantedParts = granted.split('.');
-  const requiredParts = required.split('.');
+  return segmentsMatch(granted.split('.'), required.split('.'));
+}
 
+function segmentsMatch(grantedParts: readonly string[], requiredParts: readonly string[]): boolean {
   for (let i = 0; i < grantedParts.length; i++) {
     const g = grantedParts[i];
     if (g === '*') {
@@ -49,4 +50,57 @@ export function permissionSatisfied(granted: Iterable<string>, required: string)
     if (permissionMatches(g, required)) return true;
   }
   return false;
+}
+
+/**
+ * A granted list prepared once for repeated checks (internal — not part of the
+ * barrel). Same semantics as {@link permissionSatisfied}: grants without a `*`
+ * segment can only match by equality, so they go in a `Set`; only wildcard
+ * grants are pre-split and scanned.
+ */
+class CompiledGrants {
+  private readonly exact: Set<string>;
+  private readonly grantsAll: boolean;
+  private readonly patterns: string[][] = [];
+
+  constructor(
+    granted: readonly string[],
+    /** Length at compile time — a cheap guard against an array mutated in place. */
+    readonly length: number,
+  ) {
+    this.exact = new Set(granted);
+    this.grantsAll = this.exact.has('*');
+    for (const g of this.exact) {
+      if (!g.includes('*')) continue;
+      const parts = g.split('.');
+      if (parts.includes('*')) this.patterns.push(parts);
+    }
+  }
+
+  satisfies(required: string): boolean {
+    if (this.grantsAll || this.exact.has(required)) return true;
+    if (this.patterns.length === 0) return false;
+    const requiredParts = required.split('.');
+    for (const parts of this.patterns) {
+      if (segmentsMatch(parts, requiredParts)) return true;
+    }
+    return false;
+  }
+}
+
+const compiledByList = new WeakMap<readonly string[], CompiledGrants>();
+
+/**
+ * {@link permissionSatisfied} for the hooks/components: the share's `permissions`
+ * array is compiled once and reused by every `useCan`/`<Can>` that reads the same
+ * array (one Inertia page = one array), so a list of N gates costs one compile plus
+ * N hash lookups instead of N full scans with a `split` per grant.
+ */
+export function satisfiesShared(granted: readonly string[], required: string): boolean {
+  let compiled = compiledByList.get(granted);
+  if (!compiled || compiled.length !== granted.length) {
+    compiled = new CompiledGrants(granted, granted.length);
+    compiledByList.set(granted, compiled);
+  }
+  return compiled.satisfies(required);
 }
