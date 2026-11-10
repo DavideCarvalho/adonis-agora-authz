@@ -10,9 +10,8 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testconta
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { authzRolesRelation } from '../src/lucid_relation.js';
 import type { StoreQueryClient } from '../src/store.js';
-import type { LucidDatabase } from '../src/stores/lucid.js';
 import { LucidPermissionStore } from '../src/stores/lucid.js';
-import type { AuthzTableNames } from '../src/stores/lucid-schema.js';
+import type { AuthzTableNames, LucidDatabase } from '../src/stores/lucid-schema.js';
 import { createAuthzTables } from '../src/stores/lucid-schema.js';
 import { runPermissionStoreContract } from '../src/testing.js';
 

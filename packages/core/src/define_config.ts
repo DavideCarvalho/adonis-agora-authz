@@ -103,5 +103,5 @@ export type {
   AuthzTableNames,
   LucidDatabase,
   LucidQueryClient,
-} from './stores/lucid.js';
+} from './stores/lucid-schema.js';
 export { stores };

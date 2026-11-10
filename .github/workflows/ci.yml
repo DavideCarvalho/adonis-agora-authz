@@ -34,8 +34,16 @@ jobs:
       # publint + attw against every published package's built output.
       - run: pnpm check:package
 
+  # The test suite runs on every Node line the packages support (`engines.node: ">=24"`): the
+  # 24 LTS and the current 26. Lint, typecheck and build above stay on the pinned 24 — they do
+  # not depend on the runtime, so the matrix would only multiply them.
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [24, 26]
+    name: test (node ${{ matrix.node }})
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -43,7 +51,7 @@ jobs:
 
       - uses: actions/setup-node@v7.1.0
         with:
-          node-version: 24.22.2
+          node-version: ${{ matrix.node }}
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile

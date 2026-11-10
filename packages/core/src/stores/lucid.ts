@@ -31,17 +31,6 @@ import {
   rowsOf,
 } from './lucid-schema.js';
 
-// Re-exported for backward compatibility: these types originated here before the
-// schema was extracted into `lucid-schema.ts`. Consumers (and `factory.ts`) import
-// them from `./lucid.js`.
-export type {
-  AuthzSubjectIdType,
-  AuthzTableNames,
-  LucidDatabase,
-  LucidQueryBindings,
-  LucidQueryClient,
-} from './lucid-schema.js';
-
 export interface LucidPermissionStoreOptions {
   tables?: AuthzTableNames;
   /** Run `CREATE TABLE IF NOT EXISTS` on first use (default true). Set false when using migrations. */
