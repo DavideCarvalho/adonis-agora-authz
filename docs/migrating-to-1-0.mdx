@@ -50,6 +50,9 @@ export default class extends BaseSchema {
     this.defer(async (db) => {
       for (const [from, to] of PIVOTS) {
         if (!(await db.schema.hasTable(from))) continue
+        if (await db.schema.hasTable(to)) {
+          throw new Error(`Both ${from} and ${to} exist: copy the rows by hand (see below)`)
+        }
         await db.schema.renameTable(from, to)
         await db.schema.alterTable(to, (table) => {
           table.renameColumn('user_type', 'subject_type')
