@@ -6,12 +6,10 @@ import { permissionMatches, permissionSatisfied } from './permission_matcher.js'
 import type { TenantScope } from './subject_ref.js';
 
 /**
- * Estrutura mínima do `ctx.auth` que o middleware lê — estrutural, para funcionar com o
- * `Authenticator` do `@adonis-agora/authkit-client` (`getUser()`) ou com um guard `@adonisjs/auth`
- * (`.user`), sem depender de nenhum dos dois.
+ * Estrutura mínima do `ctx.auth` que o middleware lê: o `.user` de um guard `@adonisjs/auth`,
+ * lido estruturalmente, sem depender do pacote.
  */
 interface AuthLike {
-  getUser?: () => Promise<unknown>;
   user?: unknown;
 }
 
@@ -86,7 +84,7 @@ export interface RequireRoleOptions {
  * )
  * ```
  *
- * O usuário vem de `ctx.auth.getUser()` (authkit) ou `ctx.auth.user`; `effectiveRoles` popula os
+ * O usuário vem de `ctx.auth.user`; `effectiveRoles` popula os
  * papéis globais do contexto no caminho, então `roles: ['ADMIN']` casa pelo claim do token.
  *
  * O {@link AuthzService} entra por injeção de construtor (`@inject()`): o container do Adonis resolve o
@@ -106,7 +104,7 @@ export default class AuthzRoleMiddleware {
     }
 
     const auth = (ctx as unknown as { auth?: AuthLike }).auth;
-    const user = auth ? ((await auth.getUser?.()) ?? auth.user ?? null) : null;
+    const user = auth?.user ?? null;
     if (user === null || user === undefined) {
       return options.guestRedirect
         ? ctx.response.redirect(options.guestRedirect)

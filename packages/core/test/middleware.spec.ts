@@ -35,7 +35,7 @@ function fakeAuthzFull(
 function fakeCtx(user: unknown) {
   const calls: { redirect?: string; forbidden?: unknown; unauthorized?: unknown } = {};
   const ctx = {
-    auth: { getUser: async () => user },
+    auth: { user },
     response: {
       redirect: (url: string) => {
         calls.redirect = url;

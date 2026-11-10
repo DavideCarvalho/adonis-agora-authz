@@ -98,8 +98,7 @@ router
 ### How it decides
 
 <Callout type="info">
-  1. Resolve the user from `ctx.auth.getUser()` (authkit) or `ctx.auth.user`
-     (a `@adonisjs/auth` guard) — either works, and neither is required.
+  1. Read the user from `ctx.auth.user` (any `@adonisjs/auth` guard).
   2. No user → `guestRedirect` if set, else `401 Unauthenticated`.
   3. Compute `authz.effectiveRoles(user, scope)`; if `options.roles` is given,
      it passes when at least one role is present.
@@ -181,8 +180,7 @@ export type AuthorizeResult = boolean | AuthorizeDecision
 ### How it decides
 
 <Callout type="info">
-  1. Resolve the user from `ctx.auth.getUser()` (authkit) or `ctx.auth.user`
-     (any guard) — with or without authkit.
+  1. Read the user from `ctx.auth.user` (any guard).
   2. No user → `{ allowed: false, reason: 'unauthenticated' }` (`401`). With
      `loginPath`, a page navigation is redirected to your login first — see below.
   3. Compute `authz.effectiveRoles(user, scope)`. At least one of `roles`

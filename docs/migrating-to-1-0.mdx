@@ -92,3 +92,36 @@ node ace migration:run
 If you override the table names through `tables` in `config/authz.ts`, use your names in the
 migration. If your own tables still have `user_type` / `user_id` columns, rename only the
 columns.
+
+## `requireRole` and `authorizeByRoles` read `ctx.auth.user` only
+
+The route middleware and the dashboard `authorize` helper read the signed-in user from
+`ctx.auth.user`. They no longer call `ctx.auth.getUser()`. An `auth` object that only has
+`getUser()` now counts as signed out: the route answers `401` (or `guestRedirect`) and the
+dashboard denies with `unauthenticated`.
+
+Before, a route could rely on `ctx.auth.getUser()` alone:
+
+```ts title="start/routes.ts"
+import { middleware } from '#start/kernel'
+
+// ctx.auth only had getUser(); requireRole called it
+router
+  .get('/admin', [AdminController, 'index'])
+  .use(middleware.requireRole({ roles: ['ADMIN'] }))
+```
+
+After, authenticate with an `@adonisjs/auth` guard before `requireRole`, so `ctx.auth.user` is
+set:
+
+```ts title="start/routes.ts"
+import { middleware } from '#start/kernel'
+
+router
+  .get('/admin', [AdminController, 'index'])
+  .use([middleware.auth(), middleware.requireRole({ roles: ['ADMIN'] })])
+```
+
+The same goes for a dashboard gated with `authorizeByRoles`: its route must run your auth
+middleware first. For pages open to guests, use `silentAuth` instead of `auth`, so
+`ctx.auth.user` is filled in when there is a session.

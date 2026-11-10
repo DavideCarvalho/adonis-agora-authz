@@ -28,23 +28,36 @@ function makeCtx(auth: unknown) {
   return { auth } as unknown as Parameters<ReturnType<typeof authorizeByRoles>>[0];
 }
 
-const authkitLike = { getUser: () => Promise.resolve(new User('u1')) };
+const signedIn = { user: new User('u1') };
 const adonisAuthLike = { user: new User('u2') };
-const anonymousLike = { getUser: () => Promise.resolve(null) };
+const anonymousLike = { user: null };
 
 describe('authorizeByRoles', () => {
   beforeEach(() => {
     makeSpy.mockReset();
   });
 
-  it('permite quando o usuário tem uma das roles (authkit getUser)', async () => {
+  it('permite quando o usuário tem uma das roles', async () => {
     const { store, service } = makeService();
     await store.assignRole({ type: 'user', id: 'u1' }, 'ADMIN');
     makeSpy.mockReturnValue(service);
 
     const authorize = authorizeByRoles({ roles: ['ADMIN'] });
-    await expect(authorize(makeCtx(authkitLike))).resolves.toBe(true);
+    await expect(authorize(makeCtx(signedIn))).resolves.toBe(true);
     expect(makeSpy).toHaveBeenCalledWith(AuthzService);
+  });
+
+  it('lê só ctx.auth.user: um getUser() sem .user conta como sem sessão', async () => {
+    const { store } = makeService();
+    await store.assignRole({ type: 'user', id: 'u1' }, 'ADMIN');
+    makeSpy.mockReturnValue(new AuthzService({ store }));
+
+    const authorize = authorizeByRoles({ roles: ['ADMIN'] });
+    const getUserOnly = { getUser: () => Promise.resolve(new User('u1')) };
+    await expect(authorize(makeCtx(getUserOnly))).resolves.toEqual({
+      allowed: false,
+      reason: 'unauthenticated',
+    });
   });
 
   it('permite quando o usuário tem uma das roles (adonis auth .user)', async () => {
@@ -62,7 +75,7 @@ describe('authorizeByRoles', () => {
     makeSpy.mockReturnValue(new AuthzService({ store }));
 
     const authorize = authorizeByRoles({ roles: ['ADMIN'] });
-    await expect(authorize(makeCtx(authkitLike))).resolves.toEqual({
+    await expect(authorize(makeCtx(signedIn))).resolves.toEqual({
       allowed: false,
       reason: 'forbidden',
     });
@@ -74,7 +87,7 @@ describe('authorizeByRoles', () => {
     makeSpy.mockReturnValue(new AuthzService({ store }));
     const redirect = vi.fn();
     const ctx = {
-      auth: authkitLike,
+      auth: signedIn,
       request: { header: () => 'text/html', url: () => '/telescope' },
       response: { redirect },
     };

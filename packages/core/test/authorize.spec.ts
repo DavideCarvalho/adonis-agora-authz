@@ -18,7 +18,7 @@ const UNAUTHENTICATED = { allowed: false, reason: 'unauthenticated' };
 function fakeCtx(options: { accept?: string; url?: string; withRedirect?: boolean } = {}) {
   const calls: { redirect?: string } = {};
   const ctx = {
-    auth: { getUser: async () => null },
+    auth: { user: null },
     request: {
       header: (name: string) =>
         name.toLowerCase() === 'accept' ? (options.accept ?? 'text/html') : undefined,

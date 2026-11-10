@@ -51,7 +51,7 @@ import { buildAuthzShare } from '@adonis-agora/authz-react/server'
 
 export default defineConfig({
   sharedData: {
-    // ctx.auth.user works with @adonisjs/auth; use ctx.auth.getUser() for authkit.
+    // The signed-in user, from your auth guard (ctx.auth.user).
     authz: (ctx) => buildAuthzShare(authz, ctx.auth?.user ?? null),
   },
 })
