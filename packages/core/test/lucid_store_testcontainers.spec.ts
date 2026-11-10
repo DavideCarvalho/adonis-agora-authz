@@ -15,7 +15,6 @@ import { LucidPermissionStore } from '../src/stores/lucid.js';
 import type { AuthzTableNames } from '../src/stores/lucid-schema.js';
 import { createAuthzTables } from '../src/stores/lucid-schema.js';
 import { runPermissionStoreContract } from '../src/testing.js';
-import { runLegacySubjectPivotScenarios } from './legacy_subject_pivots.js';
 
 /**
  * Real-backend coverage (testcontainers). The sqlite specs cannot see what
@@ -158,8 +157,6 @@ for (const backend of backends) {
     runPermissionStoreContract(`${backend.label} via testcontainers (integer)`, () =>
       freshStore('integer'),
     );
-
-    runLegacySubjectPivotScenarios(backend.label, () => db);
 
     it('ensureSchema is idempotent on this dialect (MySQL: CREATE INDEX has no IF NOT EXISTS)', async () => {
       const tables = nextTables();

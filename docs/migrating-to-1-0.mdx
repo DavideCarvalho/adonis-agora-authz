@@ -1,0 +1,91 @@
+---
+title: Migrating to 1.0
+description: The breaking changes in @adonis-agora/authz 1.0 and @adonis-agora/authz-react 1.0, and what to change in your app.
+icon: CircleArrowUp
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+## Requirements
+
+- Node.js 24 or newer.
+- Every `@adonis-agora/*` package on 1.x. `@adonis-agora/authz-react` 1.0 accepts
+  `@adonis-agora/authz` up to `<2.0.0`, and `@adonis-agora/authz` 1.0 accepts
+  `@adonis-agora/diagnostics` up to `<2.0.0`.
+
+```sh
+pnpm add @adonis-agora/authz@^1 @adonis-agora/authz-react@^1
+```
+
+## Subject pivot tables are no longer renamed at boot
+
+The two subject pivots are `authz_subject_role` and `authz_subject_permission`, with the columns
+`subject_type` and `subject_id`. authz 1.0 only reads those names. A database that still has
+`authz_user_role` / `authz_user_permission` (or `user_type` / `user_id` columns) is no longer
+converted for you when the app boots: authz creates new, empty `authz_subject_*` tables next to
+the old ones, and every subject loses its roles and direct permissions.
+
+If your database already has the `authz_subject_*` tables, there is nothing to do.
+
+Otherwise, rename them with a migration **before** you deploy 1.0.
+
+Before, booting the app was enough:
+
+```sh
+node ace serve   # authz renamed authz_user_role → authz_subject_role on its own
+```
+
+After, add a migration and run it:
+
+```ts title="database/migrations/xxxx_rename_authz_subject_pivots.ts"
+import { BaseSchema } from '@adonisjs/lucid/schema'
+
+const PIVOTS = [
+  ['authz_user_role', 'authz_subject_role'],
+  ['authz_user_permission', 'authz_subject_permission'],
+] as const
+
+export default class extends BaseSchema {
+  async up() {
+    this.defer(async (db) => {
+      for (const [from, to] of PIVOTS) {
+        if (!(await db.schema.hasTable(from))) continue
+        await db.schema.renameTable(from, to)
+        await db.schema.alterTable(to, (table) => {
+          table.renameColumn('user_type', 'subject_type')
+          table.renameColumn('user_id', 'subject_id')
+        })
+      }
+    })
+  }
+
+  async down() {
+    this.defer(async (db) => {
+      for (const [from, to] of PIVOTS) {
+        if (!(await db.schema.hasTable(to))) continue
+        await db.schema.alterTable(to, (table) => {
+          table.renameColumn('subject_type', 'user_type')
+          table.renameColumn('subject_id', 'user_id')
+        })
+        await db.schema.renameTable(to, from)
+      }
+    })
+  }
+}
+```
+
+```sh
+node ace migration:run
+```
+
+<Callout type="warn">
+  If the app already booted against this database with authz 0.15 or newer while the old tables
+  were still there, both `authz_user_role` and `authz_subject_role` exist. Copy the rows from the
+  old table into the new one (`INSERT INTO authz_subject_role (subject_type, subject_id, role_id,
+  tenant_id) SELECT user_type, user_id, role_id, tenant_id FROM authz_user_role`, and the same for
+  `authz_user_permission` with `permission_id`), check them, then drop the old tables.
+</Callout>
+
+If you override the table names through `tables` in `config/authz.ts`, use your names in the
+migration. If your own tables still have `user_type` / `user_id` columns, rename only the
+columns.
