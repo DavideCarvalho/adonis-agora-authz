@@ -1,14 +1,7 @@
 import app from '@adonisjs/core/services/app';
+import { type AuthLike, resolveAuthUser } from './auth_user.js';
 import { AuthzService } from './authz_service.js';
 import type { TenantScope } from './subject_ref.js';
-
-/**
- * Mínimo do `ctx.auth` que o helper lê: o `.user` de um guard `@adonisjs/auth`,
- * lido estruturalmente, sem depender do pacote.
- */
-interface AuthLike {
-  user?: unknown;
-}
 
 /**
  * Mínimo do ctx que o redirect de login lê. Tudo opcional: cada lib de dashboard
@@ -87,7 +80,8 @@ export type AuthorizeResult = boolean | AuthorizeDecision;
  * })
  * ```
  *
- * O usuário vem de `ctx.auth.user`;
+ * O usuário vem de `ctx.auth.user` (autenticado sob demanda com `ctx.auth.check()` quando
+ * nenhum middleware de auth rodou antes — as rotas dos consoles não passam por um);
  * `effectiveRoles` popula os papéis globais do contexto no caminho, então
  * `roles: ['ADMIN']` casa pelo claim do token ou pela role de app (DB).
  *
@@ -118,7 +112,7 @@ export function authorizeByRoles(
 
   return async (ctx: unknown): Promise<AuthorizeResult> => {
     const auth = (ctx as { auth?: AuthLike } | null | undefined)?.auth;
-    const user = auth?.user ?? null;
+    const user = await resolveAuthUser(auth);
 
     if (!user) {
       // SEM SESSÃO. É o único caso que vale redirecionar: quem já está logado e só

@@ -98,7 +98,8 @@ router
 ### How it decides
 
 <Callout type="info">
-  1. Read the user from `ctx.auth.user` (any `@adonisjs/auth` guard).
+  1. Read the user from `ctx.auth.user` (any `@adonisjs/auth` guard). If no auth middleware ran
+     on the route, authz calls `ctx.auth.check()` first, so the session is read on demand.
   2. No user → `guestRedirect` if set, else `401 Unauthenticated`.
   3. Compute `authz.effectiveRoles(user, scope)`; if `options.roles` is given,
      it passes when at least one role is present.
@@ -180,7 +181,9 @@ export type AuthorizeResult = boolean | AuthorizeDecision
 ### How it decides
 
 <Callout type="info">
-  1. Read the user from `ctx.auth.user` (any guard).
+  1. Read the user from `ctx.auth.user` (any guard). The dashboards mount routes you can't add
+     middleware to, so when no auth middleware ran, authz calls `ctx.auth.check()` first. You
+     don't need a global `silentAuth` for the dashboards.
   2. No user → `{ allowed: false, reason: 'unauthenticated' }` (`401`). With
      `loginPath`, a page navigation is redirected to your login first — see below.
   3. Compute `authz.effectiveRoles(user, scope)`. At least one of `roles`

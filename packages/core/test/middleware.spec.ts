@@ -32,10 +32,10 @@ function fakeAuthzFull(
 }
 
 /** ctx mínimo que registra qual método de resposta foi chamado. */
-function fakeCtx(user: unknown) {
+function fakeCtx(user: unknown, auth: unknown = { user }) {
   const calls: { redirect?: string; forbidden?: unknown; unauthorized?: unknown } = {};
   const ctx = {
-    auth: { user },
+    auth,
     response: {
       redirect: (url: string) => {
         calls.redirect = url;
@@ -52,6 +52,25 @@ function fakeCtx(user: unknown) {
 }
 
 const noopNext = (async () => {}) as never;
+
+/**
+ * Um `ctx.auth` do `@adonisjs/auth` numa rota sem middleware de auth (como as dos consoles):
+ * `user` vazio até `check()` rodar; `check()` autentica pela sessão, se houver.
+ */
+function lazyAuth(sessionUser: unknown, attempted = false) {
+  const auth = {
+    user: undefined as unknown,
+    authenticationAttempted: attempted,
+    checks: 0,
+    async check() {
+      auth.checks += 1;
+      auth.authenticationAttempted = true;
+      auth.user = sessionUser ?? undefined;
+      return sessionUser !== null && sessionUser !== undefined;
+    },
+  };
+  return auth;
+}
 
 describe('AuthzRoleMiddleware', () => {
   it('chama next quando o usuário tem um dos papéis', async () => {
@@ -251,5 +270,40 @@ describe('AuthzRoleMiddleware — abertura por permissão (issue #76)', () => {
     await expect(mw.handle(ctx, noopNext, { roles: [], permissions: [] })).rejects.toThrow(
       /at least one/,
     );
+  });
+
+  it('sem middleware de auth antes: autentica com check() uma vez e confere o papel', async () => {
+    const mw = new AuthzRoleMiddleware(fakeAuthz(['ADMIN']));
+    const auth = lazyAuth({ id: '1' });
+    const { ctx, calls } = fakeCtx(undefined, auth);
+    let nexted = false;
+    await mw.handle(
+      ctx,
+      (async () => {
+        nexted = true;
+      }) as never,
+      { roles: ['ADMIN'] },
+    );
+    expect(nexted).toBe(true);
+    expect(calls.unauthorized).toBeUndefined();
+    expect(auth.checks).toBe(1);
+  });
+
+  it('sem middleware de auth antes e sem sessão: 401', async () => {
+    const mw = new AuthzRoleMiddleware(fakeAuthz(['ADMIN']));
+    const auth = lazyAuth(null);
+    const { ctx, calls } = fakeCtx(undefined, auth);
+    await mw.handle(ctx, noopNext, { roles: ['ADMIN'] });
+    expect(calls.unauthorized).toBeDefined();
+    expect(auth.checks).toBe(1);
+  });
+
+  it('não chama check() quando o guard já tentou (authenticationAttempted)', async () => {
+    const mw = new AuthzRoleMiddleware(fakeAuthz(['ADMIN']));
+    const auth = lazyAuth({ id: '1' }, true);
+    const { ctx, calls } = fakeCtx(undefined, auth);
+    await mw.handle(ctx, noopNext, { roles: ['ADMIN'] });
+    expect(calls.unauthorized).toBeDefined();
+    expect(auth.checks).toBe(0);
   });
 });

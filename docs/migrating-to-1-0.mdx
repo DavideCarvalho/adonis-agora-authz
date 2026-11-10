@@ -95,33 +95,43 @@ columns.
 
 ## `requireRole` and `authorizeByRoles` read `ctx.auth.user` only
 
-The route middleware and the dashboard `authorize` helper read the signed-in user from
-`ctx.auth.user`. They no longer call `ctx.auth.getUser()`. An `auth` object that only has
-`getUser()` now counts as signed out: the route answers `401` (or `guestRedirect`) and the
-dashboard denies with `unauthenticated`.
+The route middleware and the dashboard `authorize` helper get the signed-in user from your
+`@adonisjs/auth` guard. They no longer call `ctx.auth.getUser()`. When no auth middleware ran
+on the route, they call `ctx.auth.check()` themselves, so a session is picked up on demand. An
+`auth` object that only has `getUser()` counts as signed out: the route answers `401` (or
+`guestRedirect`) and the dashboard denies with `unauthenticated`.
 
-Before, a route could rely on `ctx.auth.getUser()` alone:
+Before, `ctx.auth` could be any object with a `getUser()` method:
+
+```ts title="app/middleware/auth_middleware.ts"
+export default class AuthMiddleware {
+  async handle(ctx: HttpContext, next: NextFn) {
+    // a custom ctx.auth that requireRole read through getUser()
+    ctx.auth = { getUser: () => resolveSessionUser(ctx) }
+    return next()
+  }
+}
+```
+
+After, `ctx.auth` is the `@adonisjs/auth` authenticator. Routes and dashboards need nothing
+else: authz authenticates on demand.
 
 ```ts title="start/routes.ts"
 import { middleware } from '#start/kernel'
 
-// ctx.auth only had getUser(); requireRole called it
 router
   .get('/admin', [AdminController, 'index'])
   .use(middleware.requireRole({ roles: ['ADMIN'] }))
 ```
 
-After, authenticate with an `@adonisjs/auth` guard before `requireRole`, so `ctx.auth.user` is
-set:
+```ts title="config/telescope_ui.ts"
+import { defineConfig } from '@adonis-agora/telescope/ui'
+import { authorizeByRoles } from '@adonis-agora/authz'
 
-```ts title="start/routes.ts"
-import { middleware } from '#start/kernel'
-
-router
-  .get('/admin', [AdminController, 'index'])
-  .use([middleware.auth(), middleware.requireRole({ roles: ['ADMIN'] })])
+export default defineConfig({
+  authorize: authorizeByRoles({ roles: ['ADMIN'] }),
+})
 ```
 
-The same goes for a dashboard gated with `authorizeByRoles`: its route must run your auth
-middleware first. For pages open to guests, use `silentAuth` instead of `auth`, so
-`ctx.auth.user` is filled in when there is a session.
+You don't need a global `silentAuth` in `router.use` just for authz. Keep your own `auth` or
+`silentAuth` middleware where the rest of your app needs it.
