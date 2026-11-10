@@ -14,7 +14,7 @@
     },
     {
       "description": "The toolchain Node pin (`.nvmrc`, the workflows' `node-version`) stays on the 24 line: build and release run on 24 and CI tests 24 and 26 through its own matrix. A major bump of the pin would move build and release off 24, so Renovate only proposes patches and minors for it.",
-      "matchManagers": ["nvm", "node-version", "github-actions"],
+      "matchManagers": ["nvm", "github-actions"],
       "matchDepNames": ["node"],
       "matchUpdateTypes": ["major"],
       "enabled": false
