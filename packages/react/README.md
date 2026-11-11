@@ -30,8 +30,8 @@ Peer dependencies (an Inertia + React Adonis app already has these):
 |---|---|
 | `@adonis-agora/authz` | `>=0.9.0 <1` |
 | `@inertiajs/react` | `^3.3.0` |
-| `react` | `^19.2.6` |
-| `react-dom` | `^19.2.6` |
+| `react` | `^19.0.0` |
+| `react-dom` | `^19.0.0` |
 
 ## The data flow
 
@@ -48,19 +48,19 @@ Inertia middleware's `sharedData`.
 ```ts
 // config/inertia.ts
 import { defineConfig } from '@adonisjs/inertia'
-import { AuthzService } from '@adonis-agora/authz'
+import { resolveAuthUser } from '@adonis-agora/authz'
+import authz from '@adonis-agora/authz/services/main'
 import { buildAuthzShare } from '@adonis-agora/authz-react/server'
 
 export default defineConfig({
   sharedData: {
-    // The signed-in user, from your auth guard (`ctx.auth.user`).
-    authz: async (ctx) => {
-      const authz = await ctx.containerResolver.make(AuthzService)
-      return buildAuthzShare(authz, ctx.auth?.user ?? null)
-    },
+    authz: async (ctx) => buildAuthzShare(authz, await resolveAuthUser(ctx.auth)),
   },
 })
 ```
+
+`resolveAuthUser(ctx.auth)` returns the signed-in user, authenticating on demand (`ctx.auth.check()`)
+on pages with no `auth`/`silentAuth` middleware, so you don't need a global `silentAuth` for the share.
 
 `buildAuthzShare(authz, user, scope?)` returns `{ roles, permissions }`. A `null`/`undefined` user
 (anonymous) yields the empty share — no leak. Pass a `TenantScope` as the third argument to snapshot a

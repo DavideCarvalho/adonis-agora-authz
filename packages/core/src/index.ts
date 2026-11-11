@@ -4,7 +4,6 @@ export const VERSION = '0.20.1';
 // AdonisJS imports the package MAIN and reads `configure` off the module namespace —
 // the `./configure` subpath alone is never consulted.
 export { configure } from '../configure.js';
-
 export type { AgoraContextAccessor } from './agora/context.js';
 // Structural Agora context bridge (features B & C).
 export {
@@ -15,6 +14,7 @@ export {
   subjectRefFromContext,
   tenantFromContext,
 } from './agora/context.js';
+export { type AuthLike, resolveAuthUser } from './auth_user.js';
 export type {
   AuthorizeByRolesOptions,
   AuthorizeDecision,

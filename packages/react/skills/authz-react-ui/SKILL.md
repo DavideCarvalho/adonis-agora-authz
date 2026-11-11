@@ -46,13 +46,15 @@ already present in an Inertia + React Adonis app.
 
 ```ts title="config/inertia.ts"
 import { defineConfig } from '@adonisjs/inertia'
+import { resolveAuthUser } from '@adonis-agora/authz'
 import authz from '@adonis-agora/authz/services/main'
 import { buildAuthzShare } from '@adonis-agora/authz-react/server'
 
 export default defineConfig({
   sharedData: {
-    // The signed-in user, from your auth guard (ctx.auth.user).
-    authz: (ctx) => buildAuthzShare(authz, ctx.auth?.user ?? null),
+    // resolveAuthUser authenticates on demand (ctx.auth.check()) on pages
+    // without auth/silentAuth middleware, so no global silentAuth is needed.
+    authz: async (ctx) => buildAuthzShare(authz, await resolveAuthUser(ctx.auth)),
   },
 })
 ```

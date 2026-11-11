@@ -135,3 +135,51 @@ export default defineConfig({
 
 You don't need a global `silentAuth` in `router.use` just for authz. Keep your own `auth` or
 `silentAuth` middleware where the rest of your app needs it.
+
+## Token roles count only for the user who made the request
+
+The global roles in the request's token (written into the Agora context by authkit) now count
+only for that user. When your code asks about another user in the same request, that user gets
+their own app and store roles, never the caller's.
+
+Before, an admin listing users saw everyone as `ADMIN`:
+
+```ts title="app/admin/controllers/users_controller.ts"
+import authz from '@adonis-agora/authz/services/main'
+
+export default class UsersController {
+  async show({ params }: HttpContext) {
+    // an admin is signed in; the researcher only has RESEARCHER in the database
+    return authz.effectiveRoles({ id: params.id }) // ['ADMIN', 'RESEARCHER']
+  }
+}
+```
+
+After, the same call returns only that user's roles:
+
+```ts
+return authz.effectiveRoles({ id: params.id }) // ['RESEARCHER']
+```
+
+If you write `globalRoles` into the Agora context yourself, also write the `userRef` of the user
+they belong to (`{ type: 'user', id }`). Roles with no `userRef` apply to nobody.
+
+## Sharing the signed-in user with React
+
+`@adonis-agora/authz` exports `resolveAuthUser(ctx.auth)`, which returns the signed-in user and
+authenticates on demand. Use it in the Inertia share so it works on pages without an `auth` or
+`silentAuth` middleware.
+
+Before:
+
+```ts title="config/inertia.ts"
+authz: (ctx) => buildAuthzShare(authz, ctx.auth?.user ?? null),
+```
+
+After:
+
+```ts title="config/inertia.ts"
+import { resolveAuthUser } from '@adonis-agora/authz'
+
+authz: async (ctx) => buildAuthzShare(authz, await resolveAuthUser(ctx.auth)),
+```

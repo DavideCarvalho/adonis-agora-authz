@@ -56,8 +56,8 @@
   "peerDependencies": {
     "@adonis-agora/authz": ">=0.9.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0",
     "@inertiajs/react": "^3.3.0",
-    "react": "^19.2.6",
-    "react-dom": "^19.2.6"
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@adonis-agora/authz": "workspace:*",
