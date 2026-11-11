@@ -1,4 +1,4 @@
-import { globalRolesFromContext } from './agora/context.js';
+import { globalRolesForSubject } from './agora/context.js';
 import {
   type DecisionContext,
   type DecisionProvider,
@@ -285,18 +285,18 @@ export class AuthzService {
       if (verdict === true) return true;
       if (verdict === false) return false;
     }
-    if (this.isGlobalSuperAdmin()) return true;
+    if (this.isGlobalSuperAdmin(ref)) return true;
     return undefined;
   }
 
   /**
-   * Global-role bridge (feature C): is any of the user's active global roles
-   * (read structurally from the Agora context store) a configured super-admin
-   * role?
+   * Global-role bridge (feature C): is any of `ref`'s global roles (read structurally from the
+   * Agora context store, and only when `ref` is the context's own subject) a configured
+   * super-admin role?
    */
-  private isGlobalSuperAdmin(): boolean {
+  private isGlobalSuperAdmin(ref: SubjectRef): boolean {
     if (this.superAdminRoles.size === 0) return false;
-    for (const role of globalRolesFromContext()) {
+    for (const role of globalRolesForSubject(ref)) {
       if (this.superAdminRoles.has(role)) return true;
     }
     return false;
@@ -304,7 +304,7 @@ export class AuthzService {
 
   /**
    * The effective roles for an ALREADY-RESOLVED ref: the global roles from the
-   * context (token) ∪ the app's roles (the {@link resolveRoles} seam) ∪ the
+   * context (token), only when `ref` IS the context's subject, ∪ the app's roles (the {@link resolveRoles} seam) ∪ the
    * store's roles. {@link can}, {@link scope} and {@link hasRole} already hold a
    * resolved `ref` and call this directly, so they never run `refOf` twice; the
    * public {@link effectiveRoles}/{@link effectivePermissions} (consumed by
@@ -313,7 +313,7 @@ export class AuthzService {
    * (`services/main`) can build a {@link PermissionCache} over it.
    */
   async effectiveRolesForRef(ref: SubjectRef, tenant?: TenantScope): Promise<string[]> {
-    const contextRoles = globalRolesFromContext();
+    const contextRoles = globalRolesForSubject(ref);
     const appRoles = this.resolveRolesFn ? await this.resolveRolesFn(ref, tenant) : [];
     const storeRoles = await this.store.getRolesForSubject(ref, tenant);
     return [...new Set([...contextRoles, ...appRoles, ...storeRoles])];

@@ -36,6 +36,10 @@ await authz.effectiveRoles(user, { tenantId: 'acme' }) // tenant scope
 // ['COORDINATOR', 'editor']
 ```
 
+The global roles count only for the user who made the request: when you ask
+about another user (an admin listing accounts, a token minted for someone
+else), that user gets their app and store roles, never the caller's token roles.
+
 The result is de-duplicated and tenant-filtered. An anonymous or unmappable user
 yields `[]`. This is the exact set `hasRole` and `hasAnyRole` test against, the
 set the [route middleware](/docs/authz/middleware) guards on, the set a
