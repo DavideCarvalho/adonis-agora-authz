@@ -27,6 +27,8 @@ export const AGORA_CONTEXT_ACCESSOR = Symbol.for('@agora/context:accessor');
 export interface AgoraContextAccessor {
   traceId?: () => string | undefined;
   tenantId?: () => string | undefined;
+  /** The active caller, as `@adonis-agora/context` publishes it (authkit writes `userRef`). */
+  userRef?: () => { type?: string; id?: string | number } | undefined;
   subjectRef?: () => { type?: string; id?: string | number } | undefined;
   /** Read the whole active context store (structural). */
   get?: () => unknown;
@@ -62,12 +64,20 @@ export function tenantFromContext(): string | undefined {
 }
 
 /**
- * The active caller's `subjectRef` from the Agora context, or `undefined` outside a
- * context / when the accessor slot is absent.
+ * The active caller's ref from the Agora context, or `undefined` outside a context / when the
+ * accessor slot is absent. `@adonis-agora/context` publishes it as `userRef()` (authkit writes
+ * `userRef` into the store); `subjectRef()` is read too, then the store's `userRef` key.
  */
 export function subjectRefFromContext(): { type?: string; id?: string | number } | undefined {
   const accessor = readContextAccessor();
-  return readMethod(accessor?.subjectRef);
+  const fromMethod =
+    readMethod<{ type?: string; id?: string | number }>(accessor?.userRef) ??
+    readMethod<{ type?: string; id?: string | number }>(accessor?.subjectRef);
+  if (fromMethod) return fromMethod;
+  const stored = readContextValue('userRef');
+  return stored != null && typeof stored === 'object'
+    ? (stored as { type?: string; id?: string | number })
+    : undefined;
 }
 
 /**
@@ -101,4 +111,21 @@ export function globalRolesFromContext(): string[] {
   const value = readContextValue('globalRoles');
   if (!Array.isArray(value)) return [];
   return value.filter((r): r is string => typeof r === 'string');
+}
+
+/**
+ * The context's global roles, but ONLY when `ref` is the context's own subject.
+ *
+ * The context's `globalRoles` belong to whoever made the current request (the token's
+ * subject). Adding them to any other subject would let a request made by an admin hand ADMIN
+ * to every user it asks about: a role listing, a token minted for another user, an
+ * impersonation. So they apply only when the context names a subject and it is the same
+ * `type` and `id` as `ref`; otherwise this returns `[]`.
+ */
+export function globalRolesForSubject(ref: { type: string; id: string }): string[] {
+  const current = subjectRefFromContext();
+  if (current?.id === undefined || current.id === null) return [];
+  if (String(current.id) !== ref.id) return [];
+  if ((current.type ?? 'user') !== ref.type) return [];
+  return globalRolesFromContext();
 }

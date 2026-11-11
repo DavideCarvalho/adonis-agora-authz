@@ -83,25 +83,29 @@ when the Agora context is not there, so calling them is never conditional:
 import {
   globalRolesFromContext,
   readContextValue,
+  subjectRefFromContext,
   tenantFromContext,
 } from '@adonis-agora/authz'
 
 tenantFromContext()       // the active tenant id, or undefined
-globalRolesFromContext()  // the token's global roles, or []
+subjectRefFromContext()   // the request caller, e.g. { type: 'user', id: '42' }, or undefined
+globalRolesFromContext()  // the caller's global roles, or []
 readContextValue('locale') // any other key the context carries, or undefined
 ```
 
 | Export | Returns | Without a context |
 | ------ | ------- | ----------------- |
 | `tenantFromContext()` | The active tenant id. | `undefined` |
-| `globalRolesFromContext()` | The user's global role names. | `[]` |
+| `subjectRefFromContext()` | The request caller's ref. | `undefined` |
+| `globalRolesFromContext()` | The caller's global role names. | `[]` |
 | `readContextValue(key)` | Any value the context carries. | `undefined` |
 | `readContextAccessor()` | The context accessor itself. | `undefined` |
 | `AGORA_CONTEXT_ACCESSOR` | The symbol the accessor is published under. | — |
 
 `tenantFromContext` is the reader you pass straight to `resolveTenant`;
-`globalRolesFromContext` is the one `superAdminRoles` and the effective-role
-union consult. Reach for `readContextAccessor` / `AGORA_CONTEXT_ACCESSOR` only
+`superAdminRoles` and the effective-role union use the global roles only for
+the subject `subjectRefFromContext()` names: a request made by an admin never
+gives ADMIN to another user it asks about. Reach for `readContextAccessor` / `AGORA_CONTEXT_ACCESSOR` only
 when you are writing something that publishes or replaces a context — a test
 harness, for example.
 

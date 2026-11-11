@@ -40,6 +40,16 @@ describe('agora context bridge', () => {
     expect(subjectRefFromContext()).toEqual({ type: 'user', id: '42' });
   });
 
+  it("reads the caller from the context lib's userRef() accessor", () => {
+    setAccessor({ userRef: () => ({ type: 'user', id: '7' }) });
+    expect(subjectRefFromContext()).toEqual({ type: 'user', id: '7' });
+  });
+
+  it("falls back to the store's userRef key (what authkit writes)", () => {
+    setAccessor({ get: () => ({ userRef: { type: 'user', id: '9' } }) });
+    expect(subjectRefFromContext()).toEqual({ type: 'user', id: '9' });
+  });
+
   it('treats empty-string tenantId as no tenant', () => {
     setAccessor({ tenantId: () => '' });
     expect(tenantFromContext()).toBeUndefined();

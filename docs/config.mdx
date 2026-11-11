@@ -238,6 +238,9 @@ effective roles  =  context/global roles (token claim, via authkit)
                   ∪  store roles    (assigned via store.assignRole)
 ```
 
+The context/global roles are the request caller's, so they join the union only
+when the user you ask about is that caller.
+
 Every decision — `can`, `hasRole`, `hasAnyRole`, the
 [route middleware](/docs/authz/middleware), a
 [query scope](/docs/authz/query-scopes) and the

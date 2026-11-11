@@ -4,8 +4,11 @@ import { MemoryPermissionStore } from '../src/stores/memory.js';
 
 const ACCESSOR = Symbol.for('@agora/context:accessor');
 type Slots = Record<symbol, unknown>;
-function setContextRoles(roles: string[]): void {
-  (globalThis as Slots)[ACCESSOR] = { get: () => ({ globalRoles: roles }) };
+/** The request's context: the caller `u1` (the token's subject) and its global roles. */
+function setContextRoles(roles: string[], callerId = 'u1'): void {
+  (globalThis as Slots)[ACCESSOR] = {
+    get: () => ({ userRef: { type: 'user', id: callerId }, globalRoles: roles }),
+  };
 }
 afterEach(() => {
   delete (globalThis as Slots)[ACCESSOR];
