@@ -136,7 +136,7 @@
     "@tanstack/intent": "0.5.6",
     "@testcontainers/mysql": "12.2.1",
     "@testcontainers/postgresql": "12.2.1",
-    "@types/node": "26.6.5",
+    "@types/node": "26.6.6",
     "@types/pg": "8.23.1",
     "@vinejs/vine": "4.4.0",
     "better-sqlite3": "13.0.3",
