@@ -44,8 +44,7 @@ export const middleware = router.named({
 })
 ```
 
-The user comes from `ctx.auth.getUser()` (authkit) or `ctx.auth.user`
-(`@adonisjs/auth`) — either works, neither required. The service arrives via
+The user comes from `ctx.auth.user` (any `@adonisjs/auth` guard). The service arrives via
 constructor injection (`@inject()`); no service locator in the flow.
 
 ## Core patterns

@@ -2,7 +2,7 @@ import { Emitter } from '@adonisjs/core/events';
 import { AppFactory } from '@adonisjs/core/factories/app';
 import { LoggerFactory } from '@adonisjs/core/factories/logger';
 import { Database } from '@adonisjs/lucid/database';
-import type { LucidDatabase } from '../src/stores/lucid.js';
+import type { LucidDatabase } from '../src/stores/lucid-schema.js';
 
 /** A fresh standalone Lucid `Database` over an isolated `:memory:` sqlite db. */
 export function makeMemoryDatabase(): Database {

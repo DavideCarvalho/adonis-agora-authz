@@ -55,16 +55,20 @@ middleware's `sharedData`.
 
 ```ts title="config/inertia.ts"
 import { defineConfig } from '@adonisjs/inertia'
+import { resolveAuthUser } from '@adonis-agora/authz'
 import authz from '@adonis-agora/authz/services/main'
 import { buildAuthzShare } from '@adonis-agora/authz-react/server'
 
 export default defineConfig({
   sharedData: {
-    // `ctx.auth.user` works with @adonisjs/auth; use ctx.auth.getUser() for authkit.
-    authz: (ctx) => buildAuthzShare(authz, ctx.auth?.user ?? null),
+    authz: async (ctx) => buildAuthzShare(authz, await resolveAuthUser(ctx.auth)),
   },
 })
 ```
+
+`resolveAuthUser(ctx.auth)` returns the signed-in user. On a page with no `auth`
+or `silentAuth` middleware it authenticates on demand (`ctx.auth.check()`), so
+the share is right on every page without a global `silentAuth`.
 
 `buildAuthzShare` needs only the `effectiveRoles` / `effectivePermissions` slice
 of the service, so the

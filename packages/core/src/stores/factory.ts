@@ -1,6 +1,6 @@
 import type { ApplicationService } from '@adonisjs/core/types';
 import type { PermissionStore, StoreQueryClient } from '../store.js';
-import type { AuthzSubjectIdType, AuthzTableNames, LucidDatabase } from './lucid.js';
+import type { AuthzSubjectIdType, AuthzTableNames, LucidDatabase } from './lucid-schema.js';
 import { MemoryPermissionStore } from './memory.js';
 
 export interface StoreContext {

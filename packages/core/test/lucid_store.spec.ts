@@ -1,7 +1,8 @@
 import type { Database } from '@adonisjs/lucid/database';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StoreQueryClient } from '../src/store.js';
-import { type LucidDatabase, LucidPermissionStore } from '../src/stores/lucid.js';
+import { LucidPermissionStore } from '../src/stores/lucid.js';
+import type { LucidDatabase } from '../src/stores/lucid-schema.js';
 import { asLucidDatabase, makeMemoryDatabase } from './lucid_helpers.js';
 
 describe('LucidPermissionStore (sqlite)', () => {

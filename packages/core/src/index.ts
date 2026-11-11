@@ -4,7 +4,6 @@ export const VERSION = '0.20.2';
 // AdonisJS imports the package MAIN and reads `configure` off the module namespace —
 // the `./configure` subpath alone is never consulted.
 export { configure } from '../configure.js';
-
 export type { AgoraContextAccessor } from './agora/context.js';
 // Structural Agora context bridge (features B & C).
 export {
@@ -15,6 +14,7 @@ export {
   subjectRefFromContext,
   tenantFromContext,
 } from './agora/context.js';
+export { type AuthLike, resolveAuthUser } from './auth_user.js';
 export type {
   AuthorizeByRolesOptions,
   AuthorizeDecision,
@@ -111,15 +111,15 @@ export type {
   StoreContext,
   StoreProvider,
 } from './stores/factory.js';
+export type { LucidPermissionStoreOptions } from './stores/lucid.js';
+export { LucidPermissionStore } from './stores/lucid.js';
 export type {
   AuthzSubjectIdType,
   AuthzTableNames,
   LucidDatabase,
-  LucidPermissionStoreOptions,
   LucidQueryBindings,
   LucidQueryClient,
-} from './stores/lucid.js';
-export { LucidPermissionStore } from './stores/lucid.js';
+} from './stores/lucid-schema.js';
 // Standalone Lucid schema helpers — for apps that set `autoCreateSchema: false` and
 // create the RBAC tables from a Lucid migration (mirrors `@adonis-agora/durable`).
 export {
