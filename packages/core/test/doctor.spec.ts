@@ -85,6 +85,11 @@ describe('authz doctor checks', () => {
       expect(mapped[0]?.status).toBe('warn');
     });
 
+    it('an empty tenancy.roles maps nothing, so it does not warn', async () => {
+      const out = await run('authz.tenancy', fakeApp({ stores, tenancy: { roles: {} } }).app);
+      expect(out[0]?.status).toBe('skip');
+    });
+
     it('reads tenancy from the context slot, or config/context.ts without it', async () => {
       const viaConfig = await run(
         'authz.tenancy',

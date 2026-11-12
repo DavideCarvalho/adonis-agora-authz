@@ -38,6 +38,7 @@ Add it to CI after the build:
 | --- | --- | --- |
 | `authz.peers` | `@adonisjs/core` (and Bouncer, Lucid, diagnostics when installed) are in the supported range | error |
 | `authz.agora-siblings` | no 0.x and 1.x `@adonis-agora` libs mixed | warn |
+| `authz.registered` | every installed Agora lib with checks has its provider registered | warn |
 | `authz.config` | `stores` is not empty and `default` names one of them | error |
 | `authz.super-admin` | lists the `superAdminRoles` / `superAdmin` hook that allow everything | ok |
 | `authz.tenancy` | with [organization as tenant](/docs/authz/agora-integration#organization-as-tenant): `tenancy.roles` is not set while tenancy is off, and every mapped role has `roleGrants` | warn |

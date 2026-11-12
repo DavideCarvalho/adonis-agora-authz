@@ -89,7 +89,9 @@ export function authzDoctorChecks(): AgoraDoctorCheck[] {
       run(app): AgoraDoctorResult | AgoraDoctorResult[] {
         const config = configOf(app);
         const option = config.tenancy;
-        const roles = typeof option === 'object' && option !== null ? option.roles : undefined;
+        const declared = typeof option === 'object' && option !== null ? option.roles : undefined;
+        const roles =
+          declared !== undefined && Object.keys(declared).length > 0 ? declared : undefined;
         const on = tenancyOn(app, config);
         if (!on) {
           if (roles !== undefined) {
