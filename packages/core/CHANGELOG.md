@@ -1,5 +1,11 @@
 # @adonis-agora/authz
 
+## 1.0.0-rc.4
+
+### Minor Changes
+
+- [#217](https://github.com/DavideCarvalho/adonis-agora-authz/pull/217) [`cf09cd3`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/cf09cd3a35537e6185fab505778b171f0951d4f3) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `schema` on `stores.lucid()`: keep the RBAC tables in their own Postgres schema (MySQL: database), created on first use when `autoCreateSchema` is on. Every statement names it (`"authz".authz_roles`), including those run on the app's transaction, so nothing depends on `search_path` and it is safe behind PgBouncer in transaction mode. `createAuthzTables`/`dropAuthzTables` and `authzRolesRelation()` take `schema` too. A `schema` on SQLite fails the boot. `agora:doctor --deep` gains `authz.schema` when it is set.
+
 ## 1.0.0-rc.3
 
 ### Minor Changes
