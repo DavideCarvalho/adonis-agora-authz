@@ -1,0 +1,66 @@
+---
+title: MCP tools
+description: Let your coding agent ask why a user can or cannot do something, list effective roles and permissions, and spot roles the store is missing, over the Agora dev MCP endpoint.
+icon: Terminal
+---
+
+With [`@adonis-agora/agent`](/docs/agent)'s MCP provider installed, authz adds read-only tools to
+the developer MCP endpoint (`/mcp/agora`), next to the other Agora libraries' tools. Connect Claude
+Code (or any MCP client) as the [agent docs](/docs/agent/dev-tools) show, then ask things like
+*"why can't user 42 edit post 7?"* or *"which roles in the catalog were never synced?"*.
+
+| Tool | What it returns |
+| --- | --- |
+| `authz_explain_check` | the verdict for `subjectId` + `permission` (optional `subjectType`, `tenantId`, `resourceType` + `resourceId`): its reason, whether a super-admin rule or the decision provider decided, the effective roles with their sources, and which roles or direct grants cover the permission |
+| `authz_list_effective_roles` | a subject's roles in a tenant, each with where it comes from: `context` (token), `tenant` (org role mapped by `tenancy.roles`), `app` (`resolveRoles`), `store` |
+| `authz_list_effective_permissions` | a subject's permissions in a tenant (`limit`, `page`) |
+| `authz_list_roles` | every role with its permissions in the store, in `roleGrants` and in the `catalog`; `drift: true` lists the catalog roles with something missing from the store, which `node ace authz:sync` adds |
+
+Lists return `{ items, next }`: pass `next` as `page` to get the following page.
+
+Without `tenantId`, checks run where the app's own checks would: in the request's active
+organization when [tenancy](/docs/authz/agora-integration#organization-as-tenant) is on, else in
+the global scope. Pass `tenantId: ''` to force the global scope.
+
+Roles from a token (authkit's global roles) and from the caller's organization role belong to
+whoever makes the request, so for any other subject the tools show only the app and store roles.
+
+## Who may use them
+
+authz has no console, so the endpoint's `devTools.authorize` in `config/mcp.ts` decides. Without
+it the tools are open outside production and refused in production:
+
+```ts title="config/mcp.ts"
+import env from '#start/env'
+import { authorizeByToken } from '@adonis-agora/agent'
+import { defineMcpConfig } from '@adonis-agora/agent/mcp'
+
+export default defineMcpConfig({
+  name: 'Acme',
+  version: '1.0.0',
+  // …your product endpoint…
+  devTools: {
+    authorize: authorizeByToken({ token: env.get('CONSOLE_TOKEN') }),
+  },
+})
+```
+
+## Load your models
+
+A decision provider (Cerbos…) or a `superAdmin` hook that reads fields of your models needs the
+models, not `{ type, id }` refs. Give the tools a loader:
+
+```ts title="config/authz.ts"
+import User from '#models/user'
+import Post from '#models/post'
+
+export default defineConfig({
+  // …
+  devTools: {
+    loadSubject: (ref) => (ref.type === 'user' ? User.find(ref.id) : undefined),
+    loadResource: (ref) => (ref.type === 'post' ? Post.find(ref.id) : undefined),
+  },
+})
+```
+
+`devTools: false` leaves the tools out.

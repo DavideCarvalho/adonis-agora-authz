@@ -28,6 +28,7 @@ export type {
   AuthzCheckRequest,
   AuthzDecision,
   AuthzDecisionReason,
+  AuthzExplanation,
   AuthzServiceOptions,
   SuperAdminHook,
   TenantResolver,
@@ -48,6 +49,7 @@ export { normalizeVerdict } from './decision_provider.js';
 export type { AuthzConfig } from './define_config.js';
 // Drivers-in-core config idiom.
 export { defineConfig, stores } from './define_config.js';
+export type { AuthzDevToolsOptions } from './dev_tools/tools.js';
 export type { AuthzRolesRelationOptions } from './lucid_relation.js';
 export { authzRolesRelation } from './lucid_relation.js';
 export type { RequireRoleOptions } from './middleware.js';

@@ -54,7 +54,7 @@ export default defineConfig({
 ```ts
 import authz from '@adonis-agora/authz/services/main'
 
-await authz.effectiveRoles(user)                       // global ∪ app ∪ store
+await authz.effectiveRoles(user)                       // active tenant when context tenancy is on, else global scope
 await authz.effectiveRoles(user, { tenantId: 'acme' }) // tenant-filtered
 ```
 

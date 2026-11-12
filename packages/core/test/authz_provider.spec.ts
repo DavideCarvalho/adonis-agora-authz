@@ -54,3 +54,39 @@ describe('AuthzProvider config plumbing (reverse seams)', () => {
     expect(await authz.subjectsWithRole('ADMIN')).toEqual([{ type: 'user', id: 'g-admin' }]);
   });
 });
+
+describe('AuthzProvider dev tools', () => {
+  function appWithHub(authzConfig: unknown) {
+    const app = appWithAuthzConfig(authzConfig);
+    const registered: Array<{ lib: string; tools: unknown[] }> = [];
+    const hub = {
+      version: 1,
+      supports: (feature: string) => feature === 'endpoint-authorize',
+      register: (lib: { lib: string; tools: unknown[] }) => registered.push(lib),
+    };
+    const make = app.container.make;
+    const container = Object.assign(app.container, {
+      hasBinding: (key: string) => key === 'agora.devTools',
+      make: async (token: unknown) => (token === 'agora.devTools' ? hub : make(token)),
+    });
+    return { app: { ...app, container }, registered };
+  }
+
+  const base = { default: 'mem', stores: { mem: async () => new MemoryPermissionStore() } };
+
+  it('registers the authz tools in boot() when the dev-tools hub exists', async () => {
+    const { app, registered } = appWithHub(base);
+    const provider = new AuthzProvider(app as never);
+    provider.register();
+    await provider.boot();
+    expect(registered.map((l) => l.lib)).toEqual(['authz']);
+  });
+
+  it('registers nothing with devTools: false', async () => {
+    const { app, registered } = appWithHub({ ...base, devTools: false });
+    const provider = new AuthzProvider(app as never);
+    provider.register();
+    await provider.boot();
+    expect(registered).toEqual([]);
+  });
+});

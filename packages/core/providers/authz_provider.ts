@@ -2,6 +2,7 @@ import type { ApplicationService } from '@adonisjs/core/types';
 import { setBootedApp } from '../services/booted_app.js';
 import { AuthzService } from '../src/authz_service.js';
 import type { AuthzConfig } from '../src/define_config.js';
+import { registerAuthzDevTools } from '../src/dev_tools/tools.js';
 import { ScopeRegistry } from '../src/scope.js';
 
 /**
@@ -84,5 +85,35 @@ export default class AuthzProvider {
         ...(tenancy !== undefined ? { tenancy } : {}),
       });
     });
+  }
+
+  /**
+   * Registers the authz developer tools on the agent's dev MCP endpoint (`/mcp/agora`) when
+   * `@adonis-agora/agent`'s MCP provider is installed. `devTools: false` in config/authz.ts leaves
+   * them out.
+   */
+  async boot() {
+    const config = () => this.app.config.get<AuthzConfig>('authz', {});
+    const devTools = config().devTools;
+    if (devTools === false) return;
+    const outcome = await registerAuthzDevTools(this.app.container as never, {
+      service: () => this.app.container.make(AuthzService),
+      catalog: () => config().catalog,
+      roleGrants: () => config().roleGrants,
+      options: () => {
+        const current = config().devTools;
+        return typeof current === 'object' && current !== null ? current : {};
+      },
+    });
+    if (outcome === 'unsupported' || outcome === 'failed') {
+      const logger = (await this.app.container.make('logger').catch(() => undefined)) as
+        | { debug(msg: string): void }
+        | undefined;
+      logger?.debug(
+        outcome === 'unsupported'
+          ? '[@adonis-agora/authz] dev tools not registered: the installed @adonis-agora/agent cannot gate libs without a console (needs devTools.authorize support)'
+          : '[@adonis-agora/authz] dev tools could not be registered',
+      );
+    }
   }
 }

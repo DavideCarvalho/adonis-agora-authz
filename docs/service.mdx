@@ -107,6 +107,30 @@ Without a decision provider, an anonymous or unmappable user is always `false`.
 `checkMany(...)` batch checks: one shared cache, and one `decideMany` round-trip to the
 decision provider.
 
+### Checking by reference: `checkForRef` and `explainCheck`
+
+When all you have is `{ type, id }` (a job payload, an admin tool), check without loading a model:
+
+```ts
+await authz.checkForRef({ type: 'user', id: '42' }, 'posts.edit')
+await authz.checkForRef(ref, 'posts.edit', { user: await User.find(ref.id), resource: post })
+```
+
+Pass `user` when you have the model, so the decision provider sees it.
+
+`explainCheck(ref, permission, options?)` returns the same decision plus how it was reached:
+`superAdmin`, what the decision provider said (`'none' | 'not-consulted' | 'allowed' | 'denied' |
+'abstained'`), `effectiveRoles`, `roleSources` (`context`, `tenant`, `app`, `store`),
+`grantingRoles` (`[{ role, matched }]`) and `directGrants`. It is what the
+[`authz_explain_check`](/docs/authz/mcp-tools) MCP tool answers with.
+
+```ts
+const why = await authz.explainCheck({ type: 'user', id: '42' }, 'posts.edit')
+// { allowed: false, reason: 'no-grant', effectiveRoles: ['viewer'], grantingRoles: [], … }
+```
+
+`effectiveRoleSources(ref, scope?)` returns the effective roles split by where they come from.
+
 ## `effectivePermissions(user, scope?)`
 
 The full permission set behind a `can()` decision, as a plain array. `can()`
