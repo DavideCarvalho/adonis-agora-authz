@@ -13,7 +13,7 @@ description: >
   Inertia apps, letting the host decide the denial response, or wiring
   start/kernel.ts middleware. Also covers authorizeByRoles, the authorize hook
   for @adonis-agora dashboards (telescope, durable, media, payments, agent),
-  which returns an AuthorizeResult (true | { allowed: false, reason }).
+  which returns an AuthorizeResult (true | { allowed: true, tenants: '*' } | { allowed: false, reason }).
 metadata:
   type: core
   library: "@adonis-agora/authz"
@@ -117,7 +117,7 @@ Source: `docs/middleware.mdx`
 ```ts
 import authz from '@adonis-agora/authz/services/main'
 
-const roles = await authz.effectiveRoles(user)                  // global scope
+const roles = await authz.effectiveRoles(user)                  // active tenant when context tenancy is on, else global scope
 const scoped = await authz.effectiveRoles(user, { tenantId: 'acme' })
 ```
 
@@ -143,7 +143,10 @@ Returns an `AuthorizeResult` (`boolean | AuthorizeDecision`, both exported):
 'unauthenticated' }` with no session (dashboard answers `401`; with `loginPath`
 a page navigation — `Accept: text/html` — is redirected to the login first);
 `{ allowed: false, reason: 'forbidden' }` when signed in without the role (`403`,
-never redirected — it would loop).
+never redirected — it would loop). With `allTenants` set, a viewer holding one
+of those roles globally (or a `superAdminRoles` role) is allowed with
+`{ allowed: true, tenants: '*' }` — every organization; a tenant-scoped role
+never counts for `allTenants`.
 
 Requires the dashboard lib versions that accept `AuthorizeDecision` (see the
 version list in `docs/middleware.mdx`). The denial is an object, so it is
