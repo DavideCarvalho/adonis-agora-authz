@@ -123,9 +123,17 @@ export function globalRolesFromContext(): string[] {
  * `type` and `id` as `ref`; otherwise this returns `[]`.
  */
 export function globalRolesForSubject(ref: { type: string; id: string }): string[] {
+  return isContextSubject(ref) ? globalRolesFromContext() : [];
+}
+
+/**
+ * Whether `ref` is the subject the active Agora context belongs to (the caller of the current
+ * request or job): same `type` (default `'user'`) and `id`. Anything the context says about its
+ * caller (global roles, the role inside the active tenant) applies to that subject only.
+ */
+export function isContextSubject(ref: { type: string; id: string }): boolean {
   const current = subjectRefFromContext();
-  if (current?.id === undefined || current.id === null) return [];
-  if (String(current.id) !== ref.id) return [];
-  if ((current.type ?? 'user') !== ref.type) return [];
-  return globalRolesFromContext();
+  if (current?.id === undefined || current.id === null) return false;
+  if (String(current.id) !== ref.id) return false;
+  return (current.type ?? 'user') === ref.type;
 }

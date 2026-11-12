@@ -1,4 +1,10 @@
-import { globalRolesForSubject } from './agora/context.js';
+import { globalRolesForSubject, isContextSubject } from './agora/context.js';
+import {
+  type AuthzTenancyOption,
+  contextTenant,
+  mappedTenantRoles,
+  resolveAuthzTenancy,
+} from './agora/tenancy.js';
 import {
   type DecisionContext,
   type DecisionProvider,
@@ -164,6 +170,13 @@ export interface AuthzServiceOptions {
    * deny or abstain (`undefined`). See {@link DecisionProvider} for the full precedence.
    */
   decisionProvider?: DecisionProvider;
+  /**
+   * Organization-as-tenant. With tenancy on (default `'inherit'`: `tenancy.enabled` in
+   * `config/context.ts`), a check with no explicit `scope` and no `tenant`/`resolveTenant` runs in
+   * the active context tenant's scope, and `tenancy.roles` maps the caller's role inside that
+   * tenant to authz roles there. Off (or no `@adonis-agora/context`): unchanged behaviour.
+   */
+  tenancy?: AuthzTenancyOption;
 }
 
 function normalizeTenantResolver(value: string | TenantScope | undefined): TenantScope | undefined {
@@ -192,6 +205,7 @@ export class AuthzService {
   private readonly resolveTenant: (() => string | undefined) | undefined;
   private readonly superAdminRoles: ReadonlySet<string>;
   private readonly roleGrants: Record<string, string[]> | undefined;
+  private readonly tenancyOption: AuthzTenancyOption | undefined;
   private readonly resolveRolesFn:
     | ((user: SubjectRef, scope?: TenantScope) => Promise<string[]> | string[])
     | undefined;
@@ -234,6 +248,25 @@ export class AuthzService {
     this.resolveGlobalRoleMembersFn = options.resolveGlobalRoleMembers;
     this.scopes = options.scopes ?? new ScopeRegistry();
     this.decisionProvider = options.decisionProvider;
+    this.tenancyOption = options.tenancy;
+  }
+
+  /**
+   * The active context tenant authz scopes by, when tenancy is on (see
+   * {@link AuthzServiceOptions.tenancy}): its id, kind and the caller's role in it. `undefined`
+   * when tenancy is off, outside a request, inside `Context.allTenants()`, or without a tenant
+   * of a kind authz honours.
+   */
+  contextTenant(): { id: string; kind: string; role?: string } | undefined {
+    const active = contextTenant(resolveAuthzTenancy(this.tenancyOption));
+    if (active === undefined) return undefined;
+    const { id, kind, role } = active.tenant;
+    return role !== undefined ? { id, kind, role } : { id, kind };
+  }
+
+  /** Whether tenancy is on for authz right now (its `tenancy` option against `config/context.ts`). */
+  tenancyEnabled(): boolean {
+    return resolveAuthzTenancy(this.tenancyOption).enabled;
   }
 
   /** Map a host user object to a canonical {@link SubjectRef} (or undefined). */
@@ -246,7 +279,8 @@ export class AuthzService {
   /**
    * The active tenant scope. Precedence: explicit `scope` arg → configured
    * `tenant` resolver → opt-in `resolveTenant` (feature B, e.g. the Agora
-   * context). When nothing yields a tenant, returns `undefined` (global `''`).
+   * context) → with tenancy on and neither of those configured, the active context
+   * tenant. When nothing yields a tenant, returns `undefined` (global `''`).
    */
   currentScope(scope?: TenantScope): TenantScope | undefined {
     if (scope) return scope;
@@ -257,6 +291,10 @@ export class AuthzService {
     if (this.resolveTenant) {
       const fromContext = this.resolveTenant();
       if (fromContext) return { tenantId: fromContext };
+    }
+    if (!this.tenant && !this.resolveTenant) {
+      const active = this.contextTenant();
+      if (active) return { tenantId: active.id };
     }
     return undefined;
   }
@@ -290,6 +328,16 @@ export class AuthzService {
   }
 
   /**
+   * Whether `user` is a super-admin through a `superAdminRoles` role (the context's global roles,
+   * only for the context's own subject). The `superAdmin` hook is not consulted: it answers per
+   * ability.
+   */
+  isSuperAdminByRole(user: unknown): boolean {
+    const ref = this.refOf(user);
+    return ref !== undefined && this.isGlobalSuperAdmin(ref);
+  }
+
+  /**
    * Global-role bridge (feature C): is any of `ref`'s global roles (read structurally from the
    * Agora context store, and only when `ref` is the context's own subject) a configured
    * super-admin role?
@@ -314,9 +362,22 @@ export class AuthzService {
    */
   async effectiveRolesForRef(ref: SubjectRef, tenant?: TenantScope): Promise<string[]> {
     const contextRoles = globalRolesForSubject(ref);
+    const tenantRoles = this.tenantRolesForRef(ref, tenant);
     const appRoles = this.resolveRolesFn ? await this.resolveRolesFn(ref, tenant) : [];
     const storeRoles = await this.store.getRolesForSubject(ref, tenant);
-    return [...new Set([...contextRoles, ...appRoles, ...storeRoles])];
+    return [...new Set([...contextRoles, ...tenantRoles, ...appRoles, ...storeRoles])];
+  }
+
+  /**
+   * The roles `ref` holds through its role inside the tenant `tenant` (`tenancy.roles`): only for
+   * the context's own subject (the role belongs to the caller of this request) and only in that
+   * tenant's scope, never globally.
+   */
+  tenantRolesForRef(ref: SubjectRef, tenant?: TenantScope): string[] {
+    if (this.tenancyOption === undefined || this.tenancyOption === false) return [];
+    if (typeof this.tenancyOption !== 'object' || this.tenancyOption.roles === undefined) return [];
+    if (!tenant?.tenantId || !isContextSubject(ref)) return [];
+    return mappedTenantRoles(resolveAuthzTenancy(this.tenancyOption), tenant.tenantId);
   }
 
   /**

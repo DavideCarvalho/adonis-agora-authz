@@ -1,3 +1,4 @@
+import type { AuthzTenancyOption } from './agora/tenancy.js';
 import type { SuperAdminHook, TenantResolver } from './authz_service.js';
 import type { DecisionProvider } from './decision_provider.js';
 import type { ScopeRegistry } from './scope.js';
@@ -76,6 +77,19 @@ export interface AuthzConfig {
    * `accessibleBy`. A Cerbos adapter ships at `@adonis-agora/authz/cerbos`.
    */
   decisionProvider?: DecisionProvider;
+  /**
+   * Organization-as-tenant (`@adonis-agora/context` tenancy). Default `'inherit'`: on when
+   * `tenancy.enabled` is true in `config/context.ts`. When on, a check with no explicit `scope`
+   * (and no `tenant`/`resolveTenant` above) runs in the active tenant's scope, and `roles` maps
+   * the caller's role inside that tenant (authkit `orgRole`) to authz roles there:
+   *
+   * ```ts
+   * tenancy: { roles: { owner: 'org_admin', member: 'org_member' } }
+   * ```
+   *
+   * `false` keeps authz global even when context enables tenancy.
+   */
+  tenancy?: AuthzTenancyOption;
 }
 
 /** A declarative roles → permissions map for `authz:sync`. */

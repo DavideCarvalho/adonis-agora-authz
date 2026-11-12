@@ -227,6 +227,10 @@ defineConfig({
 })
 ```
 
+With `@adonis-agora/context` tenancy on, you don't need a resolver: authz uses the active
+tenant, and `tenancy.roles` maps org roles to authz roles. See
+[Organization as tenant](/docs/authz/agora-integration#organization-as-tenant).
+
 ## Effective roles: `resolveRoles` & `roleGrants`
 
 A user's **effective roles** are the union of three sources — and two config

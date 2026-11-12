@@ -141,8 +141,12 @@ Source: `docs/config.mdx`, `docs/agora-integration.mdx`
 
 ### Tenant auto-scope from the request or context
 
-Precedence: explicit `scope` arg → `tenant` resolver → opt-in `resolveTenant`.
-With none of them yielding a value, the check runs in the global `''` scope.
+Precedence: explicit `scope` arg → `tenant` resolver (when configured) →
+opt-in `resolveTenant` (when configured) → with `@adonis-agora/context`
+tenancy on and neither resolver configured, the active tenant. Otherwise the
+check runs in the global `''` scope (including inside `Context.allTenants()`,
+outside a request, or with no active tenant; `tenancy: false` keeps authz
+global even when context enables tenancy).
 
 ```ts title="config/authz.ts"
 import { defineConfig, stores, tenantFromContext } from '@adonis-agora/authz'
