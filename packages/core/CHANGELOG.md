@@ -1,5 +1,11 @@
 # @adonis-agora/authz
 
+## 1.0.0-rc.2
+
+### Minor Changes
+
+- [#214](https://github.com/DavideCarvalho/adonis-agora-authz/pull/214) [`83366eb`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/83366eb24d643091eb4b42ddcf09941c6d319f95) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Dev MCP tools on `@adonis-agora/agent`'s `/mcp/agora` endpoint (gated by the endpoint's `devTools.authorize`): `authz_explain_check`, `authz_list_effective_roles`, `authz_list_effective_permissions`, `authz_list_roles` (with catalog vs store drift). New `devTools` option in `config/authz.ts` (`false`, or `{ loadSubject, loadResource }`), and service methods `checkForRef`, `explainCheck`, `effectiveRoleSources`.
+
 ## 1.0.0-rc.1
 
 ### Minor Changes
