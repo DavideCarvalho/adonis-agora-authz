@@ -16,6 +16,7 @@
     "mixin",
     "roles-relation",
     "commands",
+    "doctor",
     "mcp-tools",
     "testing",
     "migrating-to-1-0"

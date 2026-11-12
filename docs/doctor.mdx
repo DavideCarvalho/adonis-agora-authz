@@ -1,0 +1,45 @@
+---
+title: Health check
+description: node ace agora:doctor checks the authz configuration (and every other installed Agora lib) for what breaks in production, from the terminal or in CI.
+icon: Stethoscope
+---
+
+`node ace agora:doctor` checks every installed `@adonis-agora` lib; `node ace authz:doctor` checks authz only.
+
+```bash
+node ace agora:doctor                  # every lib
+node ace authz:doctor                  # authz only
+node ace agora:doctor --deep           # also ask the store (database)
+node ace agora:doctor --json --strict  # in CI: one JSON object, fail on warnings too
+node ace agora:doctor --no-boot        # the app does not boot: config checks without booting
+```
+
+| Flag | |
+| --- | --- |
+| `--lib=authz,durable` | only these libs |
+| `--only=authz.catalog-sync` | one check |
+| `--deep` | also checks that reach the database |
+| `--json` | one JSON object on stdout |
+| `--strict` | warnings fail too |
+| `--verbose` | show skipped checks |
+| `--no-boot` | do not boot the app (for when booting is what fails); runs the checks that only read config |
+
+Exit code: `0` no error, `1` at least one error (or a warning with `--strict`), `2` the doctor could not run.
+
+Add it to CI after the build:
+
+```yaml title=".github/workflows/ci.yml"
+- run: NODE_ENV=production node ace agora:doctor --json --strict
+```
+
+## Checks
+
+| Id | What it checks | Status |
+| --- | --- | --- |
+| `authz.peers` | `@adonisjs/core` (and Bouncer, Lucid, diagnostics when installed) are in the supported range | error |
+| `authz.agora-siblings` | no 0.x and 1.x `@adonis-agora` libs mixed | warn |
+| `authz.config` | `stores` is not empty and `default` names one of them | error |
+| `authz.super-admin` | lists the `superAdminRoles` / `superAdmin` hook that allow everything | ok |
+| `authz.tenancy` | with [organization as tenant](/docs/authz/agora-integration#organization-as-tenant): `tenancy.roles` is not set while tenancy is off, and every mapped role has `roleGrants` | warn |
+| `authz.store-reachable` (`--deep`) | the store answers | error |
+| `authz.catalog-sync` (`--deep`) | every role, permission and grant of `catalog` is in the store; fix with `node ace authz:sync` | warn |

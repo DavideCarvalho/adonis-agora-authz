@@ -69,3 +69,13 @@ defineConfig({
   },
 })
 ```
+
+## `authz:doctor`
+
+Checks the authz configuration; `node ace agora:doctor` checks every installed Agora lib. See
+[Health check](/docs/authz/doctor).
+
+```bash
+node ace authz:doctor
+node ace authz:doctor --deep   # also checks the catalog was synced to the store
+```

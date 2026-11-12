@@ -58,6 +58,11 @@
       "import": "./dist/commands/main.js",
       "default": "./dist/commands/main.js"
     },
+    "./doctor": {
+      "types": "./dist/src/doctor/index.d.ts",
+      "import": "./dist/src/doctor/index.js",
+      "default": "./dist/src/doctor/index.js"
+    },
     "./mixins": {
       "types": "./dist/src/mixins.d.ts",
       "import": "./dist/src/mixins.js",
@@ -108,7 +113,8 @@
     "test": "vitest run --passWithNoTests",
     "test:db": "vitest run test/lucid_store_testcontainers.spec.ts",
     "test:watch": "vitest",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check:agora-doctor": "node ../../scripts/check-agora-doctor.mjs ."
   },
   "peerDependencies": {
     "@adonis-agora/diagnostics": ">=0.1.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0",

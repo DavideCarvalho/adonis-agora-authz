@@ -33,6 +33,8 @@ jobs:
       # publint + attw against every published package's built output.
       - run: pnpm check:package
 
+      - run: pnpm check:agora-doctor
+
   # The test suite runs on every Node line the packages support (`engines.node: ">=24"`): the
   # 24 LTS and the current 26. Lint, typecheck and build above stay on the pinned 24 — they do
   # not depend on the runtime, so the matrix would only multiply them.
