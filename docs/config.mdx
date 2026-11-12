@@ -37,6 +37,7 @@ stores.lucid({
   tables: {                // optional name overrides
     roles: 'authz_roles',
   },
+  schema: 'authz',         // optional; see "Database schema" below
   resolveClient: () => authzClient.getStore(), // optional; see "Joining a transaction"
   subjectIdType: 'integer',   // optional; see "Native key-type pivots" below
 })
@@ -139,6 +140,60 @@ export const authzClient = new AsyncLocalStorage<StoreQueryClient>()
   **before** opening the transaction. On a single-connection pool (SQLite) a
   root DDL mid-transaction would wait on it; that is what this rule avoids.
 </Callout>
+
+### Database schema
+
+Keep the authz tables out of your own: put them in a Postgres schema of their
+own (on MySQL/MariaDB, a database of their own).
+
+```ts title="config/authz.ts"
+stores.lucid({
+  schema: 'authz', // "authz".authz_roles, "authz".authz_subject_role, …
+})
+```
+
+Every statement the store runs names the schema, including the ones it runs on
+your transaction (`{ client: trx }`, `withClient`, `resolveClient`), so the
+connection's own default schema stays `public` and nothing else changes. With
+`autoCreateSchema` on, the schema is created on first use (`CREATE SCHEMA IF NOT
+EXISTS`; MySQL: `CREATE DATABASE IF NOT EXISTS`). When the database user may not
+create it, the error names the schema and the grant to add — or create it once
+as an admin.
+
+With the migration, pass the same `schema` to the helpers; `createAuthzTables`
+creates the schema too:
+
+```ts title="database/migrations/xxxx_create_authz_tables.ts"
+this.defer((db) => createAuthzTables(db, { schema: 'authz' }))
+// down(): this.defer((db) => dropAuthzTables(db, { schema: 'authz' }))
+```
+
+The [roles relation](/docs/authz/roles-relation#options) takes it too, and your
+role model names it in `static table`:
+
+```ts
+static table = 'authz.authz_roles'
+// …
+@manyToMany(() => AuthzRole, authzRolesRelation({ schema: 'authz' }))
+```
+
+<Callout type="warn">
+  **Don't use a connection with `searchPath` for this.** Knex sends `SET
+  search_path` on the session, and behind PgBouncer in transaction mode that
+  setting leaks into other clients' connections. The `schema` option writes the
+  schema into each query instead, so it is safe there.
+</Callout>
+
+- **MySQL / MariaDB**: `schema` is a database name, on the same server as the
+  connection. The connection's user needs privileges on it.
+- **SQLite** has no schemas: a `schema` there fails the boot with an error. Remove
+  the option for SQLite (tests included).
+- The name must be a plain identifier: letters, digits, `_` and `$`, not starting
+  with a digit, at most 63 characters.
+- Set it before the first boot. Tables that already exist in the default schema
+  are not moved.
+- `node ace agora:doctor --deep` checks that the schema exists, holds the five
+  tables and accepts writes.
 
 </Tab>
 <Tab value="Memory">
@@ -342,7 +397,7 @@ export default class extends BaseSchema {
 }
 ```
 
-- `createAuthzTables(db, { tables? })` — idempotent (`CREATE TABLE IF NOT EXISTS`),
+- `createAuthzTables(db, { tables?, schema?, subjectIdType? })` — idempotent (`CREATE TABLE IF NOT EXISTS`),
   dialect-aware (Postgres / MySQL / SQLite). Safe to call from a migration `up()`.
   MySQL 8 has no `CREATE INDEX IF NOT EXISTS` (a MariaDB-only extension), so there
   the index DDL drops the clause and swallows the duplicate-key error — same
@@ -351,7 +406,7 @@ export default class extends BaseSchema {
   [role sources](/docs/authz/roles#role-sources-manual-vs-ssoscim) is added
   non-destructively. Widening that table's primary key is a manual, one-off step
   (SQL in the linked section).
-- `dropAuthzTables(db, { tables? })` — idempotent (`DROP TABLE IF EXISTS`),
+- `dropAuthzTables(db, { tables?, schema? })` — idempotent (`DROP TABLE IF EXISTS`),
   child-first, for the migration `down()`.
 - `AUTHZ_TABLES` — the default table names (`authz_roles`, `authz_permissions`,
   `authz_role_permission`, `authz_subject_role`, `authz_subject_permission`).

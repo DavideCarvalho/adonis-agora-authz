@@ -1,4 +1,4 @@
-import { AUTHZ_TABLES, type AuthzTableNames } from './stores/lucid-schema.js';
+import { AUTHZ_TABLES, type AuthzTableNames, assertSchemaName } from './stores/lucid-schema.js';
 import { GLOBAL_TENANT } from './subject_ref.js';
 
 /**
@@ -121,6 +121,12 @@ export interface AuthzRolesRelationOptions {
   /** Sobrescreve nomes de tabela, se o store foi configurado com outros. */
   tables?: AuthzTableNames;
   /**
+   * The schema (MySQL: database) the store keeps its tables in — the same `schema` as in
+   * `config/authz.ts`. The pivot is then read as `authz.authz_subject_role`. The roles MODEL is
+   * yours: give it `static table = 'authz.authz_roles'` too.
+   */
+  schema?: string;
+  /**
    * O tipo de sujeito deste modelo — o `type` que `resolveSubjectRef` devolve para ele e
    * que `assignRole` gravou em `subject_type`. Default `'user'`. Um modelo `Team` passa
    * `'team'`, um `ServiceAccount` `'service'`, etc.
@@ -198,8 +204,14 @@ export function authzRolesRelation(options: AuthzRolesRelationOptions = {}) {
   const subjectType = options.subjectType ?? 'user';
   const tenantId = options.tenantId ?? GLOBAL_TENANT;
 
+  // `schema.table`: knex splits it on the dot and quotes each part on its own, on every dialect.
+  const pivotTable =
+    options.schema === undefined
+      ? tables.subjectRole
+      : `${assertSchemaName(options.schema)}.${tables.subjectRole}`;
+
   return {
-    pivotTable: tables.subjectRole,
+    pivotTable,
     // Sem `localKey` o Lucid usa a PK do modelo — o nome que o host escolheu.
     ...(options.localKey ? { localKey: options.localKey } : {}),
     pivotForeignKey: 'subject_id',

@@ -23,12 +23,16 @@ export default class extends BaseSchema {
       // (increments) or 'bigint' (bigIncrements). All subjects must then hold
       // integer ids, and config/authz.ts must pass the same subjectIdType.
       // await createAuthzTables(db, { subjectIdType: 'integer' })
+      // Optional: keep the tables in their own Postgres schema (MySQL: database),
+      // created here if missing. Pass the same schema to stores.lucid() and to down().
+      // await createAuthzTables(db, { schema: 'authz' })
     })
   }
 
   async down() {
     this.defer(async (db) => {
       await dropAuthzTables(db)
+      // await dropAuthzTables(db, { schema: 'authz' })
     })
   }
 }

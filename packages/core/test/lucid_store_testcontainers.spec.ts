@@ -12,7 +12,7 @@ import { authzRolesRelation } from '../src/lucid_relation.js';
 import type { StoreQueryClient } from '../src/store.js';
 import { LucidPermissionStore } from '../src/stores/lucid.js';
 import type { AuthzTableNames, LucidDatabase } from '../src/stores/lucid-schema.js';
-import { createAuthzTables } from '../src/stores/lucid-schema.js';
+import { AUTHZ_TABLES, createAuthzTables } from '../src/stores/lucid-schema.js';
 import { runPermissionStoreContract } from '../src/testing.js';
 
 /**
@@ -369,6 +369,221 @@ for (const backend of backends) {
       }
     });
 
+    describe('with `schema` (tables outside the default schema)', () => {
+      const isPg = backend.dialectPattern.test('postgres');
+      let schemaSeq = 0;
+      const nextSchema = () => {
+        schemaSeq += 1;
+        return `authz_sch_${schemaSeq}`;
+      };
+      /** The tables that exist in `schema` (Postgres schema / MySQL database). */
+      async function tablesIn(schema: string): Promise<string[]> {
+        const result = await db.rawQuery(
+          'SELECT table_name AS name FROM information_schema.tables WHERE table_schema = ?',
+          [schema],
+        );
+        const rows = (Array.isArray(result) ? result[0] : result.rows) as { name: string }[];
+        return rows.map((r) => r.name).sort();
+      }
+      const defaultSchema = isPg ? 'public' : 'authz_test';
+
+      async function freshSchemaStore(): Promise<LucidPermissionStore> {
+        const schema = nextSchema();
+        const tables = nextTables();
+        await createAuthzTables(db, { tables, schema });
+        return new LucidPermissionStore(db as unknown as LucidDatabase, {
+          tables,
+          schema,
+          autoCreateSchema: false,
+        });
+      }
+
+      runPermissionStoreContract(`${backend.label} in a schema`, freshSchemaStore);
+
+      it('auto-create makes the schema and the tables there, none in the default schema', async () => {
+        const schema = nextSchema();
+        const s = new LucidPermissionStore(db as unknown as LucidDatabase, { schema });
+        await s.givePermissionToRole('editor', 'posts.edit');
+        await s.assignRole({ type: 'user', id: '1' }, 'editor');
+        expect(await s.subjectHasPermission({ type: 'user', id: '1' }, 'posts.edit')).toBe(true);
+        expect(await tablesIn(schema)).toEqual(Object.values(AUTHZ_TABLES).sort());
+        expect(
+          (await tablesIn(defaultSchema)).filter((t) =>
+            /^authz_(roles|permissions|role_permission|subject_role|subject_permission)$/.test(t),
+          ),
+        ).toEqual([]);
+        // Idempotent re-run, also through the standalone helper.
+        await s.ensureSchema();
+        await createAuthzTables(db, { schema });
+        expect(await s.inspectSchema()).toEqual({
+          schema,
+          exists: true,
+          missingTables: [],
+          writable: true,
+        });
+      });
+
+      it('two installs with the same table names in two schemas do not see each other', async () => {
+        const a = new LucidPermissionStore(db as unknown as LucidDatabase, {
+          schema: nextSchema(),
+        });
+        const b = new LucidPermissionStore(db as unknown as LucidDatabase, {
+          schema: nextSchema(),
+        });
+        await a.createRole('only-a');
+        await b.createRole('only-b');
+        expect(await a.listRoles()).toEqual(['only-a']);
+        expect(await b.listRoles()).toEqual(['only-b']);
+      });
+
+      it("joins the app's transaction (opts.client, withClient, resolveClient), rollbacks included", async () => {
+        const s = await freshSchemaStore();
+        const alice = { type: 'user', id: '1' };
+        const trx = await db.transaction();
+        await s.assignRole(alice, 'editor', undefined, { client: trx });
+        await s.withClient(trx).givePermissionToRole('editor', 'posts.edit');
+        expect(await s.getRolesForSubject(alice, undefined, { client: trx })).toEqual(['editor']);
+        expect(await s.getRolesForSubject(alice)).toEqual([]);
+        await trx.rollback();
+        expect(await s.listRoles()).toEqual([]);
+
+        let ambient: StoreQueryClient | undefined;
+        const tables = nextTables();
+        const schema = nextSchema();
+        await createAuthzTables(db, { tables, schema });
+        const amb = new LucidPermissionStore(db as unknown as LucidDatabase, {
+          tables,
+          schema,
+          resolveClient: () => ambient,
+        });
+        // First use outside any transaction: the lazy schema gate settles on the root connection.
+        expect(await amb.listRoles()).toEqual([]);
+        const trx2 = await db.transaction();
+        ambient = trx2;
+        await amb.setSubjectRoles(alice, ['a', 'b']);
+        ambient = undefined;
+        expect(await amb.getRolesForSubject(alice)).toEqual([]);
+        await trx2.commit();
+        expect((await amb.getRolesForSubject(alice)).sort()).toEqual(['a', 'b']);
+      });
+
+      it('self-repair adds the source column to an old pivot inside the schema', async () => {
+        const schema = nextSchema();
+        const tables = nextTables();
+        await createAuthzTables(db, { tables, schema });
+        const q = isPg
+          ? `"${schema}".${tables.subjectRole}`
+          : `\`${schema}\`.${tables.subjectRole}`;
+        await db.rawQuery(`DROP TABLE ${q}`);
+        await db.rawQuery(
+          `CREATE TABLE ${q} (
+            subject_type VARCHAR(191) NOT NULL,
+            subject_id VARCHAR(191) NOT NULL,
+            role_id VARCHAR(191) NOT NULL,
+            tenant_id VARCHAR(191) NOT NULL DEFAULT '',
+            PRIMARY KEY (subject_type, subject_id, role_id, tenant_id)
+          )`,
+        );
+        // A same-named table WITH the column in the default schema must not fool the check.
+        await createAuthzTables(db, { tables });
+        const s = new LucidPermissionStore(db as unknown as LucidDatabase, { tables, schema });
+        await s.ensureSchema();
+        await s.assignRole({ type: 'user', id: '1' }, 'editor');
+        expect(await s.getRoleAssignments({ type: 'user', id: '1' })).toEqual([
+          { role: 'editor', source: 'manual', tenantId: null },
+        ]);
+      });
+
+      it('the roles relation preloads through the schema-qualified pivot', async () => {
+        const schema = 'authz_rel';
+        await createAuthzTables(db, { schema });
+        await db.rawQuery(
+          'CREATE TABLE IF NOT EXISTS sch_users (id INTEGER PRIMARY KEY, email TEXT)',
+        );
+        await db.rawQuery(`INSERT INTO sch_users (id, email) VALUES (5, 'a@b.c'), (6, 'b@b.c')`);
+        BaseModel.$adapter = new Adapter(db);
+        const s = new LucidPermissionStore(db as unknown as LucidDatabase, { schema });
+        await s.assignRole({ type: 'user', id: '5' }, 'EDITOR');
+        await s.assignRole({ type: 'user', id: '6' }, 'VIEWER', { tenantId: 't1' });
+
+        const users = await SchemaUser.query().orderBy('id').preload('roles');
+        expect(users.map((u) => [u.id, u.roles.map((r) => r.name)])).toEqual([
+          [5, ['EDITOR']],
+          [6, []],
+        ]);
+        const tenant = await SchemaUser.query().orderBy('id').preload('tenantRoles');
+        expect(tenant.map((u) => u.tenantRoles.map((r) => r.name))).toEqual([
+          ['EDITOR'],
+          ['VIEWER'],
+        ]);
+        const one = await SchemaUser.findOrFail(5);
+        expect((await one.related('roles').query()).map((r) => r.name)).toEqual(['EDITOR']);
+        if (!isPg) {
+          // Postgres refuses integer = varchar in has/whereHas (see the TEXT-pivot test above).
+          const has = await SchemaUser.query().whereHas('roles', (q) => q.where('name', 'EDITOR'));
+          expect(has.map((u) => u.id)).toEqual([5]);
+        }
+      });
+
+      it('inspectSchema reports a missing schema and missing tables', async () => {
+        const schema = nextSchema();
+        const s = new LucidPermissionStore(db as unknown as LucidDatabase, {
+          schema,
+          autoCreateSchema: false,
+        });
+        expect(await s.inspectSchema()).toMatchObject({ exists: false, writable: undefined });
+        await db.rawQuery(isPg ? `CREATE SCHEMA "${schema}"` : `CREATE DATABASE \`${schema}\``);
+        const found = await s.inspectSchema();
+        expect(found).toMatchObject({ exists: true, writable: undefined });
+        expect(found?.missingTables.sort()).toEqual(Object.values(AUTHZ_TABLES).sort());
+      });
+
+      it.runIf(isPg)(
+        'a role that cannot create the schema fails with the grant it needs; one that cannot write is reported',
+        async () => {
+          await db.rawQuery(
+            "DO $$ BEGIN CREATE ROLE authz_limited LOGIN PASSWORD 'limited'; EXCEPTION WHEN duplicate_object THEN NULL; END $$",
+          );
+          const conn = db.connection('primary').getWriteClient().client
+            .connectionSettings as Record<string, unknown>;
+          const limited = makeDatabase('pg', {
+            ...conn,
+            user: 'authz_limited',
+            password: 'limited',
+          });
+          try {
+            await db.rawQuery(`REVOKE CREATE ON DATABASE ${String(conn.database)} FROM PUBLIC`);
+            const store = new LucidPermissionStore(limited as unknown as LucidDatabase, {
+              schema: 'authz_nogrant',
+            });
+            await expect(store.listRoles()).rejects.toThrow(
+              /could not create the schema "authz_nogrant".*CREATE SCHEMA "authz_nogrant" AUTHORIZATION/,
+            );
+
+            // An admin made the schema and tables, granted only read: the doctor probe says so.
+            await createAuthzTables(db, { schema: 'authz_readonly' });
+            await db.rawQuery('GRANT USAGE ON SCHEMA "authz_readonly" TO authz_limited');
+            await db.rawQuery(
+              'GRANT SELECT ON ALL TABLES IN SCHEMA "authz_readonly" TO authz_limited',
+            );
+            const readonly = new LucidPermissionStore(limited as unknown as LucidDatabase, {
+              schema: 'authz_readonly',
+              // Postgres checks CREATE on the schema even for CREATE TABLE IF NOT EXISTS.
+              autoCreateSchema: false,
+            });
+            expect(await readonly.listRoles()).toEqual([]);
+            expect(await readonly.inspectSchema()).toMatchObject({
+              exists: true,
+              missingTables: [],
+              writable: false,
+            });
+          } finally {
+            await limited.manager.closeAll();
+          }
+        },
+      );
+    });
+
     it('a bigint model preloads through the DEFAULT relation on BIGINT pivots', async () => {
       // Postgres hands `bigint` back as a STRING, so a bigIncrements() host
       // would compare `'42' === 42` in Lucid's own distribution — and an id
@@ -399,6 +614,33 @@ for (const backend of backends) {
       expect(users[0]!.roles.map((r) => r.name)).toEqual(['COORDINATOR']);
     });
   });
+}
+
+/** A host in the default schema whose roles live in the `authz_rel` schema. */
+class SchemaRole extends BaseModel {
+  static table = 'authz_rel.authz_roles';
+
+  @column({ isPrimary: true })
+  declare id: string;
+
+  @column()
+  declare name: string;
+}
+
+class SchemaUser extends BaseModel {
+  static table = 'sch_users';
+
+  @column({ isPrimary: true })
+  declare id: number;
+
+  @column()
+  declare email: string;
+
+  @manyToMany(() => SchemaRole, authzRolesRelation({ schema: 'authz_rel' }))
+  declare roles: ManyToMany<typeof SchemaRole>;
+
+  @manyToMany(() => SchemaRole, authzRolesRelation({ schema: 'authz_rel', tenantId: 't1' }))
+  declare tenantRoles: ManyToMany<typeof SchemaRole>;
 }
 
 /** TEXT-pivot integer host: nothing but the PK and the relation. */

@@ -64,6 +64,18 @@ node ace migration:run
 Both paths emit identical DDL (`CREATE TABLE IF NOT EXISTS`), so switching
 later is safe — the migration finds the tables already there and does nothing.
 
+To keep the tables in their own Postgres schema (MySQL: database), set
+`schema` — and pass the same value to `createAuthzTables`/`dropAuthzTables` in
+the migration and to `authzRolesRelation({ schema })`:
+
+```ts
+lucid: stores.lucid({ schema: 'authz' }), // "authz".authz_roles, …
+```
+
+Every query names the schema. Never get there with a Lucid connection using
+`searchPath`: behind PgBouncer (transaction mode) `SET search_path` leaks to
+other clients. SQLite has no schemas, so `schema` there fails the boot.
+
 The subject pivots store `subject_id` as TEXT by default (polymorphic: integer ids
 and UUIDs share one table) and `authzRolesRelation()` preloads correctly on it
 with any host key type — no model ceremony. Optionally, when every subject has an
