@@ -3,6 +3,8 @@ import { setBootedApp } from '../services/booted_app.js';
 import { AuthzService } from '../src/authz_service.js';
 import type { AuthzConfig } from '../src/define_config.js';
 import { registerAuthzDevTools } from '../src/dev_tools/tools.js';
+import { registerDoctorChecks } from '../src/doctor/agora_doctor.js';
+import { authzDoctorChecks } from '../src/doctor/checks.js';
 import { ScopeRegistry } from '../src/scope.js';
 
 /**
@@ -88,11 +90,12 @@ export default class AuthzProvider {
   }
 
   /**
-   * Registers the authz developer tools on the agent's dev MCP endpoint (`/mcp/agora`) when
+   * Registers the authz `agora:doctor` checks, and the authz developer tools on the agent's dev MCP endpoint (`/mcp/agora`) when
    * `@adonis-agora/agent`'s MCP provider is installed. `devTools: false` in config/authz.ts leaves
    * them out.
    */
   async boot() {
+    await registerDoctorChecks(this.app.container as never, authzDoctorChecks());
     const config = () => this.app.config.get<AuthzConfig>('authz', {});
     const devTools = config().devTools;
     if (devTools === false) return;
