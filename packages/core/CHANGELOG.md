@@ -1,5 +1,11 @@
 # @adonis-agora/authz
 
+## 1.0.0-rc.1
+
+### Minor Changes
+
+- [#213](https://github.com/DavideCarvalho/adonis-agora-authz/pull/213) [`066d98e`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/066d98ec32ee32304143a2e068548f46ca30fd3d) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Organization as tenant: with `@adonis-agora/context` tenancy on, checks default to the active tenant's scope; new `tenancy` option (`enabled`, `kinds`, `family`, `roles` to map the caller's org role to authz roles in that tenant); `authorizeByRoles({ allTenants })` returns `tenants: '*'` for console viewers who may see every organization.
+
 ## 1.0.0-rc.0
 
 ### Major Changes
