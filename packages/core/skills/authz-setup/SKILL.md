@@ -66,10 +66,18 @@ later is safe — the migration finds the tables already there and does nothing.
 
 To keep the tables in their own Postgres schema (MySQL: database), set
 `schema` — and pass the same value to `createAuthzTables`/`dropAuthzTables` in
-the migration and to `authzRolesRelation({ schema })`:
+the migration and to `authzRolesRelation({ schema })` — plus
+`static table = 'authz.authz_roles'` on your role model, which the helper does
+not set:
 
 ```ts
 lucid: stores.lucid({ schema: 'authz' }), // "authz".authz_roles, …
+```
+
+```ts
+static table = 'authz.authz_roles' // your role model names the schema too
+// …
+authzRolesRelation({ schema: 'authz' })
 ```
 
 Every query names the schema. Never get there with a Lucid connection using
