@@ -1,5 +1,11 @@
 # @adonis-agora/authz
 
+## 1.0.0-rc.3
+
+### Minor Changes
+
+- [#215](https://github.com/DavideCarvalho/adonis-agora-authz/pull/215) [`673b6e3`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/673b6e345883272e5bb5ecbb1272ecb98a75d2d5) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `node ace agora:doctor` (the shared Agora health check) and `node ace authz:doctor`, with authz checks `authz.config`, `authz.super-admin`, `authz.tenancy`, `authz.store-reachable` (deep) and `authz.catalog-sync` (deep: catalog roles, permissions or grants missing from the store). New `@adonis-agora/authz/doctor` entry for `--no-boot`.
+
 ## 1.0.0-rc.2
 
 ### Minor Changes
