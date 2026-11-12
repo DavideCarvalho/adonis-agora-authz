@@ -1,6 +1,7 @@
 import type { AuthzTenancyOption } from './agora/tenancy.js';
 import type { SuperAdminHook, TenantResolver } from './authz_service.js';
 import type { DecisionProvider } from './decision_provider.js';
+import type { AuthzDevToolsOptions } from './dev_tools/tools.js';
 import type { ScopeRegistry } from './scope.js';
 import { type StoreProvider, stores } from './stores/factory.js';
 import type { ResolveSubjectRef, SubjectRef, SubjectRefInput, TenantScope } from './subject_ref.js';
@@ -90,6 +91,13 @@ export interface AuthzConfig {
    * `false` keeps authz global even when context enables tenancy.
    */
   tenancy?: AuthzTenancyOption;
+  /**
+   * Developer tools on `@adonis-agora/agent`'s dev MCP endpoint (`/mcp/agora`), gated by its
+   * `devTools.authorize`. Default `true`; `false` leaves them out. An object turns them on and
+   * passes `loadSubject` / `loadResource`, so the decision provider (and the `superAdmin` hook, for
+   * the resource) see your models instead of `{ type, id }` refs.
+   */
+  devTools?: boolean | AuthzDevToolsOptions;
 }
 
 /** A declarative roles → permissions map for `authz:sync`. */

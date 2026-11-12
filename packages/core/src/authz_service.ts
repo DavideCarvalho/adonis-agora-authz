@@ -76,6 +76,25 @@ export interface AuthzDecision {
   message?: string;
 }
 
+/** What {@link AuthzService.explainCheck} returns: the decision and how it was reached. */
+export interface AuthzExplanation extends AuthzDecision {
+  subject: SubjectRef;
+  permission: string;
+  /** The tenant the check ran in; `null` = the global scope. */
+  tenant: string | null;
+  /** A super-admin hook or `superAdminRoles` role allowed it. */
+  superAdmin: boolean;
+  /** What the decision provider said; `none` when there is none configured. */
+  decisionProvider: 'none' | 'not-consulted' | 'allowed' | 'denied' | 'abstained';
+  effectiveRoles: string[];
+  /** Where each effective role came from. */
+  roleSources: { context: string[]; tenant: string[]; app: string[]; store: string[] };
+  /** Effective roles whose permissions (store or `roleGrants`) cover `permission`, and which ones. */
+  grantingRoles: Array<{ role: string; matched: string[] }>;
+  /** Permissions granted to the subject outside those roles that cover `permission`. */
+  directGrants: string[];
+}
+
 /** Options accepted by {@link AuthzService.check} / {@link AuthzService.can}. */
 export interface AuthzCheckOptions {
   /** Explicit tenant scope (else resolved from the service's tenant config). */
@@ -762,6 +781,111 @@ export class AuthzService {
       cache ? await cache.getRoles(ref, scope) : await this.effectiveRolesForRef(ref, scope),
     );
     return roles.some((r) => owned.has(r));
+  }
+
+  /**
+   * {@link check} for an already-known {@link SubjectRef}, with no model to map. Pass `user` (the
+   * loaded model) when you have it, so the `superAdmin` hook and the {@link DecisionProvider} see
+   * it; without it they receive the ref.
+   */
+  async checkForRef(
+    ref: SubjectRef,
+    permission: string,
+    options: AuthzCheckOptions & { user?: unknown } = {},
+  ): Promise<AuthzDecision> {
+    const { user, ...rest } = options;
+    return this.resolveCheck(user === undefined ? ref : user, ref, permission, rest, undefined);
+  }
+
+  /**
+   * The effective roles of `ref` in `tenant`, split by where each came from: the context's global
+   * roles (only for the request's own user), the role inside the active tenant (`tenancy.roles`),
+   * the app's `resolveRoles` and the store. The union is what {@link effectiveRolesForRef} returns.
+   */
+  async effectiveRoleSources(
+    ref: SubjectRef,
+    tenant?: TenantScope,
+  ): Promise<{ context: string[]; tenant: string[]; app: string[]; store: string[] }> {
+    const [app, store] = await Promise.all([
+      this.resolveRolesFn ? this.resolveRolesFn(ref, tenant) : [],
+      this.store.getRolesForSubject(ref, tenant),
+    ]);
+    return {
+      context: globalRolesForSubject(ref),
+      tenant: this.tenantRolesForRef(ref, tenant),
+      app: [...app],
+      store: [...store],
+    };
+  }
+
+  /**
+   * Why `ref` can or cannot `permission`: the same decision as {@link checkForRef}, plus each step
+   * the resolution took (super-admin, the decision provider, the RBAC grant) and which of the
+   * subject's effective roles grant it. Read-only.
+   */
+  async explainCheck(
+    ref: SubjectRef,
+    permission: string,
+    options: { scope?: TenantScope; resource?: unknown; user?: unknown } = {},
+  ): Promise<AuthzExplanation> {
+    const user = options.user === undefined ? ref : options.user;
+    const tenant = this.currentScope(options.scope);
+    const cache = this.createCache();
+    const decision = await this.resolveCheck(
+      user,
+      ref,
+      permission,
+      {
+        cache,
+        ...(options.scope ? { scope: options.scope } : {}),
+        ...(options.resource !== undefined ? { resource: options.resource } : {}),
+      },
+      undefined,
+    );
+
+    const superAdminVerdict = await this.superAdminVerdict(ref, permission, options.resource);
+    let decisionProvider: AuthzExplanation['decisionProvider'] = 'none';
+    if (this.decisionProvider) {
+      if (superAdminVerdict !== undefined) decisionProvider = 'not-consulted';
+      else if (decision.reason === 'decision-provider')
+        decisionProvider = decision.allowed ? 'allowed' : 'denied';
+      else decisionProvider = 'abstained';
+    }
+
+    const sources = await this.effectiveRoleSources(ref, tenant);
+    const roles = [
+      ...new Set([...sources.context, ...sources.tenant, ...sources.app, ...sources.store]),
+    ];
+    const assigned = new Set(sources.store);
+    const grantingRoles: AuthzExplanation['grantingRoles'] = [];
+    for (const role of roles) {
+      const fromStore = assigned.has(role)
+        ? await this.store.getRolePermissions(role).catch(() => [] as string[])
+        : [];
+      const fromGrants = this.roleGrants?.[role] ?? [];
+      const matched = [...fromStore, ...fromGrants].filter((p) =>
+        permissionSatisfied([p], permission),
+      );
+      if (matched.length > 0) grantingRoles.push({ role, matched: [...new Set(matched)] });
+    }
+    const granted = await this.store.getPermissionsForSubject(ref, tenant);
+    const viaRoles = new Set(grantingRoles.flatMap((g) => g.matched));
+    const directGrants = granted.filter(
+      (p) => permissionSatisfied([p], permission) && !viaRoles.has(p),
+    );
+
+    return {
+      ...decision,
+      subject: ref,
+      permission,
+      tenant: tenant?.tenantId ? tenant.tenantId : null,
+      superAdmin: superAdminVerdict === true,
+      decisionProvider,
+      effectiveRoles: roles,
+      roleSources: sources,
+      grantingRoles,
+      directGrants,
+    };
   }
 
   /**

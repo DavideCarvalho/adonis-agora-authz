@@ -16,10 +16,11 @@
     "mixin",
     "roles-relation",
     "commands",
+    "mcp-tools",
     "testing",
     "migrating-to-1-0"
   ],
   "root": true,
-  "description": "Bouncer-integrated, DB-backed RBAC — roles, permissions, wildcard matching and multi-tenancy on top of @adonisjs/bouncer.",
+  "description": "Bouncer-integrated, DB-backed RBAC \u2014 roles, permissions, wildcard matching and multi-tenancy on top of @adonisjs/bouncer.",
   "icon": "ShieldCheck"
 }
