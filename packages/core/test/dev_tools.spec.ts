@@ -333,3 +333,21 @@ describe('registerAuthzDevTools', () => {
     expect(await registerAuthzDevTools(container(throwing), deps)).toBe('failed');
   });
 });
+
+describe('authz_explain_check input', () => {
+  it('refuses half a resource', async () => {
+    const service = new AuthzService({ store: new MemoryPermissionStore() });
+    const [explain] = authzDevTools({ service: async () => service });
+    await expect(
+      (explain as DevTool).run({ subjectId: 'a', permission: 'x', resourceType: 'post' }, call),
+    ).rejects.toThrow(/go together/);
+  });
+
+  it('runs the super-admin hook once per explanation', async () => {
+    const superAdmin = vi.fn(() => true);
+    const service = new AuthzService({ store: new MemoryPermissionStore(), superAdmin });
+    const out = await service.explainCheck({ type: 'user', id: 'a' }, 'x');
+    expect(out).toMatchObject({ allowed: true, superAdmin: true });
+    expect(superAdmin).toHaveBeenCalledTimes(1);
+  });
+});

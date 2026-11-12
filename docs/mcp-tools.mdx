@@ -14,7 +14,7 @@ Code (or any MCP client) as the [agent docs](/docs/agent/dev-tools) show, then a
 | `authz_explain_check` | the verdict for `subjectId` + `permission` (optional `subjectType`, `tenantId`, `resourceType` + `resourceId`): its reason, whether a super-admin rule or the decision provider decided, the effective roles with their sources, and which roles or direct grants cover the permission |
 | `authz_list_effective_roles` | a subject's roles in a tenant, each with where it comes from: `context` (token), `tenant` (org role mapped by `tenancy.roles`), `app` (`resolveRoles`), `store` |
 | `authz_list_effective_permissions` | a subject's permissions in a tenant (`limit`, `page`) |
-| `authz_list_roles` | every role with its permissions in the store, in `roleGrants` and in the `catalog`; `drift: true` lists the roles `node ace authz:sync` would fix |
+| `authz_list_roles` | every role with its permissions in the store, in `roleGrants` and in the `catalog`; `drift: true` lists the catalog roles with something missing from the store, which `node ace authz:sync` adds |
 
 Lists return `{ items, next }`: pass `next` as `page` to get the following page.
 

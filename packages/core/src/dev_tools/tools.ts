@@ -155,6 +155,9 @@ export function authzDevTools(deps: AuthzDevToolsDeps): DevTool[] {
         const subject = await load(hooks.loadSubject, ref);
         const resourceType = str(input.resourceType);
         const resourceId = str(input.resourceId);
+        if ((resourceType === undefined) !== (resourceId === undefined)) {
+          throw new Error('`resourceType` and `resourceId` go together: pass both or neither');
+        }
         const resourceRef =
           resourceType !== undefined && resourceId !== undefined
             ? { type: resourceType, id: resourceId }
@@ -223,7 +226,7 @@ export function authzDevTools(deps: AuthzDevToolsDeps): DevTool[] {
         const subject = await load(options().loadSubject, ref);
         const permissions = await service.effectivePermissions(
           subject.loaded ? subject.value : ref,
-          service.currentScope(scope) ?? { tenantId: '' },
+          scope,
           { cache: service.createCache() },
         );
         return {
@@ -238,13 +241,17 @@ export function authzDevTools(deps: AuthzDevToolsDeps): DevTool[] {
       kind: 'read',
       description:
         'Every known role with its permissions in the store, in roleGrants and in the config ' +
-        'catalog, and `drift` when the catalog and the store disagree (fix: node ace authz:sync). ' +
+        'catalog, and `drift` when catalog roles or grants are missing from the store (fix: node ace ' +
+        'authz:sync). ' +
         'Paged: { items, next }.',
       input: {
         type: 'object',
         properties: {
           role: { type: 'string', description: 'Only this role.' },
-          drift: { type: 'boolean', description: 'Only roles whose store and catalog disagree.' },
+          drift: {
+            type: 'boolean',
+            description: 'Only catalog roles with something missing from the store.',
+          },
           limit,
           page,
         },

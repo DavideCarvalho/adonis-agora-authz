@@ -843,10 +843,11 @@ export class AuthzService {
       undefined,
     );
 
-    const superAdminVerdict = await this.superAdminVerdict(ref, permission, options.resource);
+    // Read off the decision itself: re-running the super-admin hook could disagree with it.
+    const bySuperAdmin = decision.reason === 'super-admin';
     let decisionProvider: AuthzExplanation['decisionProvider'] = 'none';
     if (this.decisionProvider) {
-      if (superAdminVerdict !== undefined) decisionProvider = 'not-consulted';
+      if (bySuperAdmin) decisionProvider = 'not-consulted';
       else if (decision.reason === 'decision-provider')
         decisionProvider = decision.allowed ? 'allowed' : 'denied';
       else decisionProvider = 'abstained';
@@ -879,7 +880,7 @@ export class AuthzService {
       subject: ref,
       permission,
       tenant: tenant?.tenantId ? tenant.tenantId : null,
-      superAdmin: superAdminVerdict === true,
+      superAdmin: bySuperAdmin && decision.allowed,
       decisionProvider,
       effectiveRoles: roles,
       roleSources: sources,
