@@ -41,6 +41,7 @@ export default class AuthzProvider {
         roleGrants,
         scopes,
         decisionProvider,
+        tenancy,
       } = config;
 
       if (!providers || Object.keys(providers).length === 0) {
@@ -80,6 +81,7 @@ export default class AuthzProvider {
         ...(roleGrants !== undefined ? { roleGrants } : {}),
         ...(registry !== undefined ? { scopes: registry } : {}),
         ...(decisionProvider !== undefined ? { decisionProvider } : {}),
+        ...(tenancy !== undefined ? { tenancy } : {}),
       });
     });
   }

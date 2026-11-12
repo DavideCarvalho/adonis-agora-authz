@@ -14,6 +14,7 @@ export {
   subjectRefFromContext,
   tenantFromContext,
 } from './agora/context.js';
+export type { AuthzTenancyOption } from './agora/tenancy.js';
 export { type AuthLike, resolveAuthUser } from './auth_user.js';
 export type {
   AuthorizeByRolesOptions,

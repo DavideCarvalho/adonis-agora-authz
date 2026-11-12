@@ -1,14 +1,72 @@
 ---
 title: Agora integration
-description: Opt-in bridges to the Agora ecosystem — tenant auto-scope, the global-role bridge, event-driven provisioning, and the /authz/can endpoint.
+description: Opt-in bridges to the Agora ecosystem — organization as tenant, tenant auto-scope, the global-role bridge, event-driven provisioning, and the /authz/can endpoint.
 icon: Plug
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-All four features below are **opt-in** and **default-OFF**. None of them adds a
+All the features below are **opt-in** and **default-OFF**. None of them adds a
 hard dependency: with the rest of Agora absent, each one degrades to its default
 and authz keeps working standalone with unchanged behavior.
+
+## Organization as tenant
+
+When the app turns tenancy on in `@adonis-agora/context` (`tenancy: { enabled: true }` in
+`config/context.ts`), authz scopes every check to the active tenant (for authkit apps, the
+active organization) with no authz config:
+
+```ts
+// The request's active organization is "acme"
+await authz.can(user, 'posts.edit')                              // checked in acme
+await authz.can(user, 'posts.edit', { scope: { tenantId: '' } }) // global, explicitly
+```
+
+An explicit `scope`, a `tenant` resolver or `resolveTenant` still wins. Inside
+`Context.allTenants()`, outside a request, or with no active tenant, checks run in the
+global scope as before.
+
+### Org roles as authz roles
+
+Map the caller's role inside the active organization (authkit's `orgRole`, or the `role` your
+app passes to `Context.setTenant`) to authz roles. They apply in that organization only, and only
+to the user making the request:
+
+```ts title="config/authz.ts"
+export default defineConfig({
+  default: 'lucid',
+  stores: { lucid: stores.lucid() },
+  tenancy: {
+    roles: { owner: 'org_admin', admin: 'org_admin', member: 'org_member' },
+  },
+  roleGrants: {
+    org_admin: ['billing.*', 'members.*', 'posts.*'],
+    org_member: ['posts.read'],
+  },
+})
+```
+
+Mapped roles join the user's effective roles like `resolveRoles` does, so `roleGrants` gives them
+their permissions. Unmapped org roles grant nothing.
+
+| `tenancy` key | Default | |
+| --- | --- | --- |
+| `enabled` | `'inherit'` | follow `config/context.ts`; `true`/`false` forces it |
+| `kinds` | context's `kinds` | tenant kinds authz honours; with nested tenants (clinic → unit) the innermost level of one of these kinds is used |
+| `family` | — | use the tenant of this family when a request carries more than one |
+| `roles` | — | tenant role → authz role(s) |
+
+`tenancy: false` keeps authz global even when context turns tenancy on.
+
+### Consoles: who sees every organization
+
+`authorizeByRoles` takes `allTenants`: a viewer holding one of those roles globally (or a
+`superAdminRoles` role) sees every organization in a console; everyone else it allows sees their
+own:
+
+```ts title="config/durable.ts"
+authorize: authorizeByRoles({ roles: ['ADMIN', 'org_admin'], allTenants: ['ADMIN'] }),
+```
 
 ## Tenant auto-scope
 

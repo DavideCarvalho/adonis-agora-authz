@@ -20,6 +20,15 @@ export interface AuthorizeByRolesOptions {
   /** Escopo de tenant repassado a `effectiveRoles`. */
   scope?: TenantScope;
   /**
+   * Roles that see EVERY tenant in a console when tenancy is on (`@adonis-agora/context`): a viewer
+   * holding one of them as a global role (token, app or store assignment in the global scope), or a
+   * `superAdminRoles` role, is allowed with `tenants: '*'`. Everyone else allowed by `roles` sees
+   * their own active tenant. Roles held only inside a tenant never count here.
+   *
+   * Ex.: `authorizeByRoles({ roles: ['ADMIN', 'org_admin'], allTenants: ['ADMIN'] })`.
+   */
+  allTenants?: string[];
+  /**
    * Rota de login do app. Quando presente, uma navegação de PÁGINA sem sessão é
    * redirecionada para lá em vez de receber a resposta de negação do dashboard.
    *
@@ -56,6 +65,11 @@ export interface AuthorizeByRolesOptions {
 export interface AuthorizeDecision {
   allowed: boolean;
   reason?: 'unauthenticated' | 'forbidden';
+  /**
+   * Tenants an allowed viewer may see in a console with tenancy on: `'*'` = every tenant (and the
+   * rows with none). Absent = the viewer's own active tenant. Ignored when tenancy is off.
+   */
+  tenants?: '*' | string[];
 }
 
 /**
@@ -108,7 +122,7 @@ export type AuthorizeResult = boolean | AuthorizeDecision;
 export function authorizeByRoles(
   options: AuthorizeByRolesOptions,
 ): (ctx: unknown) => Promise<AuthorizeResult> {
-  const { roles, scope, loginPath, returnToParam = 'redirect' } = options;
+  const { roles, scope, allTenants, loginPath, returnToParam = 'redirect' } = options;
 
   return async (ctx: unknown): Promise<AuthorizeResult> => {
     const auth = (ctx as { auth?: AuthLike } | null | undefined)?.auth;
@@ -124,11 +138,30 @@ export function authorizeByRoles(
     }
 
     const authz = await app.container.make(AuthzService);
+    if (allTenants !== undefined && (await seesAllTenants(authz, user, allTenants))) {
+      return { allowed: true, tenants: '*' };
+    }
     const effective = await authz.effectiveRoles(user, scope);
     return roles.some((role) => effective.includes(role))
       ? true
       : { allowed: false, reason: 'forbidden' };
   };
+}
+
+/**
+ * Whether `user` sees every tenant: one of `allTenants` among its roles in the GLOBAL scope (a role
+ * held only inside one tenant must never widen the console to all of them), or a `superAdminRoles`
+ * role from the context.
+ */
+async function seesAllTenants(
+  authz: AuthzService,
+  user: unknown,
+  allTenants: string[],
+): Promise<boolean> {
+  if (authz.isSuperAdminByRole(user)) return true;
+  if (allTenants.length === 0) return false;
+  const global = await authz.effectiveRoles(user, { tenantId: '' });
+  return allTenants.some((role) => global.includes(role));
 }
 
 /**
