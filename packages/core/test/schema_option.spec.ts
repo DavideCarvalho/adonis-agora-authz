@@ -152,6 +152,9 @@ describe('schema option', () => {
   it('the relation reads the schema-qualified pivot', () => {
     expect(authzRolesRelation({ schema: 'authz' }).pivotTable).toBe('authz.authz_subject_role');
     expect(authzRolesRelation().pivotTable).toBe('authz_subject_role');
+    expect(() =>
+      authzRolesRelation({ schema: 'authz', tables: { subjectRole: 'other.pivot' } }),
+    ).toThrow(/unsafe SQL identifier/);
   });
 
   it('doctor: authz.schema only when a schema is configured', async () => {

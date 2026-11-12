@@ -1,4 +1,9 @@
-import { AUTHZ_TABLES, type AuthzTableNames, assertSchemaName } from './stores/lucid-schema.js';
+import {
+  AUTHZ_TABLES,
+  type AuthzTableNames,
+  assertSafeIdentifier,
+  assertSchemaName,
+} from './stores/lucid-schema.js';
 import { GLOBAL_TENANT } from './subject_ref.js';
 
 /**
@@ -208,7 +213,7 @@ export function authzRolesRelation(options: AuthzRolesRelationOptions = {}) {
   const pivotTable =
     options.schema === undefined
       ? tables.subjectRole
-      : `${assertSchemaName(options.schema)}.${tables.subjectRole}`;
+      : `${assertSchemaName(options.schema)}.${assertSafeIdentifier(tables.subjectRole)}`;
 
   return {
     pivotTable,
