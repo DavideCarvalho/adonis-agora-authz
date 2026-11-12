@@ -114,7 +114,7 @@ export type {
   StoreContext,
   StoreProvider,
 } from './stores/factory.js';
-export type { LucidPermissionStoreOptions } from './stores/lucid.js';
+export type { AuthzSchemaInspection, LucidPermissionStoreOptions } from './stores/lucid.js';
 export { LucidPermissionStore } from './stores/lucid.js';
 export type {
   AuthzSubjectIdType,

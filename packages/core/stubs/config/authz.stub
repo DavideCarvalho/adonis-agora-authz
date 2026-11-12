@@ -19,6 +19,8 @@ export default defineConfig({
     memory: stores.memory(),
     lucid: stores.lucid({
       // connection: 'pg',          // defaults to the app's default connection
+      // schema: 'authz',           // tables in their own Postgres schema (MySQL: database);
+                                    // every query names it — never use a searchPath connection
       // autoCreateSchema: false,   // set false when using the published migration
       // resolveClient: () => authzClient.getStore(), // ambient db.transaction seam
       // subjectIdType: 'integer',  // pivot key type: 'text' (default, any id kind),

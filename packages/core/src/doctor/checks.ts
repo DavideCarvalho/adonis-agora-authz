@@ -2,6 +2,7 @@ import type { ApplicationService } from '@adonisjs/core/types';
 import { AGORA_CONTEXT_TENANCY } from '../agora/tenancy.js';
 import { AuthzService } from '../authz_service.js';
 import type { AuthzConfig } from '../define_config.js';
+import type { LucidPermissionStore } from '../stores/lucid.js';
 import type { AgoraDoctorCheck, AgoraDoctorResult } from './agora_doctor.js';
 
 const DOCS = 'https://davidecarvalho.github.io/agora/docs/authz';
@@ -34,8 +35,57 @@ function tenancyOn(app: ApplicationService, config: AuthzConfig): boolean {
   return contextTenancyEnabled(app);
 }
 
-/** The doctor checks of `@adonis-agora/authz` (ids frozen for 1.x). */
-export function authzDoctorChecks(): AgoraDoctorCheck[] {
+/** `authz.schema`: only registered when the active store sets `schema`. */
+const schemaCheck: AgoraDoctorCheck = {
+  id: 'authz.schema',
+  lib: 'authz',
+  title: 'Database schema',
+  cost: 'deep',
+  async run(app): Promise<AgoraDoctorResult> {
+    const authz = await app.container.make(AuthzService);
+    const store = authz.store as Partial<LucidPermissionStore>;
+    if (typeof store.inspectSchema !== 'function') {
+      return { status: 'skip', message: 'the active store is not the Lucid store' };
+    }
+    const found = await store.inspectSchema();
+    if (found === undefined) return { status: 'skip', message: 'no schema configured' };
+    const docs = `${DOCS}/config#database-schema`;
+    if (!found.exists) {
+      return {
+        status: 'error',
+        message: `schema "${found.schema}" does not exist`,
+        fix: `Create it (CREATE SCHEMA "${found.schema}"; MySQL: CREATE DATABASE) or let the store create it with autoCreateSchema`,
+        docs,
+      };
+    }
+    if (found.missingTables.length > 0) {
+      return {
+        status: 'error',
+        message: `schema "${found.schema}" is missing ${found.missingTables.join(', ')}`,
+        fix: `Run the authz migration with createAuthzTables(db, { schema: '${found.schema}' }), or turn autoCreateSchema on`,
+        docs,
+      };
+    }
+    if (found.writable === false) {
+      return {
+        status: 'error',
+        message: `cannot write to schema "${found.schema}": ${found.writeError ?? 'permission denied'}`,
+        fix: `Grant the app's database user INSERT/UPDATE/DELETE on the tables in "${found.schema}" (Postgres: and USAGE on the schema)`,
+        docs,
+      };
+    }
+    return {
+      status: 'ok',
+      message: `tables in schema "${found.schema}"${found.writable ? ', writable' : ''}`,
+    };
+  },
+};
+
+/**
+ * The doctor checks of `@adonis-agora/authz` (ids frozen for 1.x). `schema: true` (the active
+ * store sets `schema`) adds `authz.schema`; without it nothing about schemas is reported.
+ */
+export function authzDoctorChecks(options: { schema?: boolean } = {}): AgoraDoctorCheck[] {
   return [
     {
       id: 'authz.config',
@@ -195,5 +245,6 @@ export function authzDoctorChecks(): AgoraDoctorCheck[] {
         };
       },
     },
+    ...(options.schema ? [schemaCheck] : []),
   ];
 }

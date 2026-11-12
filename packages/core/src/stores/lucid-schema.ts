@@ -85,6 +85,67 @@ export function assertSafeIdentifier(id: string): string {
   return id;
 }
 
+const SCHEMA_NAME = /^[A-Za-z_][A-Za-z0-9_$]*$/;
+
+/**
+ * Reject a `schema` that is not a plain identifier of at most 63 characters (Postgres' limit). It
+ * is written into every statement, quoted, never bound.
+ */
+export function assertSchemaName(schema: string): string {
+  if (typeof schema !== 'string' || schema.length > 63 || !SCHEMA_NAME.test(schema)) {
+    throw new Error(
+      `@adonis-agora/authz: invalid schema ${JSON.stringify(schema)}: use letters, digits, _ and $, not starting with a digit, at most 63 characters.`,
+    );
+  }
+  return schema;
+}
+
+/**
+ * Validate `schema` against the connection's dialect: only Postgres (a schema) and MySQL/MariaDB
+ * (a database) can hold the tables elsewhere. Anything else — SQLite above all — fails instead of
+ * silently ignoring the option and writing to the default schema.
+ */
+export function assertSchemaSupported(schema: string | undefined, dialect: string | undefined) {
+  if (schema === undefined) return;
+  assertSchemaName(schema);
+  if (isPostgres(dialect) || isMysql(dialect)) return;
+  throw new Error(
+    `@adonis-agora/authz: \`schema: ${JSON.stringify(schema)}\` needs a Postgres or MySQL/MariaDB connection, but this one is ${dialect ? `"${dialect}"` : 'of an unknown dialect'}, which has no schemas. Remove \`schema\` from the store config, or point \`connection\` at Postgres/MySQL.`,
+  );
+}
+
+/** Quote an identifier for the dialect: backticks on MySQL, double quotes elsewhere. */
+function quoteIdent(name: string, dialect: string | undefined): string {
+  return isMysql(dialect) ? `\`${name}\`` : `"${name}"`;
+}
+
+/**
+ * A table reference for raw SQL: `"schema".table` (MySQL: `` `schema`.table ``) when a schema is
+ * set, the bare name otherwise. The schema and the table are separate identifiers — never one
+ * quoted `"schema.table"`. The table stays unquoted so it folds exactly like it does without a
+ * schema (and like `CREATE TABLE` created it).
+ */
+export function qualifyTable(
+  table: string,
+  schema: string | undefined,
+  dialect: string | undefined,
+) {
+  return schema === undefined ? table : `${quoteIdent(schema, dialect)}.${table}`;
+}
+
+/** Every table name, qualified with {@link qualifyTable}. */
+export function qualifyTables(
+  tables: Required<AuthzTableNames>,
+  schema: string | undefined,
+  dialect: string | undefined,
+): Required<AuthzTableNames> {
+  const out = { ...tables };
+  for (const key of Object.keys(out) as (keyof AuthzTableNames)[]) {
+    out[key] = qualifyTable(out[key], schema, dialect);
+  }
+  return out;
+}
+
 export function isPostgres(dialect: string | undefined): boolean {
   return !!dialect && /postgres|pg|redshift/i.test(dialect);
 }
@@ -130,7 +191,13 @@ export function rowsOf(result: unknown): Record<string, unknown>[] {
  * tenant_id)` as its key, so the same role cannot be stored under two sources until you widen
  * it (see the "Role sources" migration notes in the docs for the exact SQL).
  */
-async function ensureSourceColumn(db: LucidDatabase, table: string, dialect: string | undefined) {
+async function ensureSourceColumn(
+  db: LucidDatabase,
+  name: string,
+  schema: string | undefined,
+  dialect: string | undefined,
+) {
+  const table = qualifyTable(name, schema, dialect);
   if (isPostgres(dialect)) {
     await db.rawQuery(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${SOURCE_COLUMN}`);
     return;
@@ -145,8 +212,8 @@ async function ensureSourceColumn(db: LucidDatabase, table: string, dialect: str
     const found = rowsOf(
       await db.rawQuery(
         `SELECT COUNT(*) AS n FROM information_schema.columns
-         WHERE table_schema = DATABASE() AND table_name = ? AND column_name = 'source'`,
-        [table],
+         WHERE table_schema = ${schema === undefined ? 'DATABASE()' : '?'} AND table_name = ? AND column_name = 'source'`,
+        schema === undefined ? [name] : [schema, name],
       ),
     );
     if (Number(found[0]?.n ?? 0) > 0) return;
@@ -161,6 +228,50 @@ async function ensureSourceColumn(db: LucidDatabase, table: string, dialect: str
       e.errno === 1060 ||
       /duplicate column|already exists/i.test(e.message ?? '');
     if (!dup) throw err;
+  }
+}
+
+/** Whether `schema` exists (Postgres: a schema; MySQL: a database). */
+export async function schemaExists(
+  db: LucidQueryClient,
+  schema: string,
+  dialect: string | undefined,
+): Promise<boolean> {
+  const sql = isMysql(dialect)
+    ? 'SELECT 1 AS found FROM information_schema.schemata WHERE schema_name = ?'
+    : 'SELECT 1 AS found FROM pg_catalog.pg_namespace WHERE nspname = ?';
+  return rowsOf(await db.rawQuery(sql, [schema])).length > 0;
+}
+
+/**
+ * Create `schema` when it is missing (`CREATE SCHEMA` / MySQL `CREATE DATABASE`). It looks first,
+ * so a role that may use an existing schema but not create one still boots. A concurrent create
+ * by another replica is not an error. When the role cannot create it, fail naming the schema and
+ * the grant it needs.
+ */
+async function ensureSchemaExists(
+  db: LucidDatabase,
+  schema: string,
+  dialect: string | undefined,
+): Promise<void> {
+  if (await schemaExists(db, schema, dialect)) return;
+  const mysql = isMysql(dialect);
+  try {
+    await db.rawQuery(
+      mysql
+        ? `CREATE DATABASE IF NOT EXISTS ${quoteIdent(schema, dialect)}`
+        : `CREATE SCHEMA IF NOT EXISTS ${quoteIdent(schema, dialect)}`,
+    );
+  } catch (err) {
+    if (await schemaExists(db, schema, dialect).catch(() => false)) return;
+    const reason = err instanceof Error ? err.message : String(err);
+    const fix = mysql
+      ? `create it once as an admin (CREATE DATABASE \`${schema}\`) and GRANT ALL ON \`${schema}\`.* TO the app user`
+      : `create it once as an admin (CREATE SCHEMA "${schema}" AUTHORIZATION <app role>), or GRANT CREATE ON DATABASE <db> TO <app role>`;
+    throw new Error(
+      `@adonis-agora/authz: could not create the ${mysql ? 'database' : 'schema'} "${schema}" for the authz tables (${reason}). The connection's role needs to create it: ${fix}.`,
+      { cause: err },
+    );
   }
 }
 
@@ -218,16 +329,22 @@ const SUBJECT_ID_COLUMN: Record<AuthzSubjectIdType, string> = {
  *
  * @param db a Lucid `Database` or connection client
  * @param options.tables optional table-name overrides (defaults to {@link AUTHZ_TABLES})
+ * @param options.schema keep the tables in this Postgres schema (MySQL: database), created if
+ * missing; every statement names it. Postgres/MySQL only (see {@link assertSchemaSupported})
  * @param options.subjectIdType `'text'` (default, fits every subject kind),
  * `'integer'` or `'bigint'` (the host's native key type — see {@link AuthzSubjectIdType})
  */
 export async function createAuthzTables(
   db: LucidDatabase,
-  options: { tables?: AuthzTableNames; subjectIdType?: AuthzSubjectIdType } = {},
+  options: { tables?: AuthzTableNames; subjectIdType?: AuthzSubjectIdType; schema?: string } = {},
 ): Promise<void> {
-  const t = resolveTables(options.tables);
+  const names = resolveTables(options.tables);
   const subjectId = SUBJECT_ID_COLUMN[options.subjectIdType ?? 'text'];
   const dialect = detectDialect(db);
+  const { schema } = options;
+  assertSchemaSupported(schema, dialect);
+  if (schema !== undefined) await ensureSchemaExists(db, schema, dialect);
+  const t = qualifyTables(names, schema, dialect);
   const ts = isPostgres(dialect) ? 'TIMESTAMP' : 'DATETIME';
   const mysql = isMysql(dialect);
   const run = (sql: string) => db.rawQuery(sql);
@@ -266,7 +383,7 @@ export async function createAuthzTables(
       created_at ${ts}
     )`,
   );
-  await createIndex(`${t.roles}_name_uq`, true, t.roles, 'name');
+  await createIndex(`${names.roles}_name_uq`, true, t.roles, 'name');
 
   await run(
     `CREATE TABLE IF NOT EXISTS ${t.permissions} (
@@ -276,7 +393,7 @@ export async function createAuthzTables(
       created_at ${ts}
     )`,
   );
-  await createIndex(`${t.permissions}_name_uq`, true, t.permissions, 'name');
+  await createIndex(`${names.permissions}_name_uq`, true, t.permissions, 'name');
 
   await run(
     `CREATE TABLE IF NOT EXISTS ${t.rolePermission} (
@@ -301,9 +418,9 @@ export async function createAuthzTables(
     )`,
   );
   // Tables created before role sources existed: add the column (non-destructive).
-  await ensureSourceColumn(db, t.subjectRole, dialect);
+  await ensureSourceColumn(db, names.subjectRole, schema, dialect);
   await createIndex(
-    `${t.subjectRole}_subject_idx`,
+    `${names.subjectRole}_subject_idx`,
     false,
     t.subjectRole,
     'subject_type, subject_id',
@@ -318,7 +435,7 @@ export async function createAuthzTables(
     )`,
   );
   await createIndex(
-    `${t.subjectPermission}_subject_idx`,
+    `${names.subjectPermission}_subject_idx`,
     false,
     t.subjectPermission,
     'subject_type, subject_id',
@@ -331,12 +448,15 @@ export async function createAuthzTables(
  *
  * @param db a Lucid `Database` or connection client
  * @param options.tables optional table-name overrides (defaults to {@link AUTHZ_TABLES})
+ * @param options.schema the schema the tables live in (the schema itself is left in place)
  */
 export async function dropAuthzTables(
   db: LucidDatabase,
-  options: { tables?: AuthzTableNames } = {},
+  options: { tables?: AuthzTableNames; schema?: string } = {},
 ): Promise<void> {
-  const t = resolveTables(options.tables);
+  const dialect = detectDialect(db);
+  assertSchemaSupported(options.schema, dialect);
+  const t = qualifyTables(resolveTables(options.tables), options.schema, dialect);
   for (const table of [
     t.subjectPermission,
     t.subjectRole,

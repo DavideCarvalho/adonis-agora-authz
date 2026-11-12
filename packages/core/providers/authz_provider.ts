@@ -6,6 +6,7 @@ import { registerAuthzDevTools } from '../src/dev_tools/tools.js';
 import { registerDoctorChecks } from '../src/doctor/agora_doctor.js';
 import { authzDoctorChecks } from '../src/doctor/checks.js';
 import { ScopeRegistry } from '../src/scope.js';
+import { assertStoreSchema, storeSchemaOf } from '../src/stores/factory.js';
 
 /**
  * Registers the {@link AuthzService} as a container singleton built from the
@@ -95,7 +96,15 @@ export default class AuthzProvider {
    * them out.
    */
   async boot() {
-    await registerDoctorChecks(this.app.container as never, authzDoctorChecks());
+    // A `schema` the active store's database cannot honour (SQLite) fails the boot, before any
+    // request reaches the store.
+    const { default: active, stores: configured } = this.app.config.get<AuthzConfig>('authz', {});
+    const provider = configured?.[active ?? Object.keys(configured ?? {})[0] ?? ''];
+    if (provider) await assertStoreSchema(provider, { app: this.app });
+    await registerDoctorChecks(
+      this.app.container as never,
+      authzDoctorChecks({ schema: storeSchemaOf(provider) !== undefined }),
+    );
     const config = () => this.app.config.get<AuthzConfig>('authz', {});
     const devTools = config().devTools;
     if (devTools === false) return;

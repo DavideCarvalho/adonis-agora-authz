@@ -43,4 +43,5 @@ Add it to CI after the build:
 | `authz.super-admin` | lists the `superAdminRoles` / `superAdmin` hook that allow everything | ok |
 | `authz.tenancy` | with [organization as tenant](/docs/authz/agora-integration#organization-as-tenant): `tenancy.roles` is not set while tenancy is off, and every mapped role has `roleGrants` | warn |
 | `authz.store-reachable` (`--deep`) | the store answers | error |
+| `authz.schema` (`--deep`) | only when the store sets [`schema`](/docs/authz/config#database-schema): the schema exists, holds the five tables, and the connection can write there | error |
 | `authz.catalog-sync` (`--deep`) | every role, permission and grant of `catalog` is in the store; fix with `node ace authz:sync` | warn |

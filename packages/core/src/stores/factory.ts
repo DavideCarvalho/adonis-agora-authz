@@ -1,6 +1,13 @@
 import type { ApplicationService } from '@adonisjs/core/types';
 import type { PermissionStore, StoreQueryClient } from '../store.js';
-import type { AuthzSubjectIdType, AuthzTableNames, LucidDatabase } from './lucid-schema.js';
+import {
+  type AuthzSubjectIdType,
+  type AuthzTableNames,
+  assertSchemaName,
+  assertSchemaSupported,
+  detectDialect,
+  type LucidDatabase,
+} from './lucid-schema.js';
 import { MemoryPermissionStore } from './memory.js';
 
 export interface StoreContext {
@@ -21,6 +28,14 @@ export interface MemoryStoreConfig {
 export interface LucidStoreConfig {
   /** Lucid connection name; defaults to the app's default connection. */
   connection?: string;
+  /**
+   * Keep the tables in this Postgres schema (MySQL: database) instead of the connection's
+   * default. Every statement names it (`"authz".authz_roles`), so it works on any connection —
+   * the app's own transaction included — and never depends on `search_path` (safe behind
+   * PgBouncer in transaction mode). Created on first use when `autoCreateSchema` is on.
+   * Postgres/MySQL only: on SQLite the app fails to boot.
+   */
+  schema?: string;
   /** Table-name overrides (defaults match the published migration). */
   tables?: AuthzTableNames;
   /** Auto-create tables on first use (default true). Set false when migrating. */
@@ -48,13 +63,51 @@ export interface LucidStoreConfig {
  * `await import()`s `@adonisjs/lucid/services/db` and its own adapter module only
  * when the provider builds it — keeping the peer optional.
  */
+/** Where a Lucid store thunk keeps its DB settings, so boot can check them without building it. */
+const LUCID_STORE_TARGET = Symbol.for('@adonis-agora/authz/lucid-store-target');
+
+interface LucidStoreTarget {
+  connection: string | undefined;
+  schema: string | undefined;
+}
+
+/** Resolve the Lucid `db` from the container (see the note in {@link stores.lucid}). */
+async function lucidDb(ctx: StoreContext): Promise<{ connection(name?: string): unknown }> {
+  const container = ctx.app.container as unknown as { make(binding: string): Promise<unknown> };
+  return (await container.make('lucid.db')) as { connection(name?: string): unknown };
+}
+
+/** The `schema` a `stores.lucid()` thunk was configured with (`undefined` for any other store). */
+export function storeSchemaOf(provider: StoreProvider | undefined): string | undefined {
+  if (!provider) return undefined;
+  return (provider as unknown as Record<symbol, LucidStoreTarget | undefined>)[LUCID_STORE_TARGET]
+    ?.schema;
+}
+
+/**
+ * Boot-time check of a store's `schema` against its connection's dialect, without building the
+ * store (no query runs). Throws on a dialect without schemas (SQLite). A no-op for stores without
+ * `schema` and for non-Lucid stores.
+ */
+export async function assertStoreSchema(provider: StoreProvider, ctx: StoreContext): Promise<void> {
+  const target = (provider as unknown as Record<symbol, LucidStoreTarget | undefined>)[
+    LUCID_STORE_TARGET
+  ];
+  if (target?.schema === undefined) return;
+  const db = await lucidDb(ctx);
+  const client = db.connection(target.connection) as LucidDatabase;
+  assertSchemaSupported(target.schema, detectDialect(client));
+}
+
 export const stores = {
   memory(_config: MemoryStoreConfig = {}): StoreProvider {
     return async () => new MemoryPermissionStore();
   },
 
   lucid(config: LucidStoreConfig = {}): StoreProvider {
-    return async (ctx) => {
+    // A malformed schema name fails as soon as config/authz.ts loads.
+    if (config.schema !== undefined) assertSchemaName(config.schema);
+    const provider: StoreProvider = async (ctx) => {
       // Resolve the db from the container (`lucid.db`) using the passed `app` — NOT via
       // `@adonisjs/lucid/services/db`. That service singleton only assigns its default inside
       // `app.booted(...)` (which runs AFTER every provider's `boot()`), and worse, an `await import()` of
@@ -64,12 +117,14 @@ export const stores = {
       // agent's tool authorizer denied ALL tools fail-closed). The `lucid.db` alias is registered in the
       // database provider's `register()` (before any `boot()`) and is the exact binding `services/db`
       // itself resolves, so it works here and keeps `@adonisjs/lucid` an optional peer.
-      const container = ctx.app.container as unknown as { make(binding: string): Promise<unknown> };
-      const db = (await container.make('lucid.db')) as { connection(name: string): unknown };
+      const db = await lucidDb(ctx);
       const { LucidPermissionStore } = await import('./lucid.js');
       const { connection, ...rest } = config;
       const client = (connection ? db.connection(connection) : db) as unknown as LucidDatabase;
       return new LucidPermissionStore(client, rest);
     };
+    const target: LucidStoreTarget = { connection: config.connection, schema: config.schema };
+    Object.defineProperty(provider, LUCID_STORE_TARGET, { value: target });
+    return provider;
   },
 };
