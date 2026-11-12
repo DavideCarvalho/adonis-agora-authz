@@ -2,7 +2,7 @@
 name: authz-roles-tenancy
 description: >
   Reconcile roles and tenants with @adonis-agora/authz as the single authority —
-  the effective-role union (token claim ∪ resolveRoles seam ∪ store.assignRole),
+  the effective-role union (token claim ∪ tenant-mapped org role ∪ resolveRoles seam ∪ store.assignRole),
   hasRole/hasAnyRole over that union, the reverse lookup subjectsWithRole and its
   reverse seams resolveRoleMembers / resolveGlobalRoleMembers, config-only
   roleGrants, superAdminRoles matched against global context roles only, tenant
@@ -26,7 +26,8 @@ sources:
 
 # Roles & tenancy: one union, one scope model
 
-An app's roles live in three places at once — the token claim, domain tables,
+An app's roles live in four places at once — the token claim, the caller's
+org role inside the active tenant (mapped by `tenancy.roles`), domain tables,
 the authz store. authz does not move them; it unions them and answers **every**
 role question forwards (`effectiveRoles`) and backwards (`subjectsWithRole`) off
 that one union. Nothing else in the app should ask a role source directly.
@@ -63,7 +64,8 @@ await authz.effectiveRoles(user, { tenantId: 'acme' }) // tenant-filtered
 ### Reverse lookup: who holds this role?
 
 `subjectsWithRole` mirrors `effectiveRoles` — store ∪ `resolveRoleMembers` ∪
-`resolveGlobalRoleMembers`, run in parallel, deduped by `(type, id)`. It
+`resolveGlobalRoleMembers` (tenant-mapped org roles are caller-only and not
+reversed), run in parallel, deduped by `(type, id)`. It
 returns `SubjectRef`s; hydrate with your own models.
 
 ```ts title="config/authz.ts"
@@ -126,7 +128,7 @@ Source: `docs/roles.mdx` ("Role sources")
 ### Config-only grants via roleGrants
 
 Map effective roles onto permissions/wildcards without seeding the store; the
-mapping applies to roles from any of the three sources.
+mapping applies to roles from any source (context, tenant, app, store).
 
 ```ts title="config/authz.ts"
 defineConfig({
@@ -197,8 +199,8 @@ import authz from '@adonis-agora/authz/services/main';
 if (await authz.hasRole(user, 'admin')) { /* admin-only path */ }
 ```
 
-Mechanism: `hasRole` tests the full effective union (context ∪ app ∪ store);
-provider-side checks test one source of three.
+Mechanism: `hasRole` tests the full effective union (context ∪ tenant ∪ app ∪ store);
+provider-side checks test one source of four.
 
 Source: `docs/bouncer-integration.mdx` ("Division of responsibility" warn Callout)
 
@@ -227,7 +229,7 @@ defineConfig({
 })
 ```
 
-Mechanism: the forward union reads three sources by design; the reverse union
+Mechanism: the forward union reads four sources by design (context, tenant, app, store); the reverse union
 can only walk sources you wire, and absence is indistinguishable from "nobody".
 
 Source: `docs/roles.mdx` ("The reverse seams" warn Callout)

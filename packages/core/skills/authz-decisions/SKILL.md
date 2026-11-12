@@ -278,7 +278,7 @@ export default class PostsController {
 
 Mechanism: `createCache()` memoizes BOTH dimensions a check reads per
 `(user, tenant)` forever by design — the role resolution (context roles, the
-`resolveRoles` seam **and** `store.getRolesForSubject`) and the permission read
+tenant-mapped org role, the `resolveRoles` seam **and** `store.getRolesForSubject`) and the permission read
 (`store.getPermissionsForSubject`) — correct inside one request, wrong across
 requests. Pass `{ cache }` to `can`, `hasRole`, `hasAnyRole`, `scope`, and
 `effectiveRoles`/`effectivePermissions` (third argument) so they share the

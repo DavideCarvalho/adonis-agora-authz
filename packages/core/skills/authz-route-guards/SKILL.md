@@ -4,7 +4,7 @@ description: >
   Guard AdonisJS routes with @adonis-agora/authz — AuthzRoleMiddleware
   registered as the named middleware requireRole from the
   @adonis-agora/authz/middleware subpath, any-of roles or permissions matching
-  against AuthzService.effectiveRoles (global token claim ∪ resolveRoles ∪
+  against AuthzService.effectiveRoles (global token claim ∪ tenant org-role mapping ∪ resolveRoles ∪
   store) and effectivePermissions (wildcard-aware), RequireRoleOptions (roles,
   permissions, scope, guestRedirect, deniedRedirect, deniedMessage, onDenied),
   and where per-record checks belong instead (Bouncer can in the action,
@@ -28,7 +28,7 @@ sources:
 # Route guards: requireRole
 
 `AuthzRoleMiddleware` is the "require role X" guard every app otherwise
-rewrites by hand. It gates on **effective** roles (global ∪ app ∪ store), so a
+rewrites by hand. It gates on **effective** roles (global ∪ tenant ∪ app ∪ store), so a
 token claim, a domain-table role, and a store assignment all satisfy the same
 guard. It gates routes on **either** dimension: role names (`roles`) or
 permissions with wildcards (`permissions`) — the coarse gate; per-record
