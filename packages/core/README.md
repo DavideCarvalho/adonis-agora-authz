@@ -41,8 +41,8 @@ await ctx.bouncer.authorize('hasRole', 'admin')
 Grant from the CLI or programmatically:
 
 ```sh
-node ace authz:grant editor posts.edit
-node ace authz:assign editor 42
+node ace authz:roles:grant editor posts.edit
+node ace authz:assignments:add editor 42
 ```
 
 Need resource-aware allow **and deny** from an external policy engine? Plug a

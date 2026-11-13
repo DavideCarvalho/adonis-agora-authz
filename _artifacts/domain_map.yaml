@@ -140,8 +140,8 @@ skills:
     type: core
     packages: ["@adonis-agora/authz"]
     covers: [defineConfig, stores.lucid, stores.memory, autoCreateSchema,
-             createAuthzTables, AUTHZ_TABLES, node ace configure, authz:grant,
-             authz:assign, authz:list, authz:sync, catalog, resolveUserRef,
+             createAuthzTables, AUTHZ_TABLES, node ace configure, authz:roles:grant,
+             authz:assignments:add, authz:roles:list, authz:sync, catalog, resolveUserRef,
              identityUserRef, tenant resolver]
     tasks:
       - "Install and configure authz in a fresh AdonisJS app"
@@ -194,7 +194,7 @@ skills:
           node ace authz:sync
         correct_pattern: |
           // remove explicitly, then re-sync what remains
-          node ace authz:list
+          node ace authz:roles:list
           // revoke via store.revokePermissionFromRole(...) / CLI-equivalent write, then:
           node ace authz:sync
         source: docs/commands.mdx ("Idempotent — only missing rows are created/attached")

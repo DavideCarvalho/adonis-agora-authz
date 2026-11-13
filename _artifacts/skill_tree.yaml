@@ -11,7 +11,7 @@ skills:
     path: packages/core/skills/authz-setup/SKILL.md
     covers: [defineConfig, stores.lucid, stores.memory, autoCreateSchema,
              createAuthzTables, dropAuthzTables, AUTHZ_TABLES,
-             node ace configure, authz:grant, authz:assign, authz:list,
+             node ace configure, authz:roles:*, authz:assignments:*, authz:subjects:*,
              authz:sync, catalog, resolveUserRef, identityUserRef]
 
   - name: authz-decisions

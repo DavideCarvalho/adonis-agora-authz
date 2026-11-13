@@ -21,8 +21,8 @@ prefixed `authz-`), all `type: core`, no router skill.
    published files (`config/authz.ts`, `app/abilities/authz.ts`, migration),
    `defineConfig({ default, stores })` with `stores.lucid()/stores.memory()`,
    `autoCreateSchema` vs owning the schema via `createAuthzTables`/`dropAuthzTables`
-   + matching `tables` overrides, ace commands (`authz:grant`, `authz:assign`,
-   `authz:list`, `authz:sync`) and the idempotent `catalog`. Mistakes: shipping
+   + matching `tables` overrides, ace commands (`authz:roles:grant`, `authz:assignments:add`,
+   `authz:roles:list`, `authz:sync`) and the idempotent `catalog`. Mistakes: shipping
    `autoCreateSchema` default to production; divergent `tables` overrides between
    store and schema helpers; expecting `authz:sync` to revoke.
 

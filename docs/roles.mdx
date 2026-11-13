@@ -206,7 +206,7 @@ Two things worth knowing about how it composes:
 ## Role sources (manual vs SSO/SCIM)
 
 Every store assignment records **who put it there** in a `source` string. The default is
-`'manual'` (the admin UI, the API, `node ace authz:assign`), and everything assigned before
+`'manual'` (the admin UI, the API, `node ace authz:assignments:add`), and everything assigned before
 sources existed is manual too. An IdP sync writes under its own source, so it can never
 clobber a grant an admin made by hand.
 

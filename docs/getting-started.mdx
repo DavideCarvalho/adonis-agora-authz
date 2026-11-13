@@ -57,8 +57,8 @@ Both paths create the same tables, so switching later is safe — see
 From the CLI:
 
 ```sh
-node ace authz:grant editor posts.edit   # permission → role
-node ace authz:assign editor 42          # role → user (id 42)
+node ace authz:roles:grant editor posts.edit   # permission → role
+node ace authz:assignments:add editor 42          # role → user (id 42)
 ```
 
 …or programmatically:

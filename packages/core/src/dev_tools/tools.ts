@@ -112,12 +112,135 @@ async function load<T>(
 const CALLER_NOTE =
   'Global roles from a token (authkit) and the role inside the active tenant only count for the user making the request; for another subject they are not visible here.';
 
+/** One role as `authz_list_roles` and `authz:roles:list` show it. */
+export interface AuthzRoleRow {
+  role: string;
+  inStore: boolean;
+  permissions: string[];
+  roleGrants: string[];
+  catalog: string[] | null;
+  missingInStore: string[];
+  drift: boolean;
+}
+
+/**
+ * The reads behind the authz dev tools, shared with the `authz:*` ace commands so both answer the
+ * same thing. Inputs use the tool input names (`subjectType`, `subjectId`, `tenantId`, …).
+ */
+export function authzQueries(deps: AuthzDevToolsDeps) {
+  const options = () => deps.options?.() ?? {};
+  return {
+    /** `authz_explain_check`: the verdict, its reason and what granted it. */
+    async explainCheck(input: Record<string, unknown>) {
+      const service = await deps.service();
+      const ref = subjectOf(input);
+      const permission = str(input.permission);
+      if (permission === undefined) throw new Error('`permission` is required');
+      const scope = scopeOf(input);
+      const hooks = options();
+      const subject = await load(hooks.loadSubject, ref);
+      const resourceType = str(input.resourceType);
+      const resourceId = str(input.resourceId);
+      if ((resourceType === undefined) !== (resourceId === undefined)) {
+        throw new Error('`resourceType` and `resourceId` go together: pass both or neither');
+      }
+      const resourceRef =
+        resourceType !== undefined && resourceId !== undefined
+          ? { type: resourceType, id: resourceId }
+          : undefined;
+      const resource = resourceRef ? await load(hooks.loadResource, resourceRef) : undefined;
+      const explanation = await service.explainCheck(ref, permission, {
+        ...(scope ? { scope } : {}),
+        ...(subject.loaded ? { user: subject.value } : {}),
+        ...(resourceRef ? { resource: resource?.loaded ? resource.value : resourceRef } : {}),
+      });
+      return {
+        ...explanation,
+        tenant: scopeLabel(service, scope),
+        subjectLoaded: subject.loaded,
+        ...(resourceRef ? { resourceLoaded: resource?.loaded === true } : {}),
+        note: CALLER_NOTE,
+      };
+    },
+
+    /** `authz_list_effective_roles`: each effective role with the sources it comes from. */
+    async effectiveRoles(input: Record<string, unknown>) {
+      const service = await deps.service();
+      const ref = subjectOf(input);
+      const scope = scopeOf(input);
+      const tenant = service.currentScope(scope);
+      const sources = await service.effectiveRoleSources(ref, tenant);
+      const byRole = new Map<string, string[]>();
+      for (const [source, roles] of Object.entries(sources)) {
+        for (const role of roles) byRole.set(role, [...(byRole.get(role) ?? []), source]);
+      }
+      return {
+        subject: ref,
+        tenant: scopeLabel(service, scope),
+        roles: [...byRole].map(([role, from]) => ({ role, sources: from })),
+        note: CALLER_NOTE,
+      };
+    },
+
+    /** `authz_list_effective_permissions`: every effective permission, sorted, unpaged. */
+    async effectivePermissions(input: Record<string, unknown>) {
+      const service = await deps.service();
+      const ref = subjectOf(input);
+      const scope = scopeOf(input);
+      const subject = await load(options().loadSubject, ref);
+      const permissions = await service.effectivePermissions(
+        subject.loaded ? subject.value : ref,
+        scope,
+        { cache: service.createCache() },
+      );
+      return {
+        subject: ref,
+        tenant: scopeLabel(service, scope),
+        permissions: [...permissions].sort(),
+      };
+    },
+
+    /** `authz_list_roles`: every known role (store, roleGrants, catalog) with drift, unpaged. */
+    async roles(input: Record<string, unknown>): Promise<AuthzRoleRow[]> {
+      const service = await deps.service();
+      const catalog = deps.catalog?.()?.roles ?? {};
+      const grants = deps.roleGrants?.() ?? {};
+      const stored = await service.store.listRoles();
+      const only = str(input.role);
+      const names = [...new Set([...stored, ...Object.keys(catalog), ...Object.keys(grants)])]
+        .filter((name) => only === undefined || name === only)
+        .sort();
+      const storeSet = new Set(stored);
+      const items: AuthzRoleRow[] = [];
+      for (const role of names) {
+        const inStore = storeSet.has(role);
+        const storePermissions = inStore ? await service.store.getRolePermissions(role) : [];
+        const declared = Object.hasOwn(catalog, role) ? (catalog[role] ?? []) : undefined;
+        const missingInStore =
+          declared === undefined ? [] : declared.filter((p) => !storePermissions.includes(p));
+        const drift = declared !== undefined && (!inStore || missingInStore.length > 0);
+        if (input.drift === true && !drift) continue;
+        items.push({
+          role,
+          inStore,
+          permissions: [...storePermissions].sort(),
+          roleGrants: Object.hasOwn(grants, role) ? (grants[role] ?? []) : [],
+          catalog: declared ?? null,
+          missingInStore,
+          drift,
+        });
+      }
+      return items;
+    },
+  };
+}
+
 /**
  * The authz developer tools (all read-only): explain a check, a subject's effective roles and
  * permissions, and the role catalogue with store drift.
  */
 export function authzDevTools(deps: AuthzDevToolsDeps): DevTool[] {
-  const options = () => deps.options?.() ?? {};
+  const queries = authzQueries(deps);
   return [
     {
       name: 'authz_explain_check',
@@ -145,37 +268,7 @@ export function authzDevTools(deps: AuthzDevToolsDeps): DevTool[] {
         },
         required: ['subjectId', 'permission'],
       },
-      async run(input) {
-        const service = await deps.service();
-        const ref = subjectOf(input);
-        const permission = str(input.permission);
-        if (permission === undefined) throw new Error('`permission` is required');
-        const scope = scopeOf(input);
-        const hooks = options();
-        const subject = await load(hooks.loadSubject, ref);
-        const resourceType = str(input.resourceType);
-        const resourceId = str(input.resourceId);
-        if ((resourceType === undefined) !== (resourceId === undefined)) {
-          throw new Error('`resourceType` and `resourceId` go together: pass both or neither');
-        }
-        const resourceRef =
-          resourceType !== undefined && resourceId !== undefined
-            ? { type: resourceType, id: resourceId }
-            : undefined;
-        const resource = resourceRef ? await load(hooks.loadResource, resourceRef) : undefined;
-        const explanation = await service.explainCheck(ref, permission, {
-          ...(scope ? { scope } : {}),
-          ...(subject.loaded ? { user: subject.value } : {}),
-          ...(resourceRef ? { resource: resource?.loaded ? resource.value : resourceRef } : {}),
-        });
-        return {
-          ...explanation,
-          tenant: scopeLabel(service, scope),
-          subjectLoaded: subject.loaded,
-          ...(resourceRef ? { resourceLoaded: resource?.loaded === true } : {}),
-          note: CALLER_NOTE,
-        };
-      },
+      run: (input) => queries.explainCheck(input),
     },
     {
       name: 'authz_list_effective_roles',
@@ -190,22 +283,8 @@ export function authzDevTools(deps: AuthzDevToolsDeps): DevTool[] {
         required: ['subjectId'],
       },
       async run(input) {
-        const service = await deps.service();
-        const ref = subjectOf(input);
-        const scope = scopeOf(input);
-        const tenant = service.currentScope(scope);
-        const sources = await service.effectiveRoleSources(ref, tenant);
-        const byRole = new Map<string, string[]>();
-        for (const [source, roles] of Object.entries(sources)) {
-          for (const role of roles) byRole.set(role, [...(byRole.get(role) ?? []), source]);
-        }
-        return {
-          subject: ref,
-          tenant: scopeLabel(service, scope),
-          items: [...byRole].map(([role, from]) => ({ role, sources: from })),
-          next: null,
-          note: CALLER_NOTE,
-        };
+        const { subject, tenant, roles, note } = await queries.effectiveRoles(input);
+        return { subject, tenant, items: roles, next: null, note };
       },
     },
     {
@@ -220,20 +299,8 @@ export function authzDevTools(deps: AuthzDevToolsDeps): DevTool[] {
         required: ['subjectId'],
       },
       async run(input) {
-        const service = await deps.service();
-        const ref = subjectOf(input);
-        const scope = scopeOf(input);
-        const subject = await load(options().loadSubject, ref);
-        const permissions = await service.effectivePermissions(
-          subject.loaded ? subject.value : ref,
-          scope,
-          { cache: service.createCache() },
-        );
-        return {
-          subject: ref,
-          tenant: scopeLabel(service, scope),
-          ...pageOf([...permissions].sort(), input),
-        };
+        const { subject, tenant, permissions } = await queries.effectivePermissions(input);
+        return { subject, tenant, ...pageOf(permissions, input) };
       },
     },
     {
@@ -257,35 +324,7 @@ export function authzDevTools(deps: AuthzDevToolsDeps): DevTool[] {
         },
       },
       async run(input) {
-        const service = await deps.service();
-        const catalog = deps.catalog?.()?.roles ?? {};
-        const grants = deps.roleGrants?.() ?? {};
-        const stored = await service.store.listRoles();
-        const only = str(input.role);
-        const names = [...new Set([...stored, ...Object.keys(catalog), ...Object.keys(grants)])]
-          .filter((name) => only === undefined || name === only)
-          .sort();
-        const storeSet = new Set(stored);
-        const items = [];
-        for (const role of names) {
-          const inStore = storeSet.has(role);
-          const storePermissions = inStore ? await service.store.getRolePermissions(role) : [];
-          const declared = Object.hasOwn(catalog, role) ? (catalog[role] ?? []) : undefined;
-          const missingInStore =
-            declared === undefined ? [] : declared.filter((p) => !storePermissions.includes(p));
-          const drift = declared !== undefined && (!inStore || missingInStore.length > 0);
-          if (input.drift === true && !drift) continue;
-          items.push({
-            role,
-            inStore,
-            permissions: [...storePermissions].sort(),
-            roleGrants: Object.hasOwn(grants, role) ? (grants[role] ?? []) : [],
-            catalog: declared ?? null,
-            missingInStore,
-            drift,
-          });
-        }
-        return pageOf(items, input);
+        return pageOf(await queries.roles(input), input);
       },
     },
   ];

@@ -2,6 +2,7 @@ import type { ApplicationService } from '@adonisjs/core/types';
 import { setBootedApp } from '../services/booted_app.js';
 import { AuthzService } from '../src/authz_service.js';
 import type { AuthzConfig } from '../src/define_config.js';
+import { authzDevToolsDepsOf } from '../src/dev_tools/deps.js';
 import { registerAuthzDevTools } from '../src/dev_tools/tools.js';
 import { registerDoctorChecks } from '../src/doctor/agora_doctor.js';
 import { authzDoctorChecks } from '../src/doctor/checks.js';
@@ -108,15 +109,10 @@ export default class AuthzProvider {
     const config = () => this.app.config.get<AuthzConfig>('authz', {});
     const devTools = config().devTools;
     if (devTools === false) return;
-    const outcome = await registerAuthzDevTools(this.app.container as never, {
-      service: () => this.app.container.make(AuthzService),
-      catalog: () => config().catalog,
-      roleGrants: () => config().roleGrants,
-      options: () => {
-        const current = config().devTools;
-        return typeof current === 'object' && current !== null ? current : {};
-      },
-    });
+    const outcome = await registerAuthzDevTools(
+      this.app.container as never,
+      authzDevToolsDepsOf(this.app as never),
+    );
     if (outcome === 'unsupported' || outcome === 'failed') {
       const logger = (await this.app.container.make('logger').catch(() => undefined)) as
         | { debug(msg: string): void }

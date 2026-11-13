@@ -7,7 +7,7 @@ description: >
   stores.lucid() / stores.memory(), autoCreateSchema vs owning the schema via
   createAuthzTables/dropAuthzTables with matching tables overrides, the
   resolveSubjectRef seam (defaultResolveSubjectRef, identitySubjectRef), the tenant
-  resolver, and the ace commands authz:grant / authz:assign / authz:list /
+  resolver, and the ace commands authz:roles:* / authz:assignments:* / authz:subjects:* /
   authz:sync with the idempotent catalog. Use when installing, wiring config,
   choosing between auto-created or migrated RBAC tables, seeding roles and
   permissions, or mapping a custom user model to a { type, id } SubjectRef.
@@ -100,9 +100,23 @@ migration. Do it on Postgres if you use `whereHas('roles')` with an integer PK
 ```sh
 node ace authz:make-role editor
 node ace authz:make-permission posts.edit   # dotted/wildcard names allowed
-node ace authz:grant editor posts.edit      # permission → role (creates either by name)
-node ace authz:assign editor 42 --type=user --tenant=acme
-node ace authz:list                         # every role (with permissions) + permission
+node ace authz:roles:grant editor posts.edit # permission → role (creates either by name)
+node ace authz:assignments:add editor 42 --type=user --tenant=acme
+node ace authz:roles:list                   # every role with its permissions (store, roleGrants, catalog)
+node ace authz:permissions:list             # every permission
+```
+
+Inspect and change grants from the terminal (`--json` on every command; revocations ask first,
+`--force` skips the question and is required without a terminal):
+
+```sh
+node ace authz:assignments:list --subject=42           # who holds which role, where
+node ace authz:assignments:remove editor 42 --tenant=acme
+node ace authz:roles:revoke editor posts.edit
+node ace authz:subjects:grant 42 reports.export         # direct grant, no role
+node ace authz:subjects:roles 42 --tenant=acme          # effective roles + sources
+node ace authz:subjects:permissions 42
+node ace authz:subjects:explain 42 posts.edit           # why allowed / denied
 ```
 
 Or declare a catalog and sync it (idempotent — only missing rows are created):
@@ -233,7 +247,7 @@ node ace authz:sync
 Correct:
 
 ```sh
-node ace authz:list          # inspect what exists
+node ace authz:roles:list    # inspect what exists
 # revoke explicitly via store.revokePermissionFromRole(...) first, then:
 node ace authz:sync
 ```

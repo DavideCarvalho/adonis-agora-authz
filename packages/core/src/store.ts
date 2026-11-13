@@ -316,9 +316,9 @@ export interface PermissionStore {
     opts?: StoreOptions,
   ): Promise<boolean>;
 
-  /** List every role name known to the store (for ace `authz:list`). */
+  /** List every role name known to the store (for ace `authz:roles:list`). */
   listRoles(opts?: StoreOptions): Promise<string[]>;
-  /** List every permission name known to the store (for ace `authz:list`). */
+  /** List every permission name known to the store (for ace `authz:permissions:list`). */
   listPermissions(opts?: StoreOptions): Promise<string[]>;
   /** List the permission names attached to a role. */
   getRolePermissions(roleName: string, opts?: StoreOptions): Promise<string[]>;

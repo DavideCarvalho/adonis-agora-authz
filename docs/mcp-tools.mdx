@@ -18,6 +18,9 @@ Code (or any MCP client) as the [agent docs](/docs/agent/dev-tools) show, then a
 
 Lists return `{ items, next }`: pass `next` as `page` to get the following page.
 
+The same reads are ace commands: `authz:subjects:explain`, `authz:subjects:roles`,
+`authz:subjects:permissions` and `authz:roles:list`. See [CLI](/docs/authz/cli).
+
 Without `tenantId`, checks run where the app's own checks would: in the request's active
 organization when [tenancy](/docs/authz/agora-integration#organization-as-tenant) is on, else in
 the global scope. Pass `tenantId: ''` to force the global scope.

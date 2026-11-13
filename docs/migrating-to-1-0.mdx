@@ -183,3 +183,17 @@ import { resolveAuthUser } from '@adonis-agora/authz'
 
 authz: async (ctx) => buildAuthzShare(authz, await resolveAuthUser(ctx.auth)),
 ```
+
+## Ace commands renamed
+
+The ace commands follow `authz:<noun>:<verb>`. The old names are gone, with no alias:
+
+| Before | After |
+| --- | --- |
+| `authz:grant <role> <permission>` | `authz:roles:grant <role> <permission>` |
+| `authz:assign <role> <subjectId>` | `authz:assignments:add <role> <subjectId>` |
+| `authz:list` | `authz:roles:list` and `authz:permissions:list` |
+
+Update scripts, seeders and deploy steps that call them. The arguments and the `--type` / `--tenant`
+flags are the same. See [CLI](/docs/authz/cli) for the new commands.
+
