@@ -6,7 +6,8 @@ import { stubsRoot } from './stubs/main.js';
  *
  * 1. registers the service provider in `adonisrc.ts`;
  * 2. registers the ace commands barrel (`authz:make-role`, `authz:make-permission`,
- *    `authz:grant`, `authz:assign`, `authz:list`, `authz:sync`);
+ *    `authz:roles:*`, `authz:permissions:list`, `authz:assignments:*`, `authz:subjects:*`,
+ *    `authz:sync`, `authz:doctor`);
  * 3. publishes `config/authz.ts`;
  * 4. publishes the Bouncer abilities into `app/abilities/authz.ts`;
  * 5. publishes the Lucid migration for the RBAC tables (run `node ace

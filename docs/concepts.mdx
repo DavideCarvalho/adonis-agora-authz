@@ -167,7 +167,7 @@ Hosts with integer ids may give the pivots their native key type
 | `getRolePermissions(role)` | The permission names attached to a role. |
 | `getPermissionsForRoles(roles)` | `{ [role]: permissionNames }` for many roles in one query. Every existing role is a key (`[]` when it has no grants); unknown roles are absent. |
 | `syncRolePermissions(role, permissions)` | Replaces the role's grants with exactly this list (spatie's `syncPermissions`), creating the role/permissions by name. Transactional. |
-| `listRoles()` / `listPermissions()` | Every known name (what `node ace authz:list` reads). |
+| `listRoles()` / `listPermissions()` | Every known name (what `node ace authz:roles:list` and `authz:permissions:list` read). |
 | `deleteRole(name)` → `boolean` | Deletes the role outright — revokes its grants, removes every user assignment (all tenants and sources), deletes the row, in one transaction. Returns whether the role existed (an unknown name is a no-op returning `false`). Whether to refuse a still-populated role is **your** decision: count first. |
 
 **Assignments & direct grants**

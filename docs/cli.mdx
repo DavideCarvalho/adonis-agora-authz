@@ -1,0 +1,130 @@
+---
+title: CLI
+description: Manage roles, permissions and role assignments, and ask why a user can or cannot do something, from the terminal with node ace.
+icon: Terminal
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+`configure` registers the commands. Every command boots the app and uses the configured store.
+
+| Command | What it does |
+| --- | --- |
+| `authz:roles:list` | roles with their permissions in the store, in `roleGrants` and in the `catalog` |
+| `authz:roles:grant <role> <permission>` | grant a permission to a role |
+| `authz:roles:revoke <role> <permission>` | take a permission from a role |
+| `authz:permissions:list` | every permission in the store |
+| `authz:assignments:list` | who holds which role, in which tenant, from which source |
+| `authz:assignments:add <role> <subjectId>` | assign a role to a user |
+| `authz:assignments:remove <role> <subjectId>` | remove a role from a user |
+| `authz:subjects:grant <subjectId> <permission>` | grant a permission directly to a user |
+| `authz:subjects:revoke <subjectId> <permission>` | revoke a direct grant |
+| `authz:subjects:roles <subjectId>` | a user's effective roles and where each comes from |
+| `authz:subjects:permissions <subjectId>` | a user's effective permissions |
+| `authz:subjects:explain <subjectId> <permission>` | why a user can or cannot do something |
+| `authz:make-role <name>` | create a role |
+| `authz:make-permission <name>` | create a permission |
+| `authz:sync` | seed roles and permissions from the `catalog` |
+| `authz:doctor` | [health check](/docs/authz/doctor) |
+
+## Roles and permissions
+
+```bash
+node ace authz:roles:list
+node ace authz:roles:list --role=editor
+node ace authz:roles:list --drift              # catalog roles the store is missing
+node ace authz:roles:grant editor posts.edit   # creates the role and the permission if needed
+node ace authz:roles:revoke editor posts.edit  # asks first
+node ace authz:permissions:list
+node ace authz:make-role editor
+node ace authz:make-permission 'posts.*'
+```
+
+`authz:roles:list` shows a role's permissions in the store, its `roleGrants` from `config/authz.ts`, its `catalog` entry and what the store is missing from the catalog. Fix drift with `authz:sync`.
+
+## Role assignments
+
+```bash
+node ace authz:assignments:list
+node ace authz:assignments:list --subject=42
+node ace authz:assignments:list --role=editor,admin --tenant=acme
+node ace authz:assignments:list --global --source=scim
+
+node ace authz:assignments:add editor 42
+node ace authz:assignments:add editor 42 --type=admin --tenant=acme --source=scim
+node ace authz:assignments:remove editor 42 --tenant=acme   # asks first
+```
+
+| Flag | On | |
+| --- | --- | --- |
+| `--type=<type>` | every command that takes a subject | the subject type, default `user` |
+| `--tenant=<id>` | `assignments:*` | the tenant. `list` shows only that tenant's rows, without the global ones |
+| `--global` | `assignments:list` | only global assignments |
+| `--source=<name>` | `assignments:*` | `add` records it (default `manual`). `remove` without it removes the role from every source |
+| `--role=<a,b>` | `assignments:list` | only these roles |
+| `--subject=<id>` | `assignments:list` | only this subject (with `--type`) |
+
+Without `--tenant`, `add` and `remove` act on the global scope.
+
+## Direct grants
+
+```bash
+node ace authz:subjects:grant 42 reports.export
+node ace authz:subjects:revoke 42 reports.export   # asks first
+```
+
+Revoking a direct grant leaves the permissions the user gets from roles.
+
+## Effective roles, permissions and checks
+
+```bash
+node ace authz:subjects:roles 42
+node ace authz:subjects:roles 42 --tenant=acme
+node ace authz:subjects:permissions 42 --tenant=acme
+node ace authz:subjects:explain 42 posts.edit
+node ace authz:subjects:explain 42 posts.edit --resource-type=post --resource-id=7
+```
+
+These answer what the [MCP tools](/docs/authz/mcp-tools) answer. Without `--tenant` they read the global scope, unless your `tenant` / `resolveTenant` option returns one. Set `devTools.loadSubject` and `devTools.loadResource` in `config/authz.ts` so the decision provider and the `superAdmin` hook get your models.
+
+<Callout type="info">
+Roles from a token (authkit's global roles) and from a request's organization role exist only inside a request, so from the terminal you see the app (`resolveRoles`) and store roles.
+</Callout>
+
+`authz:subjects:explain` exits with `0` for both verdicts; the verdict is in the output.
+
+## Seeding from the catalog
+
+```bash
+node ace authz:sync
+```
+
+Creates the roles and permissions declared in `catalog` and attaches the missing grants. It never removes anything.
+
+```ts title="config/authz.ts"
+defineConfig({
+  catalog: {
+    permissions: ['system.manage'],
+    roles: {
+      editor: ['posts.*'],
+      viewer: ['posts.view'],
+    },
+  },
+})
+```
+
+## Output, paging and confirmation
+
+- `--json` on every command prints JSON. Lists print `{ data, meta }` with `meta.total`, `perPage`, `currentPage`, `lastPage`, `firstPage`.
+- Lists take `--page` (from 1) and `--size` (default 50, at most 1000).
+- `roles:revoke`, `assignments:remove` and `subjects:revoke` ask before changing anything. Without a terminal (CI, scripts) they refuse unless you pass `--force`. Revoking something that is not there is a no-op.
+- A command exits with `1` on a bad flag, a refused change or a store error.
+
+## Health check
+
+```bash
+node ace authz:doctor
+node ace authz:doctor --deep   # also checks the catalog was synced to the store
+```
+
+`node ace agora:doctor` checks every installed Agora lib. See [Health check](/docs/authz/doctor).

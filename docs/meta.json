@@ -15,7 +15,7 @@
     "react",
     "mixin",
     "roles-relation",
-    "commands",
+    "cli",
     "doctor",
     "mcp-tools",
     "testing",

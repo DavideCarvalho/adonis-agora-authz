@@ -1,11 +1,26 @@
 import { ListLoader } from '@adonisjs/core/ace';
 import AgoraDoctor from './agora_doctor.js';
-import AuthzAssign from './assign.js';
+import {
+  AuthzAssignmentsAdd,
+  AuthzAssignmentsList,
+  AuthzAssignmentsRemove,
+} from './assignments.js';
 import AuthzDoctor from './authz_doctor.js';
-import AuthzGrant from './grant.js';
-import AuthzList from './list.js';
 import AuthzMakePermission from './make_permission.js';
 import AuthzMakeRole from './make_role.js';
+import {
+  AuthzPermissionsList,
+  AuthzRolesGrant,
+  AuthzRolesList,
+  AuthzRolesRevoke,
+} from './roles.js';
+import {
+  AuthzSubjectsExplain,
+  AuthzSubjectsGrant,
+  AuthzSubjectsPermissions,
+  AuthzSubjectsRevoke,
+  AuthzSubjectsRoles,
+} from './subjects.js';
 import AuthzSync from './sync.js';
 
 /**
@@ -17,9 +32,18 @@ import AuthzSync from './sync.js';
 const loader = new ListLoader([
   AuthzMakeRole,
   AuthzMakePermission,
-  AuthzGrant,
-  AuthzAssign,
-  AuthzList,
+  AuthzRolesList,
+  AuthzRolesGrant,
+  AuthzRolesRevoke,
+  AuthzPermissionsList,
+  AuthzAssignmentsList,
+  AuthzAssignmentsAdd,
+  AuthzAssignmentsRemove,
+  AuthzSubjectsGrant,
+  AuthzSubjectsRevoke,
+  AuthzSubjectsRoles,
+  AuthzSubjectsPermissions,
+  AuthzSubjectsExplain,
   AuthzSync,
   AuthzDoctor,
   AgoraDoctor,
