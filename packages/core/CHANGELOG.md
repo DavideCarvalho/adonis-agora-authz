@@ -1,5 +1,13 @@
 # @adonis-agora/authz
 
+## 1.0.0-rc.5
+
+### Minor Changes
+
+- [#221](https://github.com/DavideCarvalho/adonis-agora-authz/pull/221) [`53d3bdf`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/53d3bdf3affdfcdf8166460f3ec24a1d9457535b) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - CLI parity with the authz MCP tools. New `authz:<noun>:<verb>` ace commands: `authz:roles:list` (store, `roleGrants`, catalog and drift), `authz:roles:revoke`, `authz:permissions:list`, `authz:assignments:list`, `authz:assignments:remove`, `authz:subjects:grant`, `authz:subjects:revoke`, `authz:subjects:roles`, `authz:subjects:permissions` and `authz:subjects:explain`. Every command takes `--json`; lists page with `--page` / `--size` and print `{ data, meta }`; revocations ask first and need `--force` without a terminal. The reads share one implementation with the MCP tools (`authzQueries`, `authzDevToolsDepsOf`).
+  
+  BREAKING: `authz:grant` is now `authz:roles:grant`, `authz:assign` is now `authz:assignments:add` (new `--source` flag), and `authz:list` is replaced by `authz:roles:list` + `authz:permissions:list`. No aliases.
+
 ## 1.0.0-rc.4
 
 ### Minor Changes
