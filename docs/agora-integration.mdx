@@ -238,6 +238,9 @@ see its events. Have authkit-server POST them to the app and re-emit them locall
    registerAuthkitWebhook(router, { secret: env.get('AUTHKIT_WEBHOOK_SECRET') }) // POST /authkit/webhook
    ```
 
+   `AUTHKIT_WEBHOOK_SECRET` is this app's own secret: the one on its webhook entry in step 1
+   (`SHOP_WEBHOOK_SECRET` for the shop app).
+
    ```ts title="config/shield.ts"
    csrf: { exceptRoutes: ['/authkit/webhook'] },
    ```

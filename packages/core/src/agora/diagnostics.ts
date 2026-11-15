@@ -40,11 +40,14 @@ export interface DiagnosticEvent {
   metadata?: Record<string, unknown>;
 }
 
-/** Subscriber signature exposed by `@adonis-agora/diagnostics`. */
+/**
+ * Subscriber signature exposed by `@adonis-agora/diagnostics`. Handlers receive the bus envelope
+ * (`{ v, ts, lib, event, traceId, payload }`), not the payload, so the message is `unknown` here.
+ */
 export type OnDiagnostic = (
   lib: string,
   event: string | undefined,
-  handler: (event: DiagnosticEvent) => void | Promise<void>,
+  handler: (message: unknown) => void | Promise<void>,
 ) => undefined | (() => void);
 
 /**
