@@ -20,3 +20,5 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - '@types/node@26.5.0'
   - unplugin-swc@1.6.0
+  - '@adonis-agora/authkit-client@1.0.0-rc.7'
+  - '@adonis-agora/authkit-core@1.0.0-rc.3'

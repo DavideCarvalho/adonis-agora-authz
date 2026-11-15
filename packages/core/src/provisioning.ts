@@ -61,7 +61,8 @@ export async function defineAuthzProvisioning(
   const disposers: Array<() => void> = [];
 
   for (const [eventType, action] of Object.entries(config.on)) {
-    const handler = async (event: DiagnosticEvent): Promise<void> => {
+    const handler = async (message: unknown): Promise<void> => {
+      const event = authkitEventOf(message, eventType);
       try {
         await action(event, config.store);
       } catch (error) {
@@ -87,6 +88,25 @@ export async function defineAuthzProvisioning(
       }
     },
   };
+}
+
+/**
+ * `@adonis-agora/diagnostics` delivers an envelope (`{ v, ts, lib, event, traceId, payload }`) to
+ * subscribers; the authkit event is its `payload`. Actions always get the authkit event itself,
+ * with `type` filled from the channel when the payload lacks it. A bare payload (a bus that
+ * delivers payloads directly) passes through.
+ */
+function authkitEventOf(message: unknown, eventType: string): DiagnosticEvent {
+  const envelope = message as { lib?: unknown; event?: unknown; payload?: unknown } | null;
+  const isEnvelope =
+    envelope !== null &&
+    typeof envelope === 'object' &&
+    typeof envelope.lib === 'string' &&
+    typeof envelope.event === 'string' &&
+    'payload' in envelope;
+  const payload = (isEnvelope ? envelope.payload : message) as DiagnosticEvent | null | undefined;
+  const event = payload && typeof payload === 'object' ? payload : {};
+  return event.type ? event : { ...event, type: eventType };
 }
 
 export type { DiagnosticEvent } from './agora/diagnostics.js';

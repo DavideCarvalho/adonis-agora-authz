@@ -134,6 +134,8 @@
     }
   },
   "devDependencies": {
+    "@adonis-agora/authkit-client": "1.0.0-rc.7",
+    "@adonis-agora/diagnostics": "1.0.0-rc.5",
     "@adonisjs/assembler": "8.6.0",
     "@adonisjs/bouncer": "4.0.1",
     "@adonisjs/core": "7.6.0",
