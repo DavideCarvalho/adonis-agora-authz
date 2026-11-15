@@ -211,6 +211,44 @@ unsubscribe.
   `defineAuthzProvisioning` to authkit's un-redacted `events.onEvent`.
 </Callout>
 
+### When authkit runs on another server
+
+The diagnostics bus is per process, so an app that signs in against a remote authkit-server does not
+see its events. Have authkit-server POST them to the app and re-emit them locally with
+`@adonis-agora/authkit-client`. Provisioning then runs unchanged.
+
+1. In authkit-server's `config/authkit.ts`, add one webhook per app, each with a secret:
+
+   ```ts title="config/authkit.ts (authkit-server)"
+   events: {
+     webhook: [
+       { url: 'https://shop.example.com/authkit/webhook', secret: env.get('SHOP_WEBHOOK_SECRET') },
+       { url: 'https://blog.example.com/authkit/webhook', secret: env.get('BLOG_WEBHOOK_SECRET') },
+     ],
+   },
+   ```
+
+2. In each app, mount the receiver and keep it out of CSRF:
+
+   ```ts title="start/routes.ts"
+   import env from '#start/env'
+   import router from '@adonisjs/core/services/router'
+   import { registerAuthkitWebhook } from '@adonis-agora/authkit-client'
+
+   registerAuthkitWebhook(router, { secret: env.get('AUTHKIT_WEBHOOK_SECRET') }) // POST /authkit/webhook
+   ```
+
+   ```ts title="config/shield.ts"
+   csrf: { exceptRoutes: ['/authkit/webhook'] },
+   ```
+
+3. Keep `defineAuthzProvisioning` as above, with `@adonis-agora/diagnostics` installed in the app.
+
+The receiver checks the signature, a 5-minute `ts` window and each event `id` once, then emits
+`agora:authkit:<type>` with the same fields authkit-server emits in its own process: `type`,
+`accountId`, `actorId`, `clientId` and `orgId`. With several instances of an app, pass a shared
+`replayStore` (Redis `SET NX PX`) so a delivery is processed once.
+
 ## The `/authz/can` endpoint
 
 `registerCanEndpoint` registers a route that answers a permission check for the
