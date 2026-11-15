@@ -1,5 +1,11 @@
 # @adonis-agora/authz
 
+## 1.0.0-rc.6
+
+### Patch Changes
+
+- [#225](https://github.com/DavideCarvalho/adonis-agora-authz/pull/225) [`fb98e62`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/fb98e62cbb08b02bce8812492179b005041ae38f) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Provisioning actions now receive the authkit event itself on the real `@adonis-agora/diagnostics` bus. The bus delivers an envelope (`{ v, ts, lib, event, traceId, payload }`), and actions were getting that envelope, so `ev.accountId` and `ev.orgId` were `undefined`. Events re-emitted by authkit-client's `registerAuthkitWebhook` (authkit on another server) provision exactly like in-process ones. Docs: how to point authkit-server's `events.webhook` at each app.
+
 ## 1.0.0-rc.5
 
 ### Minor Changes
