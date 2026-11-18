@@ -1,21 +1,17 @@
 ---
 name: authz-route-guards
 description: >
-  Guard AdonisJS routes with @adonis-agora/authz — AuthzRoleMiddleware
-  registered as the named middleware requireRole from the
-  @adonis-agora/authz/middleware subpath, any-of roles or permissions matching
-  against AuthzService.effectiveRoles (global token claim ∪ tenant org-role mapping ∪ resolveRoles ∪
-  store) and effectivePermissions (wildcard-aware), RequireRoleOptions (roles,
-  permissions, appCallers, scope, guestRedirect, deniedRedirect, deniedMessage,
-  onDenied), apps calling this one (ctx.agora.caller) as the subject
-  { type: 'app', id } and permitAuthz for the libs' app-caller seams,
-  and where per-record checks belong instead (Bouncer can in the action,
-  accessibleBy for collections). Use when keeping route trees behind a role or
-  a permission, redirecting unauthenticated or unauthorized requests in SSR /
-  Inertia apps, letting the host decide the denial response, or wiring
-  start/kernel.ts middleware. Also covers authorizeByRoles, the authorize hook
-  for @adonis-agora dashboards (telescope, durable, media, payments, agent),
-  which returns an AuthorizeResult (true | { allowed: true, tenants: '*' } | { allowed: false, reason }).
+  Guard AdonisJS routes with @adonis-agora/authz: the named middleware
+  requireRole (@adonis-agora/authz/middleware), any-of roles or permissions
+  against effectiveRoles / effectivePermissions (wildcard-aware),
+  RequireRoleOptions (roles, permissions, appCallers, scope, guestRedirect,
+  deniedRedirect, deniedMessage, onDenied), apps calling this one
+  (ctx.agora.caller) as { type: 'app', id } and permitAuthz for the libs'
+  app-caller seams. Use when keeping routes behind a role or permission,
+  redirecting unauthenticated or unauthorized requests, letting the host
+  decide the denial, or letting another app in. Also covers authorizeByRoles,
+  the authorize hook for @adonis-agora dashboards, which returns an
+  AuthorizeResult (true | { allowed: true, tenants: '*' } | { allowed: false, reason }).
 metadata:
   type: core
   library: "@adonis-agora/authz"
