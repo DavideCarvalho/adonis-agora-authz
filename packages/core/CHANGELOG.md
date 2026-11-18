@@ -1,5 +1,11 @@
 # @adonis-agora/authz
 
+## 1.0.0-rc.8
+
+### Minor Changes
+
+- [#237](https://github.com/DavideCarvalho/adonis-agora-authz/pull/237) [`d2f6d12`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/d2f6d12a9c3cc088c6850d6058ac9a5714fbe6a2) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `requireRole` checks an app calling this one (`ctx.agora.caller`) with no option: its token carries what the Hub granted it, so a route only names the permission, and an app without the grant gets `403`. The `appCallers` option is gone.
+
 ## 1.0.0-rc.7
 
 ### Minor Changes
