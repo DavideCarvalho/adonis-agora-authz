@@ -1,7 +1,7 @@
 import { inject } from '@adonisjs/core';
 import type { HttpContext } from '@adonisjs/core/http';
 import type { NextFn } from '@adonisjs/core/types/http';
-import { appCallerOf } from './agora/app_caller.js';
+import { type AppCallerLike, appCallerOf, capabilityAllows } from './agora/app_caller.js';
 import { type AuthLike, resolveAuthUser } from './auth_user.js';
 import { AuthzService } from './authz_service.js';
 import { permissionMatches, permissionSatisfied } from './permission_matcher.js';
@@ -111,23 +111,13 @@ export default class AuthzRoleMiddleware {
     }
 
     const auth = (ctx as unknown as { auth?: AuthLike }).auth;
-    const caller = options.appCallers === true ? appCallerOf(ctx) : undefined;
-    // A service token never binds `ctx.auth`: an app caller has no user to authenticate.
-    const user = caller === undefined ? await resolveAuthUser(auth) : undefined;
-    if (caller !== undefined) {
-      const callerRoles = await this.authz.effectiveRoles(caller, options.scope);
-      if (roles.some((role) => callerRoles.includes(role))) return next();
-      for (const required of permissions) {
-        if (await this.authz.can(caller, required, scopeOption(options.scope))) return next();
-      }
-      if (options.onDenied) {
-        return options.onDenied(ctx, {
-          roles: callerRoles,
-          permissions: await this.authz.effectivePermissions(caller, options.scope),
-        });
-      }
-      return ctx.response.forbidden({ message: options.deniedMessage ?? 'Forbidden' });
-    }
+    const user = await resolveAuthUser(auth);
+    // No user: another app calling with a service token (`appCallers`), if the route lets apps in.
+    const caller =
+      (user === null || user === undefined) && options.appCallers === true
+        ? appCallerOf(ctx)
+        : undefined;
+    if (caller !== undefined) return this.handleCaller(ctx, next, options, caller);
     if (user === null || user === undefined) {
       return options.guestRedirect
         ? ctx.response.redirect(options.guestRedirect)
@@ -156,5 +146,37 @@ export default class AuthzRoleMiddleware {
     }
 
     return next();
+  }
+
+  /**
+   * The same decision for an app caller (`{ type: 'app', id }`): its roles, then each permission
+   * through `authz.can` (its token's capabilities, its grants, the hooks), then a route wildcard
+   * (`reports.*`, `reports:*`) covering one of its effective permissions, as for users.
+   */
+  private async handleCaller(
+    ctx: HttpContext,
+    next: NextFn,
+    options: RequireRoleOptions,
+    caller: AppCallerLike,
+  ) {
+    const roles = options.roles ?? [];
+    const permissions = options.permissions ?? [];
+    const callerRoles = await this.authz.effectiveRoles(caller, options.scope);
+    if (roles.some((role) => callerRoles.includes(role))) return next();
+    for (const required of permissions) {
+      if (await this.authz.can(caller, required, scopeOption(options.scope))) return next();
+    }
+    const effective =
+      permissions.length > 0 ? await this.authz.effectivePermissions(caller, options.scope) : [];
+    const byRouteWildcard = permissions.some(
+      (required) =>
+        required.includes('*') &&
+        effective.some((g) => permissionMatches(required, g) || capabilityAllows(required, g)),
+    );
+    if (byRouteWildcard) return next();
+    if (options.onDenied) {
+      return options.onDenied(ctx, { roles: callerRoles, permissions: effective });
+    }
+    return ctx.response.forbidden({ message: options.deniedMessage ?? 'Forbidden' });
   }
 }

@@ -104,6 +104,28 @@ describe('app callers as subjects', () => {
     expect(seen).toEqual([{ type: 'app', id: 'root' }]);
   });
 
+  it('scopes an app by its capabilities and ":" grants', async () => {
+    const { store, service } = makeService();
+    expect((await service.scope(hub, 'media', { action: 'media:objects:read' })).kind).toBe('all');
+    await store.givePermissionToRole('media-reader', 'media:*');
+    await store.assignRole(appSubjectRef('cms'), 'media-reader');
+    expect(
+      (await service.scope(appSubjectRef('cms'), 'media', { action: 'media:objects:read' })).kind,
+    ).toBe('all');
+  });
+
+  it('explains an app decision by its token capabilities and ":" grants', async () => {
+    const { store, service } = makeService();
+    await store.givePermissionToRole('media-reader', 'media:*');
+    await store.assignRole(appSubjectRef('agora-hub'), 'media-reader');
+    const explained = await service.explainCheck(appSubjectRef('agora-hub'), 'media:objects:read', {
+      user: hub,
+    });
+    expect(explained.allowed).toBe(true);
+    expect(explained.tokenCapabilities).toEqual(['media:objects:read']);
+    expect(explained.grantingRoles).toEqual([{ role: 'media-reader', matched: ['media:*'] }]);
+  });
+
   it('reads ctx.agora.caller', () => {
     expect(appCallerOf({ agora: { caller: hub } })).toBe(hub);
     expect(appCallerOf({ agora: {} })).toBeUndefined();
@@ -150,11 +172,11 @@ describe('permitAuthz', () => {
 });
 
 describe('requireRole with appCallers', () => {
-  function ctxWith(caller: unknown) {
+  function ctxWith(caller: unknown, user?: unknown) {
     const calls: { forbidden?: unknown; unauthorized?: unknown } = {};
     const ctx = {
       agora: { caller },
-      auth: { user: undefined, authenticationAttempted: true },
+      auth: { user, authenticationAttempted: true },
       response: {
         forbidden: (body?: unknown) => {
           calls.forbidden = body ?? true;
@@ -204,6 +226,48 @@ describe('requireRole with appCallers', () => {
     const { ctx, calls } = ctxWith(hub);
     await mw.handle(ctx, (async () => {}) as never, {
       permissions: ['media:objects:write'],
+      appCallers: true,
+    });
+    expect(calls.forbidden).toEqual({ message: 'Forbidden' });
+  });
+
+  it('checks a signed-in user as the user, even with a caller', async () => {
+    const { store, service } = makeService();
+    await store.givePermissionToRole('exporter', 'reports.export');
+    await store.assignRole({ type: 'user', id: '1' }, 'exporter');
+    const mw = new AuthzRoleMiddleware(service);
+    const { ctx } = ctxWith(hub, { id: '1' });
+    let nexted = false;
+    await mw.handle(
+      ctx,
+      (async () => {
+        nexted = true;
+      }) as never,
+      { permissions: ['reports.export'], appCallers: true },
+    );
+    expect(nexted).toBe(true);
+  });
+
+  it('opens a route wildcard for a caller holding a permission under it', async () => {
+    const { store, service } = makeService();
+    await store.givePermissionToRole('exporter', 'reports.export');
+    await store.assignRole(appSubjectRef('agora-hub'), 'exporter');
+    const mw = new AuthzRoleMiddleware(service);
+    for (const route of ['reports.*', 'media:*']) {
+      const { ctx } = ctxWith(hub);
+      let nexted = false;
+      await mw.handle(
+        ctx,
+        (async () => {
+          nexted = true;
+        }) as never,
+        { permissions: [route], appCallers: true },
+      );
+      expect(nexted, route).toBe(true);
+    }
+    const { ctx, calls } = ctxWith(hub);
+    await mw.handle(ctx, (async () => {}) as never, {
+      permissions: ['billing.*'],
       appCallers: true,
     });
     expect(calls.forbidden).toEqual({ message: 'Forbidden' });

@@ -177,6 +177,12 @@ router
 ```
 
 Without `appCallers: true`, a request from an app (no user) still gets `401`.
+A signed-in user is always checked as the user; the caller counts only when there
+is none. A route wildcard (`reports.*`, `reports:*`) opens for an app holding a
+permission under it, as for users.
+
+`authz.scope()` and `authz.explainCheck()` apply the same rules to app subjects;
+the explanation lists the token's matching capabilities in `tokenCapabilities`.
 
 ### Gate a lib's app-caller seam
 

@@ -100,6 +100,8 @@ export interface AuthzExplanation extends AuthzDecision {
   grantingRoles: Array<{ role: string; matched: string[] }>;
   /** Permissions granted to the subject outside those roles that cover `permission`. */
   directGrants: string[];
+  /** For an app subject: the capabilities of its service token that cover `permission`. */
+  tokenCapabilities: string[];
 }
 
 /** Options accepted by {@link AuthzService.check} / {@link AuthzService.can}. */
@@ -685,6 +687,17 @@ export class AuthzService {
   }
 
   /**
+   * Whether one grant of `ref` covers `permission`: the `.` rule for every subject, and the Agora
+   * capability rule (`:` segments, `media:*`) on top for an app subject.
+   */
+  private grantCovers(ref: SubjectRef, granted: string, permission: string): boolean {
+    if (permissionSatisfied([granted], permission)) return true;
+    return ref.type === APP_SUBJECT_TYPE && granted.includes(':')
+      ? capabilityAllows(granted, permission)
+      : false;
+  }
+
+  /**
    * The extra grants of an app subject: its token's capabilities, and the Agora capability rule
    * (`:` segments, `media:*`) on every grant it holds, so the store and `roleGrants` can grant an
    * app the same `media:objects:read` names its token carries.
@@ -757,10 +770,15 @@ export class AuthzService {
     const effective = cache
       ? await cache.getRoles(ref, tenant)
       : await this.effectiveRolesForRef(ref, tenant);
-    const permissions = [...granted, ...this.rolePermissionGrants(effective)];
+    // An app subject also holds its service token's capabilities.
+    const permissions = [
+      ...granted,
+      ...this.rolePermissionGrants(effective),
+      ...appCapabilitiesFor(ref, user),
+    ];
 
     // 2. A wildcard permission grant for the scope action → allow-all.
-    if (permissionSatisfied(permissions, action)) return scopeAll;
+    if (permissions.some((p) => this.grantCovers(ref, p, action))) return scopeAll;
 
     // 3. The resource's registered scope filter, fed the user's effective roles
     // (context ∪ resolveRoles ∪ store — #effectiveRolesFor already includes store roles).
@@ -904,14 +922,17 @@ export class AuthzService {
         : [];
       const fromGrants = this.roleGrants?.[role] ?? [];
       const matched = [...fromStore, ...fromGrants].filter((p) =>
-        permissionSatisfied([p], permission),
+        this.grantCovers(ref, p, permission),
       );
       if (matched.length > 0) grantingRoles.push({ role, matched: [...new Set(matched)] });
     }
     const granted = await this.store.getPermissionsForSubject(ref, tenant);
     const viaRoles = new Set(grantingRoles.flatMap((g) => g.matched));
     const directGrants = granted.filter(
-      (p) => permissionSatisfied([p], permission) && !viaRoles.has(p),
+      (p) => this.grantCovers(ref, p, permission) && !viaRoles.has(p),
+    );
+    const tokenCapabilities = appCapabilitiesFor(ref, user).filter((c) =>
+      capabilityAllows(c, permission),
     );
 
     return {
@@ -925,6 +946,7 @@ export class AuthzService {
       roleSources: sources,
       grantingRoles,
       directGrants,
+      tokenCapabilities,
     };
   }
 
