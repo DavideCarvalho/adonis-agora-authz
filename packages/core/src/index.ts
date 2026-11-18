@@ -13,6 +13,8 @@ export {
   capabilityAllows,
   isAppCaller,
 } from './agora/app_caller.js';
+export type { AuthzCatalogReader } from './agora/catalog_slot.js';
+export { AUTHZ_CATALOG_SLOT, readAuthzCatalog } from './agora/catalog_slot.js';
 export type { AgoraContextAccessor } from './agora/context.js';
 // Structural Agora context bridge (features B & C).
 export {
