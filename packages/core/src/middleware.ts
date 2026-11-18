@@ -40,7 +40,11 @@ export interface RequireRoleOptions {
   scope?: TenantScope;
   /** Para onde redirecionar um request NÃO-autenticado. Sem isto → responde 401. */
   guestRedirect?: string;
-  /** Para onde redirecionar quando falta papel/permissão. Sem isto → responde 403. */
+  /**
+   * Para onde redirecionar quando falta papel/permissão. Sem isto → responde 403. Vale só para
+   * usuários: um app chamando (`ctx.agora.caller`) é uma chamada de API e recebe sempre o 403
+   * (ou o `onDenied`), nunca um redirect.
+   */
   deniedRedirect?: string;
   /** Mensagem do 403 quando não há `deniedRedirect` nem `onDenied`. Default `'Forbidden'`. */
   deniedMessage?: string;
@@ -167,6 +171,7 @@ export default class AuthzRoleMiddleware {
     if (options.onDenied) {
       return options.onDenied(ctx, { roles: callerRoles, permissions: effective });
     }
+    // No `deniedRedirect`: an app calls an API, so it gets the 403, never a page redirect.
     return ctx.response.forbidden({ message: options.deniedMessage ?? 'Forbidden' });
   }
 }

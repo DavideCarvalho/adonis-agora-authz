@@ -91,7 +91,7 @@ router
 | `permissions`    | `string[]?`    | —       | Accepted permissions (any-of), wildcard-aware. Only read if no `roles` matched. |
 | `scope`          | `TenantScope?` | —       | Tenant scope forwarded to `effectiveRoles` / `effectivePermissions`. |
 | `guestRedirect`  | `string?`      | —       | Where to send an **unauthenticated** request. Without it → `401 { message: 'Unauthenticated' }`. |
-| `deniedRedirect` | `string?`      | —       | Where to send a request that is authenticated but lacks the role/permission. Without it → `403`. |
+| `deniedRedirect` | `string?`      | —       | Where to send a request that is authenticated but lacks the role/permission. Without it → `403`. Users only: a denied app caller always gets the `403` (or `onDenied`). |
 | `deniedMessage`  | `string?`      | `'Forbidden'` | The `403` body's `message` when there is no `deniedRedirect` / `onDenied`. |
 | `onDenied`       | `(ctx, { roles, permissions }) => unknown` | — | **The host decides the denial response** (redirect, flash, 403). Receives the resolved effective roles, and the permissions — resolved lazily, only when `permissions` is set and no role matched, so it can be `[]` on a role-gated route. Overrides `deniedRedirect`/`deniedMessage`. |
 
