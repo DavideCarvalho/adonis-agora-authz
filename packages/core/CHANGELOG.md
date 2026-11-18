@@ -1,5 +1,11 @@
 # @adonis-agora/authz
 
+## 1.0.0-rc.7
+
+### Minor Changes
+
+- [#235](https://github.com/DavideCarvalho/adonis-agora-authz/pull/235) [`9da422b`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/9da422b38165c84278dbc1ed224b46565feaa568) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Apps calling this app are subjects. `ctx.agora.caller` (an authkit service token) is checked as `{ type: 'app', id: <name> }`: its token's capabilities count as permissions (Agora capability rule, `media:*`), alongside its roles and permissions in authz, `resolveRoles`, `roleGrants`, the `superAdmin` hook and the decision provider. New: `permitAuthz()` (the `permit` for the libs' `authorizeAppCaller` seams), `requireRole({ appCallers: true })`, `appSubjectRef`, `appCallerOf`, `capabilityAllows`, `APP_SUBJECT_TYPE`.
+
 ## 1.0.0-rc.6
 
 ### Patch Changes
