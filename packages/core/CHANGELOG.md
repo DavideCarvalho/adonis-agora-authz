@@ -1,5 +1,11 @@
 # @adonis-agora/authz
 
+## 1.0.0-rc.9
+
+### Minor Changes
+
+- [#238](https://github.com/DavideCarvalho/adonis-agora-authz/pull/238) [`56678d9`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/56678d9f7d154a58a8acf148841b69b22d96de0f) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `authz.permissionCatalog()`: every permission the app knows (the config `catalog`, `roleGrants`, the store), sorted. authz publishes it at boot on a global slot (`readAuthzCatalog()`, `AUTHZ_CATALOG_SLOT`) so `@adonis-agora/authkit-client` can publish it to the Hub for the console's "Apps it can call" picker.
+
 ## 1.0.0-rc.8
 
 ### Minor Changes
