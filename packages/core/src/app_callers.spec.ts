@@ -171,7 +171,7 @@ describe('permitAuthz', () => {
   });
 });
 
-describe('requireRole with appCallers', () => {
+describe('requireRole with an app caller', () => {
   function ctxWith(caller: unknown, user?: unknown) {
     const calls: { forbidden?: unknown; unauthorized?: unknown } = {};
     const ctx = {
@@ -199,7 +199,7 @@ describe('requireRole with appCallers', () => {
       (async () => {
         nexted = true;
       }) as never,
-      { permissions: ['media:objects:read'], appCallers: true },
+      { permissions: ['media:objects:read'] },
     );
     expect(nexted).toBe(true);
   });
@@ -215,7 +215,7 @@ describe('requireRole with appCallers', () => {
       (async () => {
         nexted = true;
       }) as never,
-      { roles: ['integrator'], appCallers: true },
+      { roles: ['integrator'] },
     );
     expect(nexted).toBe(true);
   });
@@ -226,7 +226,6 @@ describe('requireRole with appCallers', () => {
     const { ctx, calls } = ctxWith(hub);
     await mw.handle(ctx, (async () => {}) as never, {
       permissions: ['media:objects:write'],
-      appCallers: true,
     });
     expect(calls.forbidden).toEqual({ message: 'Forbidden' });
   });
@@ -243,7 +242,7 @@ describe('requireRole with appCallers', () => {
       (async () => {
         nexted = true;
       }) as never,
-      { permissions: ['reports.export'], appCallers: true },
+      { permissions: ['reports.export'] },
     );
     expect(nexted).toBe(true);
   });
@@ -261,23 +260,30 @@ describe('requireRole with appCallers', () => {
         (async () => {
           nexted = true;
         }) as never,
-        { permissions: [route], appCallers: true },
+        { permissions: [route] },
       );
       expect(nexted, route).toBe(true);
     }
     const { ctx, calls } = ctxWith(hub);
     await mw.handle(ctx, (async () => {}) as never, {
       permissions: ['billing.*'],
-      appCallers: true,
     });
     expect(calls.forbidden).toEqual({ message: 'Forbidden' });
   });
 
-  it('ignores the caller unless appCallers is on (401)', async () => {
+  it('denies an app on a user-role route (403)', async () => {
     const { service } = makeService();
     const mw = new AuthzRoleMiddleware(service);
     const { ctx, calls } = ctxWith(hub);
-    await mw.handle(ctx, (async () => {}) as never, { permissions: ['media:objects:read'] });
+    await mw.handle(ctx, (async () => {}) as never, { roles: ['ADMIN'] });
+    expect(calls.forbidden).toEqual({ message: 'Forbidden' });
+  });
+
+  it('answers 401 when there is neither a user nor a caller', async () => {
+    const { service } = makeService();
+    const mw = new AuthzRoleMiddleware(service);
+    const { ctx, calls } = ctxWith(undefined);
+    await mw.handle(ctx, (async () => {}) as never, { roles: ['ADMIN'] });
     expect(calls.unauthorized).toEqual({ message: 'Unauthenticated' });
   });
 });
