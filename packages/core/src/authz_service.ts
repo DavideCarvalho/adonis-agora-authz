@@ -18,6 +18,7 @@ import {
   type DecisionVerdict,
   normalizeVerdict,
 } from './decision_provider.js';
+import type { AuthzCatalog } from './define_config.js';
 import { PermissionCache } from './permission_cache.js';
 import { permissionSatisfied } from './permission_matcher.js';
 import { currentRequestScope } from './request_scope.js';
@@ -184,6 +185,8 @@ export interface AuthzServiceOptions {
    * store. (Antes: `globalRoleGrants`; renomeado porque não é só das roles globais.)
    */
   roleGrants?: Record<string, string[]>;
+  /** The declared roles → permissions catalog (`catalog` in config/authz.ts), for {@link AuthzService.permissionCatalog}. */
+  catalog?: AuthzCatalog;
   /**
    * Query-scope registry (feature E). Pre-built {@link ScopeRegistry} mapping each
    * resource to a scope filter for {@link AuthzService.scope} / the Lucid
@@ -233,6 +236,7 @@ export class AuthzService {
   private readonly resolveTenant: (() => string | undefined) | undefined;
   private readonly superAdminRoles: ReadonlySet<string>;
   private readonly roleGrants: Record<string, string[]> | undefined;
+  private readonly catalog: AuthzCatalog | undefined;
   private readonly tenancyOption: AuthzTenancyOption | undefined;
   private readonly resolveRolesFn:
     | ((user: SubjectRef, scope?: TenantScope) => Promise<string[]> | string[])
@@ -271,12 +275,29 @@ export class AuthzService {
     this.resolveTenant = options.resolveTenant;
     this.superAdminRoles = new Set(options.superAdminRoles ?? []);
     this.roleGrants = options.roleGrants;
+    this.catalog = options.catalog;
     this.resolveRolesFn = options.resolveRoles;
     this.resolveRoleMembersFn = options.resolveRoleMembers;
     this.resolveGlobalRoleMembersFn = options.resolveGlobalRoleMembers;
     this.scopes = options.scopes ?? new ScopeRegistry();
     this.decisionProvider = options.decisionProvider;
     this.tenancyOption = options.tenancy;
+  }
+
+  /**
+   * Every permission this app knows, sorted: the `catalog` in config/authz.ts (its permissions and
+   * those of its roles), the permissions `roleGrants` hands out, and those in the store. What
+   * another app may be granted on this one: `@adonis-agora/authkit-client` publishes it to the Hub
+   * for the console's "Apps it can call" picker.
+   */
+  async permissionCatalog(): Promise<string[]> {
+    const names = new Set<string>();
+    for (const p of this.catalog?.permissions ?? []) names.add(p);
+    for (const perms of Object.values(this.catalog?.roles ?? {}))
+      for (const p of perms) names.add(p);
+    for (const perms of Object.values(this.roleGrants ?? {})) for (const p of perms) names.add(p);
+    for (const p of await this.store.listPermissions()) names.add(p);
+    return [...names].filter((p) => typeof p === 'string' && p !== '').sort();
   }
 
   /**

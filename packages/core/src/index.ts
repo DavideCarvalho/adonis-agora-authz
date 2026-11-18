@@ -13,6 +13,8 @@ export {
   capabilityAllows,
   isAppCaller,
 } from './agora/app_caller.js';
+export type { AuthzCatalogReader } from './agora/catalog_slot.js';
+export { AUTHZ_CATALOG_SLOT, readAuthzCatalog } from './agora/catalog_slot.js';
 export type { AgoraContextAccessor } from './agora/context.js';
 // Structural Agora context bridge (features B & C).
 export {
@@ -57,7 +59,7 @@ export type {
 } from './decision_provider.js';
 // External policy decision point seam (Cerbos adapter at `@adonis-agora/authz/cerbos`).
 export { normalizeVerdict } from './decision_provider.js';
-export type { AuthzConfig } from './define_config.js';
+export type { AuthzCatalog, AuthzConfig } from './define_config.js';
 // Drivers-in-core config idiom.
 export { defineConfig, stores } from './define_config.js';
 export type { AuthzDevToolsOptions } from './dev_tools/tools.js';

@@ -1,5 +1,6 @@
 import type { ApplicationService } from '@adonisjs/core/types';
 import { setBootedApp } from '../services/booted_app.js';
+import { publishAuthzCatalog } from '../src/agora/catalog_slot.js';
 import { AuthzService } from '../src/authz_service.js';
 import type { AuthzConfig } from '../src/define_config.js';
 import { authzDevToolsDepsOf } from '../src/dev_tools/deps.js';
@@ -44,6 +45,7 @@ export default class AuthzProvider {
         resolveRoleMembers,
         resolveGlobalRoleMembers,
         roleGrants,
+        catalog,
         scopes,
         decisionProvider,
         tenancy,
@@ -84,6 +86,7 @@ export default class AuthzProvider {
         ...(resolveRoleMembers !== undefined ? { resolveRoleMembers } : {}),
         ...(resolveGlobalRoleMembers !== undefined ? { resolveGlobalRoleMembers } : {}),
         ...(roleGrants !== undefined ? { roleGrants } : {}),
+        ...(catalog !== undefined ? { catalog } : {}),
         ...(registry !== undefined ? { scopes: registry } : {}),
         ...(decisionProvider !== undefined ? { decisionProvider } : {}),
         ...(tenancy !== undefined ? { tenancy } : {}),
@@ -102,6 +105,10 @@ export default class AuthzProvider {
     const { default: active, stores: configured } = this.app.config.get<AuthzConfig>('authz', {});
     const provider = configured?.[active ?? Object.keys(configured ?? {})[0] ?? ''];
     if (provider) await assertStoreSchema(provider, { app: this.app });
+    // The permission catalog, for the libs that publish it (authkit-client → the Hub).
+    publishAuthzCatalog({
+      permissions: async () => (await this.app.container.make(AuthzService)).permissionCatalog(),
+    });
     await registerDoctorChecks(
       this.app.container as never,
       authzDoctorChecks({ schema: storeSchemaOf(provider) !== undefined }),

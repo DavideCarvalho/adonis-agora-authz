@@ -207,6 +207,22 @@ authorizeAppCaller({ identify: identifyAgoraCaller(), permit: permitAuthz() })
 | `capabilityAllows(granted, required)` | The Agora capability rule. |
 | `APP_SUBJECT_TYPE` | `'app'`. |
 
+### The permission catalog
+
+`authz.permissionCatalog()` lists every permission this app knows, sorted: the
+`catalog` in `config/authz.ts`, what `roleGrants` hands out, and the permissions in
+the store. `@adonis-agora/authkit-client` publishes it to the Hub at boot, so the
+console's "Apps it can call" offers it when you grant another app access to this one.
+
+```ts
+import authz from '@adonis-agora/authz/services/main'
+
+await authz.permissionCatalog() // ['media:objects:read', 'reports:export', …]
+```
+
+Other libs read it without importing authz through `readAuthzCatalog()`, which
+returns `undefined` when authz is not booted.
+
 ## Reading the context yourself
 
 The two features above are built on a small set of readers the package exports,
