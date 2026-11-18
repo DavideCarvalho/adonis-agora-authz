@@ -4,7 +4,7 @@ description: >
   Guard AdonisJS routes with @adonis-agora/authz: the named middleware
   requireRole (@adonis-agora/authz/middleware), any-of roles or permissions
   against effectiveRoles / effectivePermissions (wildcard-aware),
-  RequireRoleOptions (roles, permissions, appCallers, scope, guestRedirect,
+  RequireRoleOptions (roles, permissions, scope, guestRedirect,
   deniedRedirect, deniedMessage, onDenied), apps calling this one
   (ctx.agora.caller) as { type: 'app', id } and permitAuthz for the libs'
   app-caller seams. Use when keeping routes behind a role or permission,
@@ -243,24 +243,25 @@ redirects are opt-in per route.
 
 Source: `docs/middleware.mdx` (RequireRoleOptions table)
 
-### MEDIUM Expecting requireRole to let another app in
+### MEDIUM Gating an app-only route on a user role
 
 A request from another app (an authkit service token, `ctx.agora.caller`) has no
-user, so `requireRole` answers `401` unless the route opts in.
+user: `requireRole` checks the app itself, so a user role it was never given
+denies it (`403`).
 
 Wrong:
 
 ```ts
-.use(middleware.requireRole({ permissions: ['reports:export'] })) // app caller → 401
+.use(middleware.requireRole({ roles: ['ADMIN'] })) // the calling app → 403
 ```
 
 Correct:
 
 ```ts
-.use(middleware.requireRole({ permissions: ['reports:export'], appCallers: true }))
+.use(middleware.requireRole({ permissions: ['reports:export'] }))
 ```
 
-Mechanism: with `appCallers: true` the caller is the subject `{ type: 'app', id }`;
+Mechanism: the caller is the subject `{ type: 'app', id }`;
 it passes by its roles in authz or by `authz.can` on each permission: its token's
 capabilities (Agora capability rule, `media:*`) and its grants in authz. For a
 lib's seam (`authorizeAppCaller({ identify, permit })` in media) pass

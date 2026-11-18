@@ -36,14 +36,6 @@ export interface RequireRoleOptions {
    * os `roles` não bastam.
    */
   permissions?: string[];
-  /**
-   * Also open the route to another APP calling this one (`ctx.agora.caller`, set by
-   * `@adonis-agora/authkit-client` from a verified service token), as the subject
-   * `{ type: 'app', id: <name> }`: by its roles in authz, or by `authz.can` on each of
-   * `permissions` (its token's capabilities and its grants in authz). Default `false`: a request
-   * without a user gets `401` even with a caller.
-   */
-  appCallers?: boolean;
   /** Escopo de tenant repassado a `effectiveRoles`/`effectivePermissions`. */
   scope?: TenantScope;
   /** Para onde redirecionar um request NÃO-autenticado. Sem isto → responde 401. */
@@ -112,11 +104,9 @@ export default class AuthzRoleMiddleware {
 
     const auth = (ctx as unknown as { auth?: AuthLike }).auth;
     const user = await resolveAuthUser(auth);
-    // No user: another app calling with a service token (`appCallers`), if the route lets apps in.
-    const caller =
-      (user === null || user === undefined) && options.appCallers === true
-        ? appCallerOf(ctx)
-        : undefined;
+    // No user: another app calling with a service token (`ctx.agora.caller`) is checked as
+    // `{ type: 'app', id }`, by its roles and its token's capabilities. Without the grant it gets 403.
+    const caller = user === null || user === undefined ? appCallerOf(ctx) : undefined;
     if (caller !== undefined) return this.handleCaller(ctx, next, options, caller);
     if (user === null || user === undefined) {
       return options.guestRedirect

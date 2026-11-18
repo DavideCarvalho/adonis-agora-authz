@@ -173,10 +173,13 @@ Passing `ctx.agora.caller` always works.
 ```ts
 router
   .post('/reports/export', [ReportsController, 'export'])
-  .use(middleware.requireRole({ permissions: ['reports:export'], appCallers: true }))
+  .use(middleware.requireRole({ permissions: ['reports:export'] }))
 ```
 
-Without `appCallers: true`, a request from an app (no user) still gets `401`.
+The calling app gets a token from the Hub with client credentials; it carries what the
+Hub granted it on this app, so a route only has to name the permission. An app without
+the grant gets `403`, and so does an app on a route that asks for a user role
+(`roles: ['ADMIN']`) it was never given.
 A signed-in user is always checked as the user; the caller counts only when there
 is none. A route wildcard (`reports.*`, `reports:*`) opens for an app holding a
 permission under it, as for users.
