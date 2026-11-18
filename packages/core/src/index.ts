@@ -4,6 +4,15 @@ export const VERSION = '1.0.0-rc.6';
 // AdonisJS imports the package MAIN and reads `configure` off the module namespace —
 // the `./configure` subpath alone is never consulted.
 export { configure } from '../configure.js';
+export type { AppCallerLike } from './agora/app_caller.js';
+// Apps calling this one as subjects (`{ type: 'app', id }`).
+export {
+  APP_SUBJECT_TYPE,
+  appCallerOf,
+  appSubjectRef,
+  capabilityAllows,
+  isAppCaller,
+} from './agora/app_caller.js';
 export type { AgoraContextAccessor } from './agora/context.js';
 // Structural Agora context bridge (features B & C).
 export {
@@ -15,6 +24,8 @@ export {
   tenantFromContext,
 } from './agora/context.js';
 export type { AuthzTenancyOption } from './agora/tenancy.js';
+export type { PermitAuthzOptions, PermitCallerInput } from './app_callers.js';
+export { permitAuthz } from './app_callers.js';
 export { type AuthLike, resolveAuthUser } from './auth_user.js';
 export type {
   AuthorizeByRolesOptions,

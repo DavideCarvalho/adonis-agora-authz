@@ -6,7 +6,9 @@ description: >
   @adonis-agora/authz/middleware subpath, any-of roles or permissions matching
   against AuthzService.effectiveRoles (global token claim ∪ tenant org-role mapping ∪ resolveRoles ∪
   store) and effectivePermissions (wildcard-aware), RequireRoleOptions (roles,
-  permissions, scope, guestRedirect, deniedRedirect, deniedMessage, onDenied),
+  permissions, appCallers, scope, guestRedirect, deniedRedirect, deniedMessage,
+  onDenied), apps calling this one (ctx.agora.caller) as the subject
+  { type: 'app', id } and permitAuthz for the libs' app-caller seams,
   and where per-record checks belong instead (Bouncer can in the action,
   accessibleBy for collections). Use when keeping route trees behind a role or
   a permission, redirecting unauthenticated or unauthorized requests in SSR /
@@ -23,6 +25,8 @@ sources:
   - DavideCarvalho/adonis-authz:docs/middleware.mdx
   - DavideCarvalho/adonis-authz:packages/core/src/middleware.ts
   - DavideCarvalho/adonis-authz:packages/core/src/authorize.ts
+  - DavideCarvalho/adonis-authz:packages/core/src/app_callers.ts
+  - DavideCarvalho/adonis-authz:docs/agora-integration.mdx
 ---
 
 # Route guards: requireRole
@@ -242,3 +246,28 @@ Mechanism: the defaults are `401 Unauthenticated` / `403 Forbidden` responses;
 redirects are opt-in per route.
 
 Source: `docs/middleware.mdx` (RequireRoleOptions table)
+
+### MEDIUM Expecting requireRole to let another app in
+
+A request from another app (an authkit service token, `ctx.agora.caller`) has no
+user, so `requireRole` answers `401` unless the route opts in.
+
+Wrong:
+
+```ts
+.use(middleware.requireRole({ permissions: ['reports:export'] })) // app caller → 401
+```
+
+Correct:
+
+```ts
+.use(middleware.requireRole({ permissions: ['reports:export'], appCallers: true }))
+```
+
+Mechanism: with `appCallers: true` the caller is the subject `{ type: 'app', id }`;
+it passes by its roles in authz or by `authz.can` on each permission: its token's
+capabilities (Agora capability rule, `media:*`) and its grants in authz. For a
+lib's seam (`authorizeAppCaller({ identify, permit })` in media) pass
+`permit: permitAuthz()`.
+
+Source: `docs/agora-integration.mdx` (Apps calling this app)

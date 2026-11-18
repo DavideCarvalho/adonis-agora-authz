@@ -1,6 +1,7 @@
 import { inject } from '@adonisjs/core';
 import type { HttpContext } from '@adonisjs/core/http';
 import type { NextFn } from '@adonisjs/core/types/http';
+import { appCallerOf } from './agora/app_caller.js';
 import { type AuthLike, resolveAuthUser } from './auth_user.js';
 import { AuthzService } from './authz_service.js';
 import { permissionMatches, permissionSatisfied } from './permission_matcher.js';
@@ -35,6 +36,14 @@ export interface RequireRoleOptions {
    * os `roles` não bastam.
    */
   permissions?: string[];
+  /**
+   * Also open the route to another APP calling this one (`ctx.agora.caller`, set by
+   * `@adonis-agora/authkit-client` from a verified service token), as the subject
+   * `{ type: 'app', id: <name> }`: by its roles in authz, or by `authz.can` on each of
+   * `permissions` (its token's capabilities and its grants in authz). Default `false`: a request
+   * without a user gets `401` even with a caller.
+   */
+  appCallers?: boolean;
   /** Escopo de tenant repassado a `effectiveRoles`/`effectivePermissions`. */
   scope?: TenantScope;
   /** Para onde redirecionar um request NÃO-autenticado. Sem isto → responde 401. */
@@ -51,6 +60,10 @@ export interface RequireRoleOptions {
    * quem decide negar DEVE responder (ou lançar).
    */
   onDenied?: (ctx: HttpContext, effective: { roles: string[]; permissions: string[] }) => unknown;
+}
+
+function scopeOption(scope: TenantScope | undefined): { scope?: TenantScope } {
+  return scope === undefined ? {} : { scope };
 }
 
 /**
@@ -98,7 +111,23 @@ export default class AuthzRoleMiddleware {
     }
 
     const auth = (ctx as unknown as { auth?: AuthLike }).auth;
-    const user = await resolveAuthUser(auth);
+    const caller = options.appCallers === true ? appCallerOf(ctx) : undefined;
+    // A service token never binds `ctx.auth`: an app caller has no user to authenticate.
+    const user = caller === undefined ? await resolveAuthUser(auth) : undefined;
+    if (caller !== undefined) {
+      const callerRoles = await this.authz.effectiveRoles(caller, options.scope);
+      if (roles.some((role) => callerRoles.includes(role))) return next();
+      for (const required of permissions) {
+        if (await this.authz.can(caller, required, scopeOption(options.scope))) return next();
+      }
+      if (options.onDenied) {
+        return options.onDenied(ctx, {
+          roles: callerRoles,
+          permissions: await this.authz.effectivePermissions(caller, options.scope),
+        });
+      }
+      return ctx.response.forbidden({ message: options.deniedMessage ?? 'Forbidden' });
+    }
     if (user === null || user === undefined) {
       return options.guestRedirect
         ? ctx.response.redirect(options.guestRedirect)
