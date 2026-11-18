@@ -26,6 +26,7 @@ export type AuthzQueryService = Pick<
   | 'effectivePermissions'
   | 'effectiveRolesForRef'
   | 'subjectsWithRole'
+  | 'permissionCatalog'
   | 'createCache'
 > & { readonly store: PermissionStore };
 
@@ -118,6 +119,7 @@ const service: AuthzQueryService = {
   effectiveRolesForRef: async (...args) =>
     (await resolveAuthzService()).effectiveRolesForRef(...args),
   subjectsWithRole: async (...args) => (await resolveAuthzService()).subjectsWithRole(...args),
+  permissionCatalog: async () => (await resolveAuthzService()).permissionCatalog(),
   store,
   // Sync by contract; the cache memoizes PROMISES, so a lazily-resolved roles source is fine.
   createCache: () =>

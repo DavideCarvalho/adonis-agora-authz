@@ -55,6 +55,19 @@ describe('AuthzProvider config plumbing (reverse seams)', () => {
   });
 });
 
+describe('AuthzProvider permission catalog', () => {
+  it('forwards catalog from config into permissionCatalog', async () => {
+    const app = appWithAuthzConfig({
+      default: 'mem',
+      stores: { mem: async () => new MemoryPermissionStore() },
+      catalog: { permissions: ['reports:export'] },
+    });
+    new AuthzProvider(app as never).register();
+    const authz = (await app.container.make(AuthzService)) as AuthzService;
+    expect(await authz.permissionCatalog()).toEqual(['reports:export']);
+  });
+});
+
 describe('AuthzProvider dev tools', () => {
   function appWithHub(authzConfig: unknown) {
     const app = appWithAuthzConfig(authzConfig);

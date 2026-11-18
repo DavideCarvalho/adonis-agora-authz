@@ -59,7 +59,7 @@ export type {
 } from './decision_provider.js';
 // External policy decision point seam (Cerbos adapter at `@adonis-agora/authz/cerbos`).
 export { normalizeVerdict } from './decision_provider.js';
-export type { AuthzConfig } from './define_config.js';
+export type { AuthzCatalog, AuthzConfig } from './define_config.js';
 // Drivers-in-core config idiom.
 export { defineConfig, stores } from './define_config.js';
 export type { AuthzDevToolsOptions } from './dev_tools/tools.js';
