@@ -89,6 +89,7 @@ router
 | ---------------- | -------------- | ------- | -------- |
 | `roles`          | `string[]?`    | —       | Accepted roles (any-of). Provide at least one of `roles` / `permissions`. |
 | `permissions`    | `string[]?`    | —       | Accepted permissions (any-of), wildcard-aware. Only read if no `roles` matched. |
+| `appCallers`     | `boolean?`     | `false` | Also open the route to another **app** calling this one (`ctx.agora.caller`, from a service token): by its roles, or by `authz.can` on each of `permissions`. See [Apps calling this app](/docs/authz/agora-integration#apps-calling-this-app). |
 | `scope`          | `TenantScope?` | —       | Tenant scope forwarded to `effectiveRoles` / `effectivePermissions`. |
 | `guestRedirect`  | `string?`      | —       | Where to send an **unauthenticated** request. Without it → `401 { message: 'Unauthenticated' }`. |
 | `deniedRedirect` | `string?`      | —       | Where to send a request that is authenticated but lacks the role/permission. Without it → `403`. |

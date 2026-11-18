@@ -131,6 +131,79 @@ See [Effective roles](/docs/authz/config#effective-roles-resolveroles--rolegrant
 for the full model, and [Roles](/docs/authz/roles#superadminroles--global-roles-that-allow-everything)
 for how `superAdminRoles` composes with the `superAdmin` hook.
 
+## Apps calling this app
+
+Another Agora app calling this one with an authkit service token arrives as
+`ctx.agora.caller` (set by `@adonis-agora/authkit-client`). authz checks it as the
+subject `{ type: 'app', id: <its name> }`:
+
+```ts
+import { appSubjectRef } from '@adonis-agora/authz'
+import authz from '@adonis-agora/authz/services/main'
+
+// in a controller
+await authz.can(ctx.agora.caller, 'reports:export')
+await authz.can(appSubjectRef('agora-hub'), 'reports:export')
+```
+
+An app's permissions are:
+
+- **the capabilities its token carries**, granted on the Hub
+  (`node ace authkit:client grant-app <client> --app=<this app> --capability=reports:export`);
+- **its roles and permissions in authz**, like any subject. An app that does not use
+  authkit gets its grants here:
+
+  ```ts
+  await authz.assignRole(appSubjectRef('cms'), 'integrator')
+  ```
+
+- what `resolveRoles`, `roleGrants`, the `superAdmin` hook and the decision provider give
+  `{ type: 'app', id }`.
+
+App permissions use the Agora capability format: `:` between segments, and a last
+`*` covers the name itself and everything under it (`media:*` covers `media` and
+`media:objects:read`). For app subjects this rule applies to the grants in authz too.
+
+`authz.can(appSubjectRef(name), …)` sees the token's capabilities when the app
+enables `useAsyncLocalStorage` in `config/app.ts` and that app is the one calling.
+Passing `ctx.agora.caller` always works.
+
+### Gate a route
+
+```ts
+router
+  .post('/reports/export', [ReportsController, 'export'])
+  .use(middleware.requireRole({ permissions: ['reports:export'], appCallers: true }))
+```
+
+Without `appCallers: true`, a request from an app (no user) still gets `401`.
+A signed-in user is always checked as the user; the caller counts only when there
+is none. A route wildcard (`reports.*`, `reports:*`) opens for an app holding a
+permission under it, as for users.
+
+`authz.scope()` and `authz.explainCheck()` apply the same rules to app subjects;
+the explanation lists the token's matching capabilities in `tokenCapabilities`.
+
+### Gate a lib's app-caller seam
+
+The libs that let other apps in (`authorizeAppCaller({ identify, permit })` in
+`@adonis-agora/media`) take `permitAuthz()` as their `permit`:
+
+```ts
+import { permitAuthz } from '@adonis-agora/authz'
+import { authorizeAppCaller, identifyAgoraCaller } from '@adonis-agora/media'
+
+authorizeAppCaller({ identify: identifyAgoraCaller(), permit: permitAuthz() })
+```
+
+| Export | What it does |
+| ------ | ------------ |
+| `appSubjectRef(name)` | `{ type: 'app', id: name }`. |
+| `appCallerOf(ctx)` | `ctx.agora.caller`, or `undefined`. |
+| `permitAuthz({ scope? })` | A `permit` asking `authz.can({ type: 'app', id }, permission)`. |
+| `capabilityAllows(granted, required)` | The Agora capability rule. |
+| `APP_SUBJECT_TYPE` | `'app'`. |
+
 ## Reading the context yourself
 
 The two features above are built on a small set of readers the package exports,
