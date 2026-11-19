@@ -118,7 +118,7 @@ cache's lifetime.
 
 `@adonis-agora/authz` never owns a users table — it identifies users by a
 polymorphic `SubjectRef`. When you pair it with an auth provider such as
-[`@adonis-agora/authkit`](/docs/authkit), point `resolveSubjectRef` at the
+[AuthKit](/docs/authkit) (`@adonis-agora/authkit-client`), point `resolveSubjectRef` at the
 `identitySubjectRef` seam so the provider's identity maps straight to a `SubjectRef`:
 
 ```ts title="config/authz.ts"
