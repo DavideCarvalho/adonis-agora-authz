@@ -1,5 +1,11 @@
 # @adonis-agora/authz
 
+## 1.0.0-rc.10
+
+### Patch Changes
+
+- [#241](https://github.com/DavideCarvalho/adonis-agora-authz/pull/241) [`35ed9c6`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/35ed9c636e93cb3e005257907c0245c9b8373800) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The `defineConfig` result now describes the active store (a Lucid store's connection, the app's default when omitted) and `CerbosDecisionProvider` describes Cerbos (`Symbol.for('@adonis-agora/stack')`), so telescope's Architecture page shows "authz: permissions → PostgreSQL" without any app code.
+
 ## 1.0.0-rc.9
 
 ### Minor Changes
