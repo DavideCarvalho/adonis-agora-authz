@@ -77,6 +77,14 @@ async function lucidDb(ctx: StoreContext): Promise<{ connection(name?: string): 
   return (await container.make('lucid.db')) as { connection(name?: string): unknown };
 }
 
+/** The Lucid settings of a `stores.lucid()` thunk (`undefined` for any other store). */
+export function storeConnectionOf(
+  provider: StoreProvider | undefined,
+): LucidStoreTarget | undefined {
+  if (!provider) return undefined;
+  return (provider as unknown as Record<symbol, LucidStoreTarget | undefined>)[LUCID_STORE_TARGET];
+}
+
 /** The `schema` a `stores.lucid()` thunk was configured with (`undefined` for any other store). */
 export function storeSchemaOf(provider: StoreProvider | undefined): string | undefined {
   if (!provider) return undefined;

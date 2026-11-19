@@ -142,6 +142,19 @@ const resourceKey = (r: CerbosResource): string =>
  * ```
  */
 export class CerbosDecisionProvider implements DecisionProvider {
+  static {
+    // Telescope's Architecture page reads this from `config/authz.ts` (`authz: decisions → cerbos`).
+    try {
+      Object.defineProperty(CerbosDecisionProvider.prototype, Symbol.for('@adonis-agora/stack'), {
+        value: [{ tech: 'cerbos', label: 'cerbos', purpose: 'decisions' }],
+        enumerable: false,
+        configurable: true,
+      });
+    } catch {
+      // nothing to describe
+    }
+  }
+
   private readonly failureVerdict: DecisionVerdict;
   private readonly maxBatchSize: number;
 
