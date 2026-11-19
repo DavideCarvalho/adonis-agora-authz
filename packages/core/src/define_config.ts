@@ -3,7 +3,8 @@ import type { SuperAdminHook, TenantResolver } from './authz_service.js';
 import type { DecisionProvider } from './decision_provider.js';
 import type { AuthzDevToolsOptions } from './dev_tools/tools.js';
 import type { ScopeRegistry } from './scope.js';
-import { type StoreProvider, stores } from './stores/factory.js';
+import { describeStackUse, lucidUse, type StackUse } from './stack.js';
+import { type StoreProvider, storeConnectionOf, stores } from './stores/factory.js';
 import type { ResolveSubjectRef, SubjectRef, SubjectRefInput, TenantScope } from './subject_ref.js';
 
 export interface AuthzConfig {
@@ -110,7 +111,19 @@ export interface AuthzCatalog {
 
 /** Identity helper giving `config/authz.ts` full type-checking. */
 export function defineConfig(config: AuthzConfig): AuthzConfig {
-  return config;
+  return describeStackUse(config, () => activeStoreUses(config));
+}
+
+/**
+ * The store the provider builds (`default`, else the first one), for telescope's Architecture
+ * page. Only the active one: the other named stores are never opened. A Lucid store on its
+ * connection (the app's default when omitted); the memory store uses nothing.
+ */
+export function activeStoreUses(config: AuthzConfig): StackUse[] {
+  const providers = config.stores ?? {};
+  const active = providers[config.default ?? Object.keys(providers)[0] ?? ''];
+  const lucid = storeConnectionOf(active);
+  return lucid ? [lucidUse(lucid.connection, 'permissions')] : [];
 }
 
 export type { PermissionStore, StoreOptions, StoreQueryClient } from './store.js';
