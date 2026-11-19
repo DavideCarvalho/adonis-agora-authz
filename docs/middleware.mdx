@@ -1,6 +1,6 @@
 ---
 title: Route middleware
-description: AuthzRoleMiddleware — an any-of route guard on the user's effective roles (global ∪ app ∪ store) or permissions, with guest/denied redirects and a host-owned onDenied hook.
+description: AuthzRoleMiddleware — an any-of route guard on the user's effective roles (global + app + store) or permissions, with guest/denied redirects and a host-owned onDenied hook.
 icon: Route
 ---
 
@@ -9,7 +9,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 Where [Bouncer abilities](/docs/authz/bouncer-integration) protect a controller
 action, `AuthzRoleMiddleware` protects a **route** — it is the "require role X"
 guard every app otherwise rewrites by hand. It gates on the user's
-[effective roles](#authzserviceeffectiveroles) (global ∪ app ∪ store), so a
+[effective roles](#authzserviceeffectiveroles) (global + app + store), so a
 role asserted by a token claim, resolved from your domain tables, or assigned in
 the authz store all satisfy the same guard.
 
