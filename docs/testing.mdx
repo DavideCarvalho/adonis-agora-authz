@@ -72,6 +72,7 @@ export class RedisPermissionStore implements PermissionStore {
 | `syncRolePermissions(role, permissions)` | Replace the role's grants with exactly this list, creating role/permissions by name. Atomic. |
 | `listRoles()` | Every role name known to the store. |
 | `listPermissions()` | Every permission name known to the store. |
+| `listRoleRecords()` / `listPermissionRecords()` | Optional. Every role / permission as `{ name, createdAt?, updatedAt? }`, sorted by name; a role's `updatedAt` moves when its permission set changes. Without them the CLI shows names only. |
 | `deleteRole(role)` | Remove a role outright — revokes its grants, every user assignment (all tenants and sources), and the role row, atomically. Returns whether the role existed; an unknown name is a no-op returning `false`. Whether to refuse a still-populated role is the host's call (`countSubjectsForRole` first). |
 
 **Assignments & grants**
@@ -83,7 +84,7 @@ export class RedisPermissionStore implements PermissionStore {
 | `giveSubjectPermission(user, permission)` | Grant a permission straight to a user. |
 | `revokeSubjectPermission(user, permission)` | Revoke that direct grant. Role-derived permissions survive. |
 | `removeSubject(user)` | Delete every role assignment (all tenants and sources) and direct grant of the user, atomically. |
-| `listRoleAssignments(filter?)` | Raw `{ subjectType, subjectId, role, source, tenantId }` rows, filtered by `tenantId` (omitted = all, `null` = global only, a string = only that tenant's scoped rows), `role` (name or list), `subject`, `source`; ordered by (subjectType, subjectId, role, source, tenantId). |
+| `listRoleAssignments(filter?)` | Raw `{ subjectType, subjectId, role, source, tenantId, createdAt? }` rows, filtered by `tenantId` (omitted = all, `null` = global only, a string = only that tenant's scoped rows), `role` (name or list), `subject`, `source`; ordered by (subjectType, subjectId, role, source, tenantId). |
 
 **Reads**
 

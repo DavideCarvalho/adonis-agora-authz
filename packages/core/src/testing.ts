@@ -13,7 +13,10 @@ const bob: SubjectRef = { type: 'user', id: '2' };
  * it (see the memory and Lucid `*.contract.spec.ts`). Exposed on the public
  * `@adonis-agora/authz/testing` subpath so downstream stores can self-validate.
  */
-export function runPermissionStoreContract(name: string, factory: StoreFactory): void {
+export function runPermissionStoreContract(name: string, rawFactory: StoreFactory): void {
+  // The assignment reads compare exact shapes below; `createdAt` (optional in the contract) is
+  // checked once, in the timestamps block, and stripped here.
+  const factory = async () => withoutAssignmentTimestamps(await rawFactory());
   describe(`PermissionStore contract: ${name}`, () => {
     it('creates roles and permissions idempotently', async () => {
       const store = await factory();
@@ -555,5 +558,73 @@ export function runPermissionStoreContract(name: string, factory: StoreFactory):
         expect(await store.getRoleAssignments(alice)).toEqual([]);
       });
     });
+
+    describe('timestamps (optional fields; checked when the store fills them)', () => {
+      const isDateOrAbsent = (value: unknown) =>
+        value === undefined || (value instanceof Date && !Number.isNaN(value.getTime()));
+
+      it('assignments carry createdAt as a Date (or nothing)', async () => {
+        const store = await rawFactory();
+        await store.assignRole(alice, 'editor');
+        for (const a of [
+          ...(await store.getRoleAssignments(alice)),
+          ...(await store.listRoleAssignments()),
+        ]) {
+          expect(isDateOrAbsent(a.createdAt)).toBe(true);
+        }
+      });
+
+      it('role/permission records: createdAt fixed, updatedAt moves when the grants change', async () => {
+        const store = await rawFactory();
+        if (!store.listRoleRecords || !store.listPermissionRecords) return;
+        await store.givePermissionToRole('editor', 'posts.edit');
+        const [before] = (await store.listRoleRecords()).filter((r) => r.name === 'editor');
+        expect(before).toBeDefined();
+        expect(isDateOrAbsent(before?.createdAt)).toBe(true);
+        expect(isDateOrAbsent(before?.updatedAt)).toBe(true);
+        const permissions = await store.listPermissionRecords();
+        expect(permissions.map((p) => p.name)).toEqual(['posts.edit']);
+        expect(isDateOrAbsent(permissions[0]?.createdAt)).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        await store.syncRolePermissions('editor', ['posts.view']);
+        const [after] = (await store.listRoleRecords()).filter((r) => r.name === 'editor');
+        if (before?.createdAt && after?.createdAt) {
+          expect(after.createdAt.getTime()).toBe(before.createdAt.getTime());
+        }
+        if (before?.updatedAt && after?.updatedAt) {
+          expect(after.updatedAt.getTime()).toBeGreaterThanOrEqual(before.updatedAt.getTime());
+        }
+        expect((await store.listRoleRecords()).map((r) => r.name)).toEqual(
+          [...(await store.listRoles())].sort(),
+        );
+      });
+    });
+  });
+}
+
+/** Drop `createdAt` from an assignment, after checking it is a valid `Date` when present. */
+function bareAssignment<T extends RoleAssignment>(row: T): Omit<T, 'createdAt'> {
+  const { createdAt, ...rest } = row;
+  if (createdAt !== undefined) {
+    expect(createdAt).toBeInstanceOf(Date);
+    expect(Number.isNaN(createdAt.getTime())).toBe(false);
+  }
+  return rest;
+}
+
+/** A view of `store` whose assignment reads come back without `createdAt`. */
+function withoutAssignmentTimestamps(store: PermissionStore): PermissionStore {
+  return new Proxy(store, {
+    get(target, property, receiver) {
+      if (property === 'getRoleAssignments' || property === 'listRoleAssignments') {
+        const read = Reflect.get(target, property, receiver) as (
+          ...args: unknown[]
+        ) => Promise<RoleAssignment[]>;
+        return async (...args: unknown[]) =>
+          (await read.apply(target, args)).map((row) => bareAssignment(row));
+      }
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
   });
 }

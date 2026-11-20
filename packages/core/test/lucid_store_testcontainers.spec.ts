@@ -249,9 +249,41 @@ for (const backend of backends) {
       await s.assignRole(alice, 'editor', { source: 'scim' });
       await s.setSubjectRoles(alice, ['editor', 'auditor'], { source: 'scim' });
       await s.removeRole(alice, 'editor', { source: 'manual' });
+      // The pre-existing row has no `created_at` (no backfill); the new ones do.
       expect(await s.getRoleAssignments(alice)).toEqual([
-        { role: 'auditor', source: 'scim', tenantId: null },
-        { role: 'editor', source: 'scim', tenantId: null },
+        { role: 'auditor', source: 'scim', tenantId: null, createdAt: expect.any(Date) },
+        { role: 'editor', source: 'scim', tenantId: null, createdAt: expect.any(Date) },
+      ]);
+    });
+
+    it('timestamps: created on insert, role updatedAt moves on grant changes, old tables repaired', async () => {
+      const tables = nextTables();
+      await createAuthzTables(db, { tables });
+      // A roles table from before `updated_at`: the repair adds it (NULL, no backfill).
+      await db.rawQuery(`ALTER TABLE ${tables.roles} DROP COLUMN updated_at`);
+      await createAuthzTables(db, { tables });
+      // Whole seconds: MySQL DATETIME has no fractional part.
+      let now = new Date('2026-01-01T10:00:00.000Z');
+      const s = new LucidPermissionStore(db as unknown as LucidDatabase, {
+        tables,
+        autoCreateSchema: false,
+        now: () => now,
+      });
+      const alice = { type: 'user', id: '1' };
+      const t1 = now;
+      await s.givePermissionToRole('editor', 'posts.edit');
+      await s.assignRole(alice, 'editor');
+      now = new Date('2026-02-01T10:00:00.000Z');
+      await s.syncRolePermissions('editor', ['posts.view']);
+      expect(await s.listRoleRecords()).toEqual([
+        { name: 'editor', createdAt: t1, updatedAt: now },
+      ]);
+      expect(await s.listPermissionRecords()).toEqual([
+        { name: 'posts.edit', createdAt: t1, updatedAt: t1 },
+        { name: 'posts.view', createdAt: now, updatedAt: now },
+      ]);
+      expect(await s.getRoleAssignments(alice)).toEqual([
+        { role: 'editor', source: 'manual', tenantId: null, createdAt: t1 },
       ]);
     });
 
@@ -490,7 +522,7 @@ for (const backend of backends) {
         await s.ensureSchema();
         await s.assignRole({ type: 'user', id: '1' }, 'editor');
         expect(await s.getRoleAssignments({ type: 'user', id: '1' })).toEqual([
-          { role: 'editor', source: 'manual', tenantId: null },
+          { role: 'editor', source: 'manual', tenantId: null, createdAt: expect.any(Date) },
         ]);
       });
 

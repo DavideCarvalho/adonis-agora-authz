@@ -105,10 +105,12 @@ export {
 } from './scope.js';
 // Store contract & implementations.
 export type {
+  PermissionRecord,
   PermissionStore,
   RoleAssignment,
   RoleAssignmentFilter,
   RoleAssignmentScope,
+  RoleRecord,
   SetSubjectRolesOptions,
   StoreOptions,
   StoreQueryClient,
@@ -120,6 +122,8 @@ export {
   MAX_ROLE_SOURCE_LENGTH,
   normalizeRoleSource,
   roleFilterNames,
+  timestampJson,
+  toTimestamp,
 } from './store.js';
 export type {
   LucidStoreConfig,

@@ -94,8 +94,8 @@ ALTER TABLE authz_subject_permission ALTER COLUMN subject_id TYPE INTEGER USING 
 ALTER TABLE authz_subject_role MODIFY subject_id INTEGER NOT NULL;
 ALTER TABLE authz_subject_permission MODIFY subject_id INTEGER NOT NULL;
 -- SQLite: rebuild (no ALTER COLUMN) —
-CREATE TABLE authz_subject_role_new (subject_type VARCHAR(191) NOT NULL, subject_id INTEGER NOT NULL, role_id VARCHAR(191) NOT NULL, tenant_id VARCHAR(191) NOT NULL DEFAULT '', PRIMARY KEY (subject_type, subject_id, role_id, tenant_id));
-INSERT INTO authz_subject_role_new SELECT subject_type, CAST(subject_id AS INTEGER), role_id, tenant_id FROM authz_subject_role;
+CREATE TABLE authz_subject_role_new (subject_type VARCHAR(191) NOT NULL, subject_id INTEGER NOT NULL, role_id VARCHAR(191) NOT NULL, tenant_id VARCHAR(191) NOT NULL DEFAULT '', source VARCHAR(64) NOT NULL DEFAULT 'manual', created_at DATETIME, PRIMARY KEY (subject_type, subject_id, role_id, tenant_id, source));
+INSERT INTO authz_subject_role_new SELECT subject_type, CAST(subject_id AS INTEGER), role_id, tenant_id, source, created_at FROM authz_subject_role;
 DROP TABLE authz_subject_role;
 ALTER TABLE authz_subject_role_new RENAME TO authz_subject_role;
 -- (same for authz_subject_permission, then recreate the _subject_idx indexes)

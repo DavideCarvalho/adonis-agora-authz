@@ -182,52 +182,70 @@ export function rowsOf(result: unknown): Record<string, unknown>[] {
   return [];
 }
 
-/**
- * Add the `source` column to a subject-role pivot created before role sources existed —
- * NON-destructively (`ADD COLUMN … NOT NULL DEFAULT 'manual'`, so every existing assignment
- * becomes a manual one). A no-op when the column is already there.
- *
- * It does NOT widen the primary key: an old table keeps `(subject_type, subject_id, role_id,
- * tenant_id)` as its key, so the same role cannot be stored under two sources until you widen
- * it (see the "Role sources" migration notes in the docs for the exact SQL).
- */
-async function ensureSourceColumn(
+/** The columns a table has, lower-cased; `undefined` on a dialect it cannot inspect. */
+async function existingColumns(
   db: LucidDatabase,
   name: string,
   schema: string | undefined,
   dialect: string | undefined,
-) {
-  const table = qualifyTable(name, schema, dialect);
-  if (isPostgres(dialect)) {
-    await db.rawQuery(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${SOURCE_COLUMN}`);
-    return;
-  }
+): Promise<Set<string> | undefined> {
   if (isSqlite(dialect)) {
-    const columns = rowsOf(await db.rawQuery(`PRAGMA table_info(${table})`));
-    if (columns.some((c) => c.name === 'source')) return;
-    await db.rawQuery(`ALTER TABLE ${table} ADD COLUMN ${SOURCE_COLUMN}`);
-    return;
+    const table = qualifyTable(name, schema, dialect);
+    const rows = rowsOf(await db.rawQuery(`PRAGMA table_info(${table})`));
+    return new Set(rows.map((c) => String(c.name).toLowerCase()));
   }
-  if (isMysql(dialect)) {
-    const found = rowsOf(
+  if (isPostgres(dialect) || isMysql(dialect)) {
+    const where = isMysql(dialect)
+      ? schema === undefined
+        ? 'DATABASE()'
+        : '?'
+      : schema === undefined
+        ? 'current_schema()'
+        : '?';
+    const rows = rowsOf(
       await db.rawQuery(
-        `SELECT COUNT(*) AS n FROM information_schema.columns
-         WHERE table_schema = ${schema === undefined ? 'DATABASE()' : '?'} AND table_name = ? AND column_name = 'source'`,
+        `SELECT column_name AS name FROM information_schema.columns
+         WHERE table_schema = ${where} AND table_name = ?`,
         schema === undefined ? [name] : [schema, name],
       ),
     );
-    if (Number(found[0]?.n ?? 0) > 0) return;
+    return new Set(rows.map((c) => String(c.name ?? c.NAME ?? c.COLUMN_NAME).toLowerCase()));
   }
-  // MySQL (checked above) and any unknown dialect: add, tolerating a concurrent/duplicate add.
-  try {
-    await db.rawQuery(`ALTER TABLE ${table} ADD COLUMN ${SOURCE_COLUMN}`);
-  } catch (err) {
-    const e = err as { code?: string; errno?: number; message?: string };
-    const dup =
-      e.code === 'ER_DUP_FIELDNAME' ||
-      e.errno === 1060 ||
-      /duplicate column|already exists/i.test(e.message ?? '');
-    if (!dup) throw err;
+  return undefined;
+}
+
+/**
+ * Add the columns a table created by an older version lacks — NON-destructively, and only the
+ * missing ones (looked up first, so a table that already has them takes no `ALTER` and no lock).
+ * A concurrent add by another replica is not an error.
+ *
+ * Used for the subject-role `source` column (`NOT NULL DEFAULT 'manual'`, so every existing
+ * assignment becomes a manual one — it does NOT widen the primary key; see the "Role sources"
+ * migration notes in the docs) and for the timestamps (`NULL`-able, no default: an instant
+ * `ADD COLUMN`, no rewrite, no backfill — old rows read as "unknown").
+ */
+async function ensureColumns(
+  db: LucidDatabase,
+  name: string,
+  schema: string | undefined,
+  dialect: string | undefined,
+  columns: ReadonlyArray<readonly [column: string, definition: string]>,
+) {
+  const table = qualifyTable(name, schema, dialect);
+  const found = await existingColumns(db, name, schema, dialect);
+  for (const [column, definition] of columns) {
+    if (found?.has(column)) continue;
+    try {
+      await db.rawQuery(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+    } catch (err) {
+      const e = err as { code?: string; errno?: number; message?: string };
+      const dup =
+        e.code === 'ER_DUP_FIELDNAME' ||
+        e.code === '42701' ||
+        e.errno === 1060 ||
+        /duplicate column|already exists/i.test(e.message ?? '');
+      if (!dup) throw err;
+    }
   }
 }
 
@@ -324,8 +342,11 @@ const SUBJECT_ID_COLUMN: Record<AuthzSubjectIdType, string> = {
 
 /**
  * Create the RBAC tables (idempotent — `CREATE TABLE IF NOT EXISTS`). Safe to call
- * from a Lucid migration `up()` or repeatedly at boot. The `created_at` column type
- * is dialect-aware (`TIMESTAMP` on Postgres, `DATETIME` elsewhere).
+ * from a Lucid migration `up()` or repeatedly at boot. Roles and permissions carry
+ * `created_at` + `updated_at`; the pivots (grants, assignments) carry `created_at` only —
+ * they are never edited, a change is a delete + insert. Tables from an older version get the
+ * missing columns added (`NULL`-able, no default, no backfill). The timestamp type is
+ * dialect-aware (`TIMESTAMP` on Postgres, `DATETIME` elsewhere).
  *
  * @param db a Lucid `Database` or connection client
  * @param options.tables optional table-name overrides (defaults to {@link AUTHZ_TABLES})
@@ -380,9 +401,11 @@ export async function createAuthzTables(
       id VARCHAR(191) PRIMARY KEY,
       name VARCHAR(191) NOT NULL,
       guard VARCHAR(191),
-      created_at ${ts}
+      created_at ${ts},
+      updated_at ${ts}
     )`,
   );
+  await ensureColumns(db, names.roles, schema, dialect, [['updated_at', `updated_at ${ts} NULL`]]);
   await createIndex(`${names.roles}_name_uq`, true, t.roles, 'name');
 
   await run(
@@ -390,18 +413,26 @@ export async function createAuthzTables(
       id VARCHAR(191) PRIMARY KEY,
       name VARCHAR(191) NOT NULL,
       guard VARCHAR(191),
-      created_at ${ts}
+      created_at ${ts},
+      updated_at ${ts}
     )`,
   );
+  await ensureColumns(db, names.permissions, schema, dialect, [
+    ['updated_at', `updated_at ${ts} NULL`],
+  ]);
   await createIndex(`${names.permissions}_name_uq`, true, t.permissions, 'name');
 
   await run(
     `CREATE TABLE IF NOT EXISTS ${t.rolePermission} (
       role_id VARCHAR(191) NOT NULL,
       permission_id VARCHAR(191) NOT NULL,
+      created_at ${ts},
       PRIMARY KEY (role_id, permission_id)
     )`,
   );
+  await ensureColumns(db, names.rolePermission, schema, dialect, [
+    ['created_at', `created_at ${ts} NULL`],
+  ]);
 
   // `source` is part of the key: the same (subject, role, tenant) may be held via several
   // sources (manual + SCIM), one row each. On MySQL `role_id` (always an ASCII UUID) is declared
@@ -414,11 +445,15 @@ export async function createAuthzTables(
       role_id ${roleIdColumn} NOT NULL,
       tenant_id VARCHAR(191) NOT NULL DEFAULT '',
       ${SOURCE_COLUMN},
+      created_at ${ts},
       PRIMARY KEY (subject_type, subject_id, role_id, tenant_id, source)
     )`,
   );
-  // Tables created before role sources existed: add the column (non-destructive).
-  await ensureSourceColumn(db, names.subjectRole, schema, dialect);
+  // Tables created before role sources / timestamps existed: add the columns (non-destructive).
+  await ensureColumns(db, names.subjectRole, schema, dialect, [
+    ['source', SOURCE_COLUMN],
+    ['created_at', `created_at ${ts} NULL`],
+  ]);
   await createIndex(
     `${names.subjectRole}_subject_idx`,
     false,
@@ -431,9 +466,13 @@ export async function createAuthzTables(
       subject_type VARCHAR(191) NOT NULL,
       subject_id ${subjectId} NOT NULL,
       permission_id VARCHAR(191) NOT NULL,
+      created_at ${ts},
       PRIMARY KEY (subject_type, subject_id, permission_id)
     )`,
   );
+  await ensureColumns(db, names.subjectPermission, schema, dialect, [
+    ['created_at', `created_at ${ts} NULL`],
+  ]);
   await createIndex(
     `${names.subjectPermission}_subject_idx`,
     false,

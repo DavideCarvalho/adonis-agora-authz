@@ -1,4 +1,8 @@
-import type { RoleAssignmentFilter } from '../src/store.js';
+import {
+  type RoleAssignmentFilter,
+  type SubjectRoleAssignment,
+  timestampJson,
+} from '../src/store.js';
 import { AuthzCommand, offsetPageOf } from './shared.js';
 
 /**
@@ -73,16 +77,26 @@ export class AuthzAssignmentsList extends AuthzCommand {
       ...(this.source !== undefined ? { source: this.source } : {}),
     };
     const authz = await this.service();
-    const result = offsetPageOf(await authz.store.listRoleAssignments(filter), page, size);
+    const result = offsetPageOf(
+      (await authz.store.listRoleAssignments(filter)).map(assignmentJson),
+      page,
+      size,
+    );
     if (this.json) return this.printJson(result);
     if (result.data.length === 0) {
       this.logger.info('No role assignments.');
       return;
     }
     const table = this.ui.table();
-    table.head(['Subject', 'Role', 'Tenant', 'Source']);
+    table.head(['Subject', 'Role', 'Tenant', 'Source', 'Created']);
     for (const a of result.data) {
-      table.row([`${a.subjectType}:${a.subjectId}`, a.role, a.tenantId ?? '(global)', a.source]);
+      table.row([
+        `${a.subjectType}:${a.subjectId}`,
+        a.role,
+        a.tenantId ?? '(global)',
+        a.source,
+        a.createdAt ?? '—',
+      ]);
     }
     table.render();
     this.pageFooter(result.meta);
@@ -148,9 +162,11 @@ abstract class AssignmentChange extends AuthzCommand {
     const authz = await this.service();
     this.printJson({
       subject: this.subjectRef(this.type, this.subjectId),
-      assignments: await authz.store.listRoleAssignments({
-        subject: this.subjectRef(this.type, this.subjectId),
-      }),
+      assignments: (
+        await authz.store.listRoleAssignments({
+          subject: this.subjectRef(this.type, this.subjectId),
+        })
+      ).map(assignmentJson),
     });
   }
 }
@@ -215,4 +231,9 @@ export class AuthzAssignmentsRemove extends AssignmentChange {
     if (this.json) return this.printAfter();
     this.logger.success(`Removed role "${this.role}" from ${ref.type}:${ref.id}${this.where()}`);
   }
+}
+
+/** An assignment as the JSON output shows it: `createdAt` as ISO 8601, or `null` when unknown. */
+function assignmentJson(a: SubjectRoleAssignment) {
+  return { ...a, createdAt: timestampJson(a.createdAt) };
 }

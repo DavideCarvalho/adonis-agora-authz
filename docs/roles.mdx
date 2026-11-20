@@ -225,8 +225,8 @@ await authz.store.setSubjectRoles(ref, ['auditor'], { source: 'scim', tenantId: 
 await authz.store.setSubjectRoles(ref, ['auditor'], { source: 'scim' })
 
 await authz.store.getRoleAssignments(ref)
-// [{ role: 'auditor', source: 'scim', tenantId: null },
-//  { role: 'editor', source: 'manual', tenantId: null }]
+// [{ role: 'auditor', source: 'scim', tenantId: null, createdAt: Date },
+//  { role: 'editor', source: 'manual', tenantId: null, createdAt: Date }]
 ```
 
 - A role held via two sources is **two rows**; removing one source keeps the role.
@@ -239,8 +239,9 @@ await authz.store.getRoleAssignments(ref)
   tenant scope (exact tenant, default global); creates missing roles. It runs in **one
   transaction** on the Lucid store, or joins the client you pass (`client`, `withClient`,
   `resolveClient`).
-- `getRoleAssignments(user, scope?)` — every row as `{ role, source, tenantId }`
-  (`tenantId: null` = global), with the usual tenant visibility.
+- `getRoleAssignments(user, scope?)` — every row as `{ role, source, tenantId, createdAt }`
+  (`tenantId: null` = global), with the usual tenant visibility. `createdAt` is absent on
+  rows written before the column existed.
 - A `source` is a non-empty string of at most 64 characters.
 
 ### Migrating an existing Lucid schema
@@ -291,10 +292,11 @@ CREATE TABLE authz_subject_role_new (
   role_id VARCHAR(191) NOT NULL,
   tenant_id VARCHAR(191) NOT NULL DEFAULT '',
   source VARCHAR(64) NOT NULL DEFAULT 'manual',
+  created_at DATETIME,
   PRIMARY KEY (subject_type, subject_id, role_id, tenant_id, source)
 );
-INSERT INTO authz_subject_role_new (subject_type, subject_id, role_id, tenant_id, source)
-  SELECT subject_type, subject_id, role_id, tenant_id, source FROM authz_subject_role;
+INSERT INTO authz_subject_role_new (subject_type, subject_id, role_id, tenant_id, source, created_at)
+  SELECT subject_type, subject_id, role_id, tenant_id, source, created_at FROM authz_subject_role;
 DROP TABLE authz_subject_role;
 ALTER TABLE authz_subject_role_new RENAME TO authz_subject_role;
 CREATE INDEX IF NOT EXISTS authz_subject_role_subject_idx

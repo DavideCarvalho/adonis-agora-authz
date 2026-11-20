@@ -2,15 +2,18 @@ import { randomUUID } from 'node:crypto';
 import {
   compareSubjectRoleAssignments,
   normalizeRoleSource,
+  type PermissionRecord,
   type PermissionStore,
   type RoleAssignment,
   type RoleAssignmentFilter,
   type RoleAssignmentScope,
+  type RoleRecord,
   roleFilterNames,
   type SetSubjectRolesOptions,
   type StoreOptions,
   type StoreQueryClient,
   type SubjectRoleAssignment,
+  toTimestamp,
 } from '../store.js';
 import {
   GLOBAL_TENANT,
@@ -66,6 +69,19 @@ export interface LucidPermissionStoreOptions {
    * (no transaction active) is the normal path for reads and standalone writes.
    */
   resolveClient?: () => StoreQueryClient | undefined;
+  /** The clock behind `created_at` / `updated_at`. Default `() => new Date()`; tests pin it. */
+  now?: () => Date;
+}
+
+/** A `{ name, created_at, updated_at }` row as a role / permission record. */
+function timestampedRecord(row: Record<string, unknown>): RoleRecord {
+  const createdAt = toTimestamp(row.created_at);
+  const updatedAt = toTimestamp(row.updated_at);
+  return {
+    name: row.name as string,
+    ...(createdAt ? { createdAt } : {}),
+    ...(updatedAt ? { updatedAt } : {}),
+  };
 }
 
 // MySQL's `[rows, fields]` pair, pg's `{ rows }` and sqlite's array → the rows.
@@ -107,6 +123,7 @@ export class LucidPermissionStore implements PermissionStore {
   private readonly autoCreate: boolean;
   private readonly subjectIdType: AuthzSubjectIdType;
   private readonly resolveClientFn: (() => StoreQueryClient | undefined) | undefined;
+  private readonly now: () => Date;
   private scopedClient: StoreQueryClient | undefined;
   private schemaReady: Promise<void> | undefined;
   private dialect: string | undefined;
@@ -120,6 +137,7 @@ export class LucidPermissionStore implements PermissionStore {
     this.autoCreate = options.autoCreateSchema !== false;
     this.subjectIdType = options.subjectIdType ?? 'text';
     this.resolveClientFn = options.resolveClient;
+    this.now = options.now ?? (() => new Date());
     this.dialect = detectDialect(db);
     this.schema = options.schema;
     assertSchemaSupported(this.schema, this.dialect);
@@ -138,6 +156,7 @@ export class LucidPermissionStore implements PermissionStore {
       autoCreateSchema: false,
       subjectIdType: this.subjectIdType,
       ...(this.resolveClientFn ? { resolveClient: this.resolveClientFn } : {}),
+      now: this.now,
     });
     scoped.scopedClient = client;
     // Inherit the parent's already-settled/settling schema state; never re-run.
@@ -295,9 +314,10 @@ export class LucidPermissionStore implements PermissionStore {
     const existing = await this.findRoleId(name, opts);
     if (existing) return existing;
     const id = randomUUID();
+    const now = this.now();
     await this.run(
-      this.insertIgnore(this.q.roles, ['id', 'name', 'created_at'], '?, ?, ?'),
-      [id, name, new Date()],
+      this.insertIgnore(this.q.roles, ['id', 'name', 'created_at', 'updated_at'], '?, ?, ?, ?'),
+      [id, name, now, now],
       opts,
     );
     return (await this.findRoleId(name, opts)) ?? id;
@@ -308,9 +328,14 @@ export class LucidPermissionStore implements PermissionStore {
     const existing = await this.findPermissionId(name, opts);
     if (existing) return existing;
     const id = randomUUID();
+    const now = this.now();
     await this.run(
-      this.insertIgnore(this.q.permissions, ['id', 'name', 'created_at'], '?, ?, ?'),
-      [id, name, new Date()],
+      this.insertIgnore(
+        this.q.permissions,
+        ['id', 'name', 'created_at', 'updated_at'],
+        '?, ?, ?, ?',
+      ),
+      [id, name, now, now],
       opts,
     );
     return (await this.findPermissionId(name, opts)) ?? id;
@@ -323,9 +348,39 @@ export class LucidPermissionStore implements PermissionStore {
   ): Promise<void> {
     const roleId = await this.createRole(roleName, opts);
     const permissionId = await this.createPermission(permissionName, opts);
+    // Already granted: nothing changes, so the role's `updated_at` stays.
+    if ((await this.rolePermissionIds(roleId, opts)).has(permissionId)) return;
+    await this.insertGrant(roleId, permissionId, opts);
+    await this.touchRole(roleId, opts);
+  }
+
+  /** The permission ids granted to a role. */
+  private async rolePermissionIds(roleId: string, opts?: StoreOptions): Promise<Set<string>> {
+    const rows = await this.query(
+      `SELECT permission_id FROM ${this.q.rolePermission} WHERE role_id = ?`,
+      [roleId],
+      opts,
+    );
+    return new Set(rows.map((r) => String(r.permission_id)));
+  }
+
+  private async insertGrant(roleId: string, permissionId: string, opts?: StoreOptions) {
     await this.run(
-      this.insertIgnore(this.q.rolePermission, ['role_id', 'permission_id'], '?, ?'),
-      [roleId, permissionId],
+      this.insertIgnore(
+        this.q.rolePermission,
+        ['role_id', 'permission_id', 'created_at'],
+        '?, ?, ?',
+      ),
+      [roleId, permissionId, this.now()],
+      opts,
+    );
+  }
+
+  /** The role's permission set changed: move its `updated_at`. */
+  private async touchRole(roleId: string, opts?: StoreOptions) {
+    await this.run(
+      `UPDATE ${this.q.roles} SET updated_at = ? WHERE id = ?`,
+      [this.now(), roleId],
       opts,
     );
   }
@@ -339,11 +394,13 @@ export class LucidPermissionStore implements PermissionStore {
     const roleId = await this.findRoleId(roleName, opts);
     const permissionId = await this.findPermissionId(permissionName, opts);
     if (!roleId || !permissionId) return;
+    if (!(await this.rolePermissionIds(roleId, opts)).has(permissionId)) return;
     await this.run(
       `DELETE FROM ${this.q.rolePermission} WHERE role_id = ? AND permission_id = ?`,
       [roleId, permissionId],
       opts,
     );
+    await this.touchRole(roleId, opts);
   }
 
   async assignRole(
@@ -367,10 +424,10 @@ export class LucidPermissionStore implements PermissionStore {
     await this.run(
       this.insertIgnore(
         this.q.subjectRole,
-        ['subject_type', 'subject_id', 'role_id', 'tenant_id', 'source'],
-        '?, ?, ?, ?, ?',
+        ['subject_type', 'subject_id', 'role_id', 'tenant_id', 'source', 'created_at'],
+        '?, ?, ?, ?, ?, ?',
       ),
-      [user.type, this.subjectId(user.id), roleId, tenantId, source],
+      [user.type, this.subjectId(user.id), roleId, tenantId, source, this.now()],
       opts,
     );
   }
@@ -467,7 +524,8 @@ export class LucidPermissionStore implements PermissionStore {
     await this.ready(opts);
     const tenant = this.tenantClause(scope);
     const rows = await this.query(
-      `SELECT r.name AS name, ur.source AS source, ur.tenant_id AS tenant_id
+      `SELECT r.name AS name, ur.source AS source, ur.tenant_id AS tenant_id,
+              ur.created_at AS created_at
        FROM ${this.q.subjectRole} ur
        JOIN ${this.q.roles} r ON r.id = ur.role_id
        WHERE ur.subject_type = ? AND ur.subject_id = ? AND ${tenant.sql}
@@ -477,10 +535,12 @@ export class LucidPermissionStore implements PermissionStore {
     );
     return rows.map((r) => {
       const tenantId = String(r.tenant_id ?? '');
+      const createdAt = toTimestamp(r.created_at);
       return {
         role: r.name as string,
         source: r.source as string,
         tenantId: tenantId === GLOBAL_TENANT ? null : tenantId,
+        ...(createdAt ? { createdAt } : {}),
       };
     });
   }
@@ -510,14 +570,23 @@ export class LucidPermissionStore implements PermissionStore {
       for (const name of new Set(permissionNames)) {
         permissionIds.push(await this.createPermission(name, tx));
       }
-      await this.run(`DELETE FROM ${this.q.rolePermission} WHERE role_id = ?`, [roleId], tx);
-      for (const permissionId of permissionIds) {
+      // Diff instead of delete-all + re-insert: kept grants keep their `created_at`, and the
+      // role's `updated_at` moves only when the set really changes.
+      const current = await this.rolePermissionIds(roleId, tx);
+      const wanted = new Set(permissionIds);
+      const removed = [...current].filter((id) => !wanted.has(id));
+      const added = [...wanted].filter((id) => !current.has(id));
+      if (removed.length > 0) {
         await this.run(
-          this.insertIgnore(this.q.rolePermission, ['role_id', 'permission_id'], '?, ?'),
-          [roleId, permissionId],
+          `DELETE FROM ${this.q.rolePermission} WHERE role_id = ? AND permission_id IN (${removed
+            .map(() => '?')
+            .join(', ')})`,
+          [roleId, ...removed],
           tx,
         );
       }
+      for (const permissionId of added) await this.insertGrant(roleId, permissionId, tx);
+      if (removed.length > 0 || added.length > 0) await this.touchRole(roleId, tx);
     });
   }
 
@@ -548,7 +617,7 @@ export class LucidPermissionStore implements PermissionStore {
     }
     const rows = await this.query(
       `SELECT ur.subject_type AS subject_type, ur.subject_id AS subject_id, r.name AS name,
-              ur.source AS source, ur.tenant_id AS tenant_id
+              ur.source AS source, ur.tenant_id AS tenant_id, ur.created_at AS created_at
        FROM ${this.q.subjectRole} ur
        JOIN ${this.q.roles} r ON r.id = ur.role_id${
          where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''
@@ -559,12 +628,14 @@ export class LucidPermissionStore implements PermissionStore {
     return rows
       .map((r) => {
         const tenantId = String(r.tenant_id ?? '');
+        const createdAt = toTimestamp(r.created_at);
         return {
           subjectType: r.subject_type as string,
           subjectId: String(r.subject_id),
           role: r.name as string,
           source: r.source as string,
           tenantId: tenantId === GLOBAL_TENANT ? null : tenantId,
+          ...(createdAt ? { createdAt } : {}),
         };
       })
       .sort(compareSubjectRoleAssignments);
@@ -596,10 +667,10 @@ export class LucidPermissionStore implements PermissionStore {
     await this.run(
       this.insertIgnore(
         this.q.subjectPermission,
-        ['subject_type', 'subject_id', 'permission_id'],
-        '?, ?, ?',
+        ['subject_type', 'subject_id', 'permission_id', 'created_at'],
+        '?, ?, ?, ?',
       ),
-      [user.type, this.subjectId(user.id), permissionId],
+      [user.type, this.subjectId(user.id), permissionId, this.now()],
       opts,
     );
   }
@@ -795,6 +866,26 @@ export class LucidPermissionStore implements PermissionStore {
     await this.ready(opts);
     const rows = await this.query(`SELECT name FROM ${this.q.permissions} ORDER BY name`, [], opts);
     return rows.map((r) => r.name as string);
+  }
+
+  async listRoleRecords(opts?: StoreOptions): Promise<RoleRecord[]> {
+    await this.ready(opts);
+    const rows = await this.query(
+      `SELECT name, created_at, updated_at FROM ${this.q.roles} ORDER BY name`,
+      [],
+      opts,
+    );
+    return rows.map(timestampedRecord);
+  }
+
+  async listPermissionRecords(opts?: StoreOptions): Promise<PermissionRecord[]> {
+    await this.ready(opts);
+    const rows = await this.query(
+      `SELECT name, created_at, updated_at FROM ${this.q.permissions} ORDER BY name`,
+      [],
+      opts,
+    );
+    return rows.map(timestampedRecord);
   }
 
   async getRolePermissions(roleName: string, opts?: StoreOptions): Promise<string[]> {

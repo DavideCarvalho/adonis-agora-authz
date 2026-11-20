@@ -42,6 +42,8 @@ node ace authz:make-permission 'posts.*'
 
 `authz:roles:list` shows a role's permissions in the store, its `roleGrants` from `config/authz.ts`, its `catalog` entry and what the store is missing from the catalog. Fix drift with `authz:sync`.
 
+The listings carry timestamps: `authz:roles:list` an **Updated** column (the last change to the role's permissions), `authz:permissions:list` and `authz:assignments:list` a **Created** column. With `--json`, roles and permissions have `createdAt` and `updatedAt`, assignments `createdAt` — ISO 8601 strings, or `null` for rows written before these columns existed (and for catalog roles not in the store).
+
 ## Role assignments
 
 ```bash
