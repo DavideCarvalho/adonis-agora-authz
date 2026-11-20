@@ -212,8 +212,8 @@ importers:
         specifier: 1.0.0-rc.12
         version: 1.0.0-rc.12(1b67ba5489de116c6260d6c1395d40df)
       '@adonis-agora/diagnostics':
-        specifier: 1.0.0-rc.5
-        version: 1.0.0-rc.5(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))
+        specifier: 1.0.0-rc.6
+        version: 1.0.0-rc.6(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))
       '@adonisjs/assembler':
         specifier: 8.6.0
         version: 8.6.0(typescript@7.0.2)
@@ -335,8 +335,8 @@ packages:
     resolution: {integrity: sha512-GPnzgw4AivjuG9e3J9KX0VhXNFOANMCcRhAWZSzy4a1XRlUkQ1kp+T4tl2F6av5KgMZORs68tIcsoyAygHgWSQ==}
     engines: {node: '>=24'}
 
-  '@adonis-agora/diagnostics@1.0.0-rc.5':
-    resolution: {integrity: sha512-g2ntcHQyEAjSR9tNn7WnFBEo7aAdOt89Xlo/t4TpZntvtwMXPzFQMkG4shY7Kigkw3u0RAvxbsdWDfvL6vlkHg==}
+  '@adonis-agora/diagnostics@1.0.0-rc.6':
+    resolution: {integrity: sha512-vHVkLWm7lEUx08T/u6esGISybEJs9cqlpCp/wymLc2tJjDGPo6v14tHZXA7gxaMMNmaBJ6jYtShqqXAFCWMtlQ==}
     engines: {node: '>=24'}
     peerDependencies:
       '@adonis-agora/durable': '>=1.0.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0'
@@ -3500,7 +3500,7 @@ snapshots:
 
   '@adonis-agora/authkit-core@1.0.0-rc.4': {}
 
-  '@adonis-agora/diagnostics@1.0.0-rc.5(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))':
+  '@adonis-agora/diagnostics@1.0.0-rc.6(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))':
     dependencies:
       '@adonisjs/core': 7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1)
 
