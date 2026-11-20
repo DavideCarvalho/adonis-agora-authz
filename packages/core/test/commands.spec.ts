@@ -133,6 +133,8 @@ describe('authz commands', () => {
           catalog: ['posts.view'],
           missingInStore: ['posts.view'],
           drift: true,
+          createdAt: null,
+          updatedAt: null,
         },
       ]);
     });
@@ -185,11 +187,16 @@ describe('authz commands', () => {
 
     it('lists permissions', async () => {
       const i = json(await exec(AuthzPermissionsList, ['--json']));
+      const at = {
+        createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+        updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+      };
       expect(i.data).toEqual([
-        { name: 'audit.read' },
-        { name: 'invoices.read' },
-        { name: 'posts.*' },
+        { name: 'audit.read', ...at },
+        { name: 'invoices.read', ...at },
+        { name: 'posts.*', ...at },
       ]);
+      expect(output(await exec(AuthzPermissionsList, []))).toContain('Created');
       expect(i.meta.total).toBe(3);
       expect(output(await exec(AuthzPermissionsList, []))).toContain('invoices.read');
     });
@@ -207,6 +214,7 @@ describe('authz commands', () => {
           role: 'billing',
           source: 'manual',
           tenantId: 'acme',
+          createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
         },
       ]);
       const scim = json(await exec(AuthzAssignmentsList, ['--json', '--global', '--source=scim']));
@@ -233,7 +241,9 @@ describe('authz commands', () => {
       expect(i.exitCode).toBe(0);
       expect(
         await store.getRoleAssignments({ type: 'user', id: 'carol' }, { tenantId: 'acme' }),
-      ).toEqual([{ role: 'editor', source: 'scim', tenantId: 'acme' }]);
+      ).toEqual([
+        { role: 'editor', source: 'scim', tenantId: 'acme', createdAt: expect.any(Date) },
+      ]);
     });
 
     it('removes with --force, refuses without a terminal, no-ops when absent', async () => {
@@ -251,7 +261,14 @@ describe('authz commands', () => {
       ]);
       expect(done.exitCode).toBe(0);
       expect(json(done).assignments).toEqual([
-        { subjectType: 'user', subjectId: 'ana', role: 'editor', source: 'manual', tenantId: null },
+        {
+          subjectType: 'user',
+          subjectId: 'ana',
+          role: 'editor',
+          source: 'manual',
+          tenantId: null,
+          createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+        },
       ]);
 
       const noop = await exec(AuthzAssignmentsRemove, ['billing', 'ana', '--tenant=acme']);

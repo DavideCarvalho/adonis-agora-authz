@@ -187,10 +187,11 @@ describe('role sources: the subject-role pivot', () => {
         role_id VARCHAR(191) NOT NULL,
         tenant_id VARCHAR(191) NOT NULL DEFAULT '',
         source VARCHAR(64) NOT NULL DEFAULT 'manual',
+        created_at DATETIME,
         PRIMARY KEY (subject_type, subject_id, role_id, tenant_id, source)
       )`);
-      await trx.rawQuery(`INSERT INTO authz_subject_role_new (subject_type, subject_id, role_id, tenant_id, source)
-        SELECT subject_type, subject_id, role_id, tenant_id, source FROM authz_subject_role`);
+      await trx.rawQuery(`INSERT INTO authz_subject_role_new (subject_type, subject_id, role_id, tenant_id, source, created_at)
+        SELECT subject_type, subject_id, role_id, tenant_id, source, created_at FROM authz_subject_role`);
       await trx.rawQuery('DROP TABLE authz_subject_role');
       await trx.rawQuery('ALTER TABLE authz_subject_role_new RENAME TO authz_subject_role');
       await trx.rawQuery(
@@ -201,7 +202,7 @@ describe('role sources: the subject-role pivot', () => {
     await store.assignRole(alice, 'editor', { tenantId: 't1', source: 'scim' });
     await store.removeRole(alice, 'editor', { tenantId: 't1', source: 'manual' });
     expect(await store.getRoleAssignments(alice, { tenantId: 't1' })).toEqual([
-      { role: 'editor', source: 'scim', tenantId: 't1' },
+      { role: 'editor', source: 'scim', tenantId: 't1', createdAt: expect.any(Date) },
     ]);
   });
 });
@@ -217,12 +218,17 @@ describe('role sources: dialect DDL', () => {
     return { client: client as unknown as Parameters<typeof createAuthzTables>[0], sql };
   }
 
-  it('Postgres adds the column with ADD COLUMN IF NOT EXISTS', async () => {
+  it('Postgres checks information_schema, then adds only the missing columns', async () => {
     const { client, sql } = recordingClient('postgres');
     await createAuthzTables(client);
+    expect(sql.some((s) => s.includes('information_schema.columns'))).toBe(true);
     expect(sql).toContain(
-      `ALTER TABLE ${AUTHZ_TABLES.subjectRole} ADD COLUMN IF NOT EXISTS source VARCHAR(64) NOT NULL DEFAULT 'manual'`,
+      `ALTER TABLE ${AUTHZ_TABLES.subjectRole} ADD COLUMN source VARCHAR(64) NOT NULL DEFAULT 'manual'`,
     );
+    expect(sql).toContain(
+      `ALTER TABLE ${AUTHZ_TABLES.subjectRole} ADD COLUMN created_at TIMESTAMP NULL`,
+    );
+    expect(sql).toContain(`ALTER TABLE ${AUTHZ_TABLES.roles} ADD COLUMN updated_at TIMESTAMP NULL`);
   });
 
   it('MySQL keeps the 5-column key under 3072 bytes (ASCII role_id) and checks before adding', async () => {

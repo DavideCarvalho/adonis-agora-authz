@@ -167,7 +167,8 @@ Hosts with integer ids may give the pivots their native key type
 | `getRolePermissions(role)` | The permission names attached to a role. |
 | `getPermissionsForRoles(roles)` | `{ [role]: permissionNames }` for many roles in one query. Every existing role is a key (`[]` when it has no grants); unknown roles are absent. |
 | `syncRolePermissions(role, permissions)` | Replaces the role's grants with exactly this list (spatie's `syncPermissions`), creating the role/permissions by name. Transactional. |
-| `listRoles()` / `listPermissions()` | Every known name (what `node ace authz:roles:list` and `authz:permissions:list` read). |
+| `listRoles()` / `listPermissions()` | Every known name. |
+| `listRoleRecords()` / `listPermissionRecords()` | Every role / permission as `{ name, createdAt?, updatedAt? }` (`Date`s), sorted by name — what `node ace authz:roles:list` and `authz:permissions:list` read. A role's `updatedAt` moves whenever its permission set changes. Optional on custom stores. |
 | `deleteRole(name)` → `boolean` | Deletes the role outright — revokes its grants, removes every user assignment (all tenants and sources), deletes the row, in one transaction. Returns whether the role existed (an unknown name is a no-op returning `false`). Whether to refuse a still-populated role is **your** decision: count first. |
 
 **Assignments & direct grants**
@@ -185,13 +186,17 @@ Hosts with integer ids may give the pivots their native key type
 | Method | Contract |
 | ------ | -------- |
 | `getRolesForSubject(user, scope?)` | Distinct role names, with the tenant-visibility rules above. |
-| `getRoleAssignments(user, scope?)` | Every assignment as `{ role, source, tenantId }` (`tenantId: null` = global), same visibility. |
+| `getRoleAssignments(user, scope?)` | Every assignment as `{ role, source, tenantId, createdAt? }` (`tenantId: null` = global), same visibility. |
 | `getSubjectsForRole(role, scope?)` | The reverse: every `{ type, id }` holding the role. |
-| `listRoleAssignments({ tenantId?, role?, subject?, source? })` | Raw `{ subjectType, subjectId, role, source, tenantId }` rows for admin listings, ordered by (subjectType, subjectId, role, source, tenantId). `tenantId` omitted = every tenant; `null` = global rows only; a string = **only** that tenant's scoped rows (globals are not included — unlike the visibility rule above). `role` takes a name or a list. |
+| `listRoleAssignments({ tenantId?, role?, subject?, source? })` | Raw `{ subjectType, subjectId, role, source, tenantId, createdAt? }` rows for admin listings, ordered by (subjectType, subjectId, role, source, tenantId). `tenantId` omitted = every tenant; `null` = global rows only; a string = **only** that tenant's scoped rows (globals are not included — unlike the visibility rule above). `role` takes a name or a list. |
 | `countSubjectsForRole(role, scope?)` | Same visibility, reduced to a number — the "N users" KPI of a roles screen without transferring one ref per member. |
 | `countSubjectsByRole(scope?)` | Every role → member count in one `GROUP BY` pass; roles nobody holds come back as `0` (a complete matrix, not just rows with members). |
 | `getPermissionsForSubject(user, scope?)` | The raw granted names — role-derived ∪ direct. Wildcards are **not** expanded (the service's matcher does that). |
 | `subjectHasPermission(user, permission, scope?)` | Exact-name membership, no wildcards — prefer `authz.can()`. |
+
+Roles and permissions carry `createdAt` and `updatedAt`; assignments and grants carry
+`createdAt` only (they are never edited — a change is a remove plus an assign). Rows written
+before these columns existed have no value (the field is absent, `null` in JSON output).
 
 For a roles administration screen the pair `countSubjectsByRole()` (the table) and
 `countSubjectsForRole(role)` (the delete guard) covers the KPIs; when a delete must

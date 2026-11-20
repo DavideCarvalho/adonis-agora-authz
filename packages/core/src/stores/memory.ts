@@ -2,10 +2,12 @@ import { randomUUID } from 'node:crypto';
 import {
   compareSubjectRoleAssignments,
   normalizeRoleSource,
+  type PermissionRecord,
   type PermissionStore,
   type RoleAssignment,
   type RoleAssignmentFilter,
   type RoleAssignmentScope,
+  type RoleRecord,
   roleFilterNames,
   type SetSubjectRolesOptions,
   type SubjectRoleAssignment,
@@ -23,12 +25,19 @@ interface SubjectRoleRow {
   roleId: string;
   tenantId: string;
   source: string;
+  createdAt: Date;
 }
 
 interface SubjectPermissionRow {
   subjectType: string;
   subjectId: string;
   permissionId: string;
+  createdAt: Date;
+}
+
+interface Timestamps {
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 /**
@@ -49,9 +58,35 @@ const subjectKey = (u: SubjectRef): string => compositeKey(u.type, u.id);
 export class MemoryPermissionStore implements PermissionStore {
   private roles = new Map<string, string>(); // name -> id
   private permissions = new Map<string, string>(); // name -> id
+  private timestamps = new Map<string, Timestamps>(); // role or permission id -> timestamps
   private rolePermissions = new Set<string>(); // compositeKey(roleId, permissionId)
   private subjectRoles: SubjectRoleRow[] = [];
   private subjectPermissions: SubjectPermissionRow[] = [];
+  private readonly now: () => Date;
+
+  /** @param options.now the clock behind `createdAt` / `updatedAt` (tests pin it). */
+  constructor(options: { now?: () => Date } = {}) {
+    this.now = options.now ?? (() => new Date());
+  }
+
+  private stamp(id: string): void {
+    const now = this.now();
+    this.timestamps.set(id, { createdAt: now, updatedAt: now });
+  }
+
+  /** The role's permission set changed: move its `updatedAt`. */
+  private touch(id: string): void {
+    const current = this.timestamps.get(id);
+    if (current) current.updatedAt = this.now();
+  }
+
+  private record(name: string, id: string): RoleRecord {
+    const ts = this.timestamps.get(id);
+    return {
+      name,
+      ...(ts ? { createdAt: new Date(ts.createdAt), updatedAt: new Date(ts.updatedAt) } : {}),
+    };
+  }
 
   async ensureSchema(): Promise<void> {
     // Nothing to do — purely in-memory.
@@ -62,6 +97,7 @@ export class MemoryPermissionStore implements PermissionStore {
     if (existing) return existing;
     const id = randomUUID();
     this.roles.set(name, id);
+    this.stamp(id);
     return id;
   }
 
@@ -70,20 +106,24 @@ export class MemoryPermissionStore implements PermissionStore {
     if (existing) return existing;
     const id = randomUUID();
     this.permissions.set(name, id);
+    this.stamp(id);
     return id;
   }
 
   async givePermissionToRole(roleName: string, permissionName: string): Promise<void> {
     const roleId = await this.createRole(roleName);
     const permissionId = await this.createPermission(permissionName);
-    this.rolePermissions.add(compositeKey(roleId, permissionId));
+    const key = compositeKey(roleId, permissionId);
+    if (this.rolePermissions.has(key)) return;
+    this.rolePermissions.add(key);
+    this.touch(roleId);
   }
 
   async revokePermissionFromRole(roleName: string, permissionName: string): Promise<void> {
     const roleId = this.roles.get(roleName);
     const permissionId = this.permissions.get(permissionName);
     if (!roleId || !permissionId) return;
-    this.rolePermissions.delete(compositeKey(roleId, permissionId));
+    if (this.rolePermissions.delete(compositeKey(roleId, permissionId))) this.touch(roleId);
   }
 
   async assignRole(user: SubjectRef, roleName: string, scope?: RoleAssignmentScope): Promise<void> {
@@ -108,6 +148,7 @@ export class MemoryPermissionStore implements PermissionStore {
         roleId,
         tenantId,
         source,
+        createdAt: this.now(),
       });
     }
   }
@@ -167,6 +208,7 @@ export class MemoryPermissionStore implements PermissionStore {
         role,
         source: r.source,
         tenantId: r.tenantId === GLOBAL_TENANT ? null : r.tenantId,
+        createdAt: new Date(r.createdAt),
       });
     }
     return out;
@@ -177,6 +219,7 @@ export class MemoryPermissionStore implements PermissionStore {
     const roleId = this.roles.get(name);
     if (!roleId) return false;
     this.roles.delete(name);
+    this.timestamps.delete(roleId);
     this.subjectRoles = this.subjectRoles.filter((r) => r.roleId !== roleId);
     this.dropRolePermissions(roleId);
     return true;
@@ -195,10 +238,14 @@ export class MemoryPermissionStore implements PermissionStore {
       permissionIds.push(await this.createPermission(name));
     }
     // Synchronous swap: no await between the drop and the re-adds, so it is atomic here.
+    const before = new Set(
+      [...this.rolePermissions].filter((rp) => (JSON.parse(rp) as string[])[0] === roleId),
+    );
+    const after = new Set(permissionIds.map((permissionId) => compositeKey(roleId, permissionId)));
     this.dropRolePermissions(roleId);
-    for (const permissionId of permissionIds) {
-      this.rolePermissions.add(compositeKey(roleId, permissionId));
-    }
+    for (const key of after) this.rolePermissions.add(key);
+    const changed = before.size !== after.size || [...after].some((key) => !before.has(key));
+    if (changed) this.touch(roleId);
   }
 
   async listRoleAssignments(filter: RoleAssignmentFilter = {}): Promise<SubjectRoleAssignment[]> {
@@ -223,6 +270,7 @@ export class MemoryPermissionStore implements PermissionStore {
         role,
         source: r.source,
         tenantId: r.tenantId === GLOBAL_TENANT ? null : r.tenantId,
+        createdAt: new Date(r.createdAt),
       });
     }
     return out.sort(compareSubjectRoleAssignments);
@@ -242,7 +290,12 @@ export class MemoryPermissionStore implements PermissionStore {
         r.subjectType === user.type && r.subjectId === user.id && r.permissionId === permissionId,
     );
     if (!exists) {
-      this.subjectPermissions.push({ subjectType: user.type, subjectId: user.id, permissionId });
+      this.subjectPermissions.push({
+        subjectType: user.type,
+        subjectId: user.id,
+        permissionId,
+        createdAt: this.now(),
+      });
     }
   }
 
@@ -360,6 +413,18 @@ export class MemoryPermissionStore implements PermissionStore {
 
   async listPermissions(): Promise<string[]> {
     return [...this.permissions.keys()];
+  }
+
+  async listRoleRecords(): Promise<RoleRecord[]> {
+    return [...this.roles]
+      .map(([name, id]) => this.record(name, id))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  }
+
+  async listPermissionRecords(): Promise<PermissionRecord[]> {
+    return [...this.permissions]
+      .map(([name, id]) => this.record(name, id))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   }
 
   async getRolePermissions(roleName: string): Promise<string[]> {

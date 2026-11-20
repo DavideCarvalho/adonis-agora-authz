@@ -109,7 +109,7 @@ describe('LucidPermissionStore (sqlite)', () => {
 
       // The DELETE of `editor` and the creation of `auditor` were rolled back with it.
       expect(await store.getRoleAssignments(alice)).toEqual([
-        { role: 'editor', source: 'scim', tenantId: null },
+        { role: 'editor', source: 'scim', tenantId: null, createdAt: expect.any(Date) },
       ]);
       expect(await store.listRoles()).not.toContain('auditor');
     });

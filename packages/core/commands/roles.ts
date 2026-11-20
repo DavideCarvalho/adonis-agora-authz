@@ -1,3 +1,4 @@
+import { type PermissionRecord, timestampJson } from '../src/store.js';
 import { AuthzCommand, offsetPageOf } from './shared.js';
 
 /**
@@ -42,7 +43,7 @@ export class AuthzRolesList extends AuthzCommand {
       return;
     }
     const table = this.ui.table();
-    table.head(['Role', 'Store permissions', 'roleGrants', 'Catalog', 'Drift']);
+    table.head(['Role', 'Store permissions', 'roleGrants', 'Catalog', 'Drift', 'Updated']);
     for (const r of result.data) {
       table.row([
         r.role,
@@ -50,6 +51,7 @@ export class AuthzRolesList extends AuthzCommand {
         r.roleGrants.join(', '),
         r.catalog === null ? '' : r.catalog.join(', '),
         r.drift ? `missing: ${r.inStore ? r.missingInStore.join(', ') : 'role'}` : '',
+        r.updatedAt ?? '—',
       ]);
     }
     table.render();
@@ -162,9 +164,16 @@ export class AuthzPermissionsList extends AuthzCommand {
   override async run(): Promise<void> {
     const { page, size } = this.paging(this.page, this.size);
     const authz = await this.service();
-    const names = [...(await authz.store.listPermissions())].sort();
+    const store = authz.store;
+    const records = store.listPermissionRecords
+      ? await store.listPermissionRecords()
+      : [...(await store.listPermissions())].sort().map((name) => ({ name }) as PermissionRecord);
     const result = offsetPageOf(
-      names.map((name) => ({ name })),
+      records.map((p) => ({
+        name: p.name,
+        createdAt: timestampJson(p.createdAt),
+        updatedAt: timestampJson(p.updatedAt),
+      })),
       page,
       size,
     );
@@ -174,8 +183,8 @@ export class AuthzPermissionsList extends AuthzCommand {
       return;
     }
     const table = this.ui.table();
-    table.head(['Permission']);
-    for (const p of result.data) table.row([p.name]);
+    table.head(['Permission', 'Created']);
+    for (const p of result.data) table.row([p.name, p.createdAt ?? '—']);
     table.render();
     this.pageFooter(result.meta);
   }

@@ -1,5 +1,6 @@
 import type { AuthzService } from '../authz_service.js';
 import type { AuthzCatalog } from '../define_config.js';
+import { type RoleRecord, timestampJson } from '../store.js';
 import { normalizeSubjectRef, type SubjectRef, type TenantScope } from '../subject_ref.js';
 import type { DevTool, DevToolInputProperty, DevToolsHub } from './contract.js';
 import { DEV_TOOLS_BINDING } from './contract.js';
@@ -121,6 +122,10 @@ export interface AuthzRoleRow {
   catalog: string[] | null;
   missingInStore: string[];
   drift: boolean;
+  /** ISO 8601; `null` when the role is not in the store or its row predates the column. */
+  createdAt: string | null;
+  /** ISO 8601: the last change to the role's permission set; `null` when unknown. */
+  updatedAt: string | null;
 }
 
 /**
@@ -205,7 +210,11 @@ export function authzQueries(deps: AuthzDevToolsDeps) {
       const service = await deps.service();
       const catalog = deps.catalog?.()?.roles ?? {};
       const grants = deps.roleGrants?.() ?? {};
-      const stored = await service.store.listRoles();
+      const records = service.store.listRoleRecords
+        ? await service.store.listRoleRecords()
+        : (await service.store.listRoles()).map((name) => ({ name }) as RoleRecord);
+      const stored = records.map((r) => r.name);
+      const recordOf = new Map(records.map((r) => [r.name, r]));
       const only = str(input.role);
       const names = [...new Set([...stored, ...Object.keys(catalog), ...Object.keys(grants)])]
         .filter((name) => only === undefined || name === only)
@@ -228,6 +237,8 @@ export function authzQueries(deps: AuthzDevToolsDeps) {
           catalog: declared ?? null,
           missingInStore,
           drift,
+          createdAt: timestampJson(recordOf.get(role)?.createdAt),
+          updatedAt: timestampJson(recordOf.get(role)?.updatedAt),
         });
       }
       return items;

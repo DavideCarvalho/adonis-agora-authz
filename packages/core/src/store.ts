@@ -71,6 +71,60 @@ export interface RoleAssignment {
   source: string;
   /** The tenant the assignment is scoped to; `null` for a global assignment. */
   tenantId: string | null;
+  /**
+   * When the assignment was made. Assignments are never edited (a change is a remove + assign),
+   * so there is no `updatedAt`. Absent for rows written before the column existed, and from
+   * stores that do not record it.
+   */
+  createdAt?: Date;
+}
+
+/**
+ * A role with its timestamps, as returned by {@link PermissionStore.listRoleRecords}.
+ * `updatedAt` moves whenever the role's permission set changes.
+ */
+export interface RoleRecord {
+  name: string;
+  /** Absent for rows written before the column existed, and from stores that do not record it. */
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+/** A permission with its timestamps, as returned by {@link PermissionStore.listPermissionRecords}. */
+export interface PermissionRecord {
+  name: string;
+  /** Absent for rows written before the column existed, and from stores that do not record it. */
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+/**
+ * Normalize a stored timestamp to a `Date`: a `Date`, a Luxon `DateTime` (anything with
+ * `toJSDate()`), epoch milliseconds, or a string. `undefined` for `null`/`undefined` and for
+ * anything that does not parse.
+ */
+export function toTimestamp(value: unknown): Date | undefined {
+  if (value === null || value === undefined) return undefined;
+  let date: Date | undefined;
+  if (value instanceof Date) date = value;
+  else if (typeof value === 'number') date = new Date(value);
+  else if (typeof value === 'string') {
+    // SQL `YYYY-MM-DD HH:MM:SS[.fff]` without a zone (SQLite text): the driver wrote it in the
+    // process's local time, so read it back the same way.
+    const sql = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$/.test(value);
+    date = new Date(sql ? value.replace(' ', 'T') : value);
+  } else if (
+    typeof value === 'object' &&
+    typeof (value as { toJSDate?: unknown }).toJSDate === 'function'
+  ) {
+    date = (value as { toJSDate(): Date }).toJSDate();
+  }
+  return date && !Number.isNaN(date.getTime()) ? date : undefined;
+}
+
+/** A timestamp as the JSON surfaces (ace `--json`, dev tools) show it: ISO 8601, or `null`. */
+export function timestampJson(value: Date | undefined): string | null {
+  return value ? value.toISOString() : null;
 }
 
 /**
@@ -320,6 +374,16 @@ export interface PermissionStore {
   listRoles(opts?: StoreOptions): Promise<string[]>;
   /** List every permission name known to the store (for ace `authz:permissions:list`). */
   listPermissions(opts?: StoreOptions): Promise<string[]>;
+  /**
+   * Every role with its `createdAt` / `updatedAt`, sorted by name. Optional: a store without it
+   * still works, and callers fall back to {@link listRoles} (no timestamps).
+   */
+  listRoleRecords?(opts?: StoreOptions): Promise<RoleRecord[]>;
+  /**
+   * Every permission with its `createdAt` / `updatedAt`, sorted by name. Optional, like
+   * {@link listRoleRecords}.
+   */
+  listPermissionRecords?(opts?: StoreOptions): Promise<PermissionRecord[]>;
   /** List the permission names attached to a role. */
   getRolePermissions(roleName: string, opts?: StoreOptions): Promise<string[]>;
   /**
