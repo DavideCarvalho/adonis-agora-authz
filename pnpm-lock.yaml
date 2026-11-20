@@ -209,8 +209,8 @@ importers:
   packages/core:
     devDependencies:
       '@adonis-agora/authkit-client':
-        specifier: 1.0.0-rc.8
-        version: 1.0.0-rc.8(1b67ba5489de116c6260d6c1395d40df)
+        specifier: 1.0.0-rc.12
+        version: 1.0.0-rc.12(1b67ba5489de116c6260d6c1395d40df)
       '@adonis-agora/diagnostics':
         specifier: 1.0.0-rc.5
         version: 1.0.0-rc.5(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))
@@ -316,8 +316,8 @@ importers:
 
 packages:
 
-  '@adonis-agora/authkit-client@1.0.0-rc.8':
-    resolution: {integrity: sha512-sxgp1ZwkdPYz9eUrk3id5lGYfCH17Duxcz7eSLRr5aYl+IskxeWnejRiP7MbEUSkATn8xgo0rbpyAJhNWUfZVA==}
+  '@adonis-agora/authkit-client@1.0.0-rc.12':
+    resolution: {integrity: sha512-QXDSrRf6Sb12BONLdLQv+KQxC2CMPcAWRmCbzTNTxDXj7+eW4QQGHJYFiuSzz7BMf6KKisZBYmRwqGFWLivKLQ==}
     engines: {node: '>=24'}
     peerDependencies:
       '@adonis-agora/resilience': '>=0.1.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0'
@@ -331,8 +331,8 @@ packages:
       '@adonisjs/lucid':
         optional: true
 
-  '@adonis-agora/authkit-core@1.0.0-rc.3':
-    resolution: {integrity: sha512-j1+CXcEFCZHhOR9Ge2bqmtuJ5jDLBLVZb1cIJ5JSoJfvC1S0ugqsaLuHdYgQi2Qz4MogDEmYMIVcCZjGW0oCow==}
+  '@adonis-agora/authkit-core@1.0.0-rc.4':
+    resolution: {integrity: sha512-GPnzgw4AivjuG9e3J9KX0VhXNFOANMCcRhAWZSzy4a1XRlUkQ1kp+T4tl2F6av5KgMZORs68tIcsoyAygHgWSQ==}
     engines: {node: '>=24'}
 
   '@adonis-agora/diagnostics@1.0.0-rc.5':
@@ -3488,9 +3488,9 @@ packages:
 
 snapshots:
 
-  '@adonis-agora/authkit-client@1.0.0-rc.8(1b67ba5489de116c6260d6c1395d40df)':
+  '@adonis-agora/authkit-client@1.0.0-rc.12(1b67ba5489de116c6260d6c1395d40df)':
     dependencies:
-      '@adonis-agora/authkit-core': 1.0.0-rc.3
+      '@adonis-agora/authkit-core': 1.0.0-rc.4
       '@adonisjs/auth': 10.1.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))(@adonisjs/lucid@22.4.2(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.2.0)(luxon@3.7.2)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1)(supports-color@10.2.2))(@adonisjs/session@8.3.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))(@adonisjs/lucid@22.4.2(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.2.0)(luxon@3.7.2)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1)(supports-color@10.2.2)))
       '@adonisjs/core': 7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1)
       '@adonisjs/session': 8.3.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))(@adonisjs/lucid@22.4.2(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.2.0)(luxon@3.7.2)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1)(supports-color@10.2.2))
@@ -3498,7 +3498,7 @@ snapshots:
     optionalDependencies:
       '@adonisjs/lucid': 22.4.2(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.2.0)(luxon@3.7.2)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1)(supports-color@10.2.2)
 
-  '@adonis-agora/authkit-core@1.0.0-rc.3': {}
+  '@adonis-agora/authkit-core@1.0.0-rc.4': {}
 
   '@adonis-agora/diagnostics@1.0.0-rc.5(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))':
     dependencies:
