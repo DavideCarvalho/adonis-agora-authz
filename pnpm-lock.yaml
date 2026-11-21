@@ -209,8 +209,8 @@ importers:
   packages/core:
     devDependencies:
       '@adonis-agora/authkit-client':
-        specifier: 1.0.0-rc.12
-        version: 1.0.0-rc.12(1b67ba5489de116c6260d6c1395d40df)
+        specifier: 1.0.0-rc.13
+        version: 1.0.0-rc.13(1b67ba5489de116c6260d6c1395d40df)
       '@adonis-agora/diagnostics':
         specifier: 1.0.0-rc.6
         version: 1.0.0-rc.6(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))
@@ -316,8 +316,8 @@ importers:
 
 packages:
 
-  '@adonis-agora/authkit-client@1.0.0-rc.12':
-    resolution: {integrity: sha512-QXDSrRf6Sb12BONLdLQv+KQxC2CMPcAWRmCbzTNTxDXj7+eW4QQGHJYFiuSzz7BMf6KKisZBYmRwqGFWLivKLQ==}
+  '@adonis-agora/authkit-client@1.0.0-rc.13':
+    resolution: {integrity: sha512-kfgBogMhdixRvV1ajuL8nKm1cJAp1QP/py1IE+qE5tN9wKShdGGi5/Ws3SuX8SPNmWuWG2Tw8hoJXSHQ5G3SYQ==}
     engines: {node: '>=24'}
     peerDependencies:
       '@adonis-agora/resilience': '>=0.1.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0'
@@ -3488,7 +3488,7 @@ packages:
 
 snapshots:
 
-  '@adonis-agora/authkit-client@1.0.0-rc.12(1b67ba5489de116c6260d6c1395d40df)':
+  '@adonis-agora/authkit-client@1.0.0-rc.13(1b67ba5489de116c6260d6c1395d40df)':
     dependencies:
       '@adonis-agora/authkit-core': 1.0.0-rc.4
       '@adonisjs/auth': 10.1.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))(@adonisjs/lucid@22.4.2(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.2.0)(luxon@3.7.2)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1)(supports-color@10.2.2))(@adonisjs/session@8.3.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))(@adonisjs/lucid@22.4.2(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.2.0)(luxon@3.7.2)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1)(supports-color@10.2.2)))
