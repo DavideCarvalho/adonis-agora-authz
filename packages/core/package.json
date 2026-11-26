@@ -1,6 +1,6 @@
 {
   "name": "@adonis-agora/authz",
-  "version": "1.0.0-rc.11",
+  "version": "1.0.0",
   "description": "Bouncer-integrated, DB-backed RBAC for AdonisJS — roles, permissions, wildcard matching and multi-tenancy on top of @adonisjs/bouncer, with pluggable stores (Lucid / in-memory). Part of the Agora ecosystem.",
   "license": "MIT",
   "repository": {
@@ -117,7 +117,7 @@
     "check:agora-doctor": "node ../../scripts/check-agora-doctor.mjs ."
   },
   "peerDependencies": {
-    "@adonis-agora/diagnostics": ">=0.1.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0",
+    "@adonis-agora/diagnostics": ">=0.1.0 <2.0.0",
     "@adonisjs/bouncer": "^4.0.0",
     "@adonisjs/core": "^7.3.0",
     "@adonisjs/lucid": "^22.4.0"
@@ -134,8 +134,8 @@
     }
   },
   "devDependencies": {
-    "@adonis-agora/authkit-client": "1.0.0-rc.14",
-    "@adonis-agora/diagnostics": "1.0.0-rc.6",
+    "@adonis-agora/authkit-client": "1.0.0",
+    "@adonis-agora/diagnostics": "1.0.0",
     "@adonisjs/assembler": "8.6.0",
     "@adonisjs/bouncer": "4.0.1",
     "@adonisjs/core": "7.7.0",
