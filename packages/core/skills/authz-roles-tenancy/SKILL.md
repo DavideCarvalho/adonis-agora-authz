@@ -83,7 +83,7 @@ export default defineConfig({
     const rows = await UserRole.query()
       .where('role', role)
       .if(scope?.tenantId, (query) => query.where('tenant_id', scope!.tenantId!))
-    return rows.map((row) => row.userId)
+    return rows.map((row) => row.subjectId)
   },
   // Reverse of the token's global-role claim.
   resolveGlobalRoleMembers: async (role) => {
@@ -262,7 +262,7 @@ export default defineConfig({
     (await UserRole.query().where('subject_id', user.id)).map((row) => row.role),
   // reads the SAME table
   resolveRoleMembers: async (role) =>
-    (await UserRole.query().where('role', role)).map((row) => row.userId),
+    (await UserRole.query().where('role', role)).map((row) => row.subjectId),
 })
 ```
 
