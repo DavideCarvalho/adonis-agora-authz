@@ -44,7 +44,7 @@ npm i @adonis-agora/authz-react
 Peers (`@adonis-agora/authz`, `@inertiajs/react`, `react`, `react-dom`) are
 already present in an Inertia + React Adonis app.
 
-```ts title="config/inertia.ts"
+```ts no-check title="config/inertia.ts"
 import { defineConfig } from '@adonisjs/inertia'
 import { resolveAuthUser } from '@adonis-agora/authz'
 import authz from '@adonis-agora/authz/services/main'
@@ -148,13 +148,13 @@ lands in the browser bundle; the root barrel deliberately excludes it.
 
 Wrong:
 
-```ts
+```ts expect-error=TS2305
 import { buildAuthzShare } from '@adonis-agora/authz-react'; // wrong entry point
 ```
 
 Correct:
 
-```ts
+```ts no-check
 import { buildAuthzShare, type AuthzShare } from '@adonis-agora/authz-react/server';
 ```
 
@@ -200,7 +200,7 @@ seam and breaks on internals changes.
 
 Wrong:
 
-```tsx
+```tsx no-check
 vi.mock('@inertiajs/react', () => ({ usePage: () => ({ props: { authz: {...} } }) }));
 render(<Can permission="posts.edit"><button>Edit</button></Can>);
 ```

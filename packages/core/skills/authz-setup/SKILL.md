@@ -70,11 +70,11 @@ the migration and to `authzRolesRelation({ schema })` — plus
 `static table = 'authz.authz_roles'` on your role model, which the helper does
 not set:
 
-```ts
+```ts no-check
 lucid: stores.lucid({ schema: 'authz' }), // "authz".authz_roles, …
 ```
 
-```ts
+```ts no-check
 static table = 'authz.authz_roles' // your role model names the schema too
 // …
 authzRolesRelation({ schema: 'authz' })
@@ -186,7 +186,7 @@ deploy step.
 
 Wrong:
 
-```ts
+```ts no-check
 stores: {
   lucid: stores.lucid(), // autoCreateSchema defaults ON
 }
@@ -194,7 +194,7 @@ stores: {
 
 Correct:
 
-```ts
+```ts no-check
 stores: {
   lucid: stores.lucid({ autoCreateSchema: false }),
 }

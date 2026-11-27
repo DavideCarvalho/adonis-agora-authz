@@ -197,7 +197,7 @@ keep in sync.
 
 Wrong:
 
-```ts
+```ts no-check
 await authz.store.assignRole({ type: 'user', id: '42' }, 'ADMIN'); // redundant
 router.get('/admin', ...).use(middleware.requireRole({ roles: ['ADMIN'] }));
 ```
@@ -224,13 +224,13 @@ or /unauthorized.
 
 Wrong:
 
-```ts
+```ts no-check
 .use(middleware.requireRole({ roles: ['ADMIN'] })) // SSR app → JSON 401/403
 ```
 
 Correct:
 
-```ts
+```ts no-check
 .use(middleware.requireRole({
   roles: ['ADMIN'],
   guestRedirect: '/login',
@@ -251,13 +251,13 @@ denies it (`403`).
 
 Wrong:
 
-```ts
+```ts no-check
 .use(middleware.requireRole({ roles: ['ADMIN'] })) // the calling app → 403
 ```
 
 Correct:
 
-```ts
+```ts no-check
 .use(middleware.requireRole({ permissions: ['reports:export'] }))
 ```
 

@@ -60,7 +60,7 @@ export default defineConfig({
 })
 ```
 
-```ts
+```ts no-check
 import { accessibleBy } from '@adonis-agora/authz/scope'
 
 // A Lucid query builder is thenable (`then()` runs `exec()`), so the await already
@@ -98,13 +98,16 @@ WHERE clauses. Operators: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `nin`,
 is deny-all — so you can spread conditionally without special cases.
 
 ```ts
-import { and, eq, or, where, whereIn } from '@adonis-agora/authz/scope'
+import { and, eq, where, type ScopeNode } from '@adonis-agora/authz/scope'
 
+// `and`/`or` return a ScopeConstraint (they may collapse to allow-all/deny-all),
+// not a ScopeNode — so a nested group is written as a literal group node.
+const ownerOrPublished: ScopeNode = {
+  kind: 'or',
+  nodes: [eq('author_id', user.id), eq('published', true)],
+}
 // (owner OR published) AND not archived
-and(
-  or(eq('author_id', user.id), eq('published', true)),
-  where('status', 'ne', 'archived'),
-)
+and(ownerOrPublished, where('status', 'ne', 'archived'))
 ```
 
 Source: `docs/query-scopes.mdx`
@@ -116,7 +119,7 @@ to allow-all before any filter runs. The awaited `accessibleBy` resolves to the
 rows, so to chain clauses after the scope resolve the halves yourself —
 `applyScopeConstraint` is synchronous and never executes.
 
-```ts
+```ts no-check
 import { applyScopeConstraint } from '@adonis-agora/authz/scope'
 
 const constraint = await authz.scope(user, Post, { action: 'posts.edit' })
@@ -132,7 +135,7 @@ Source: `docs/query-scopes.mdx`
 `authz.scope()` resolves the `ScopeConstraint` alone; `applyScopeConstraint`
 compiles it onto any Lucid query, synchronously, returning the same builder.
 
-```ts
+```ts no-check
 import { applyScopeConstraint } from '@adonis-agora/authz/scope'
 import authz from '@adonis-agora/authz/services/main'
 
