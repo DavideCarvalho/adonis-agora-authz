@@ -39,12 +39,15 @@ decisions stay with Bouncer abilities and query scopes.
 ```ts title="start/kernel.ts"
 import router from '@adonisjs/core/services/router'
 
+router.use([() => import('@adonisjs/auth/initialize_auth_middleware')])
+
 export const middleware = router.named({
   requireRole: () => import('@adonis-agora/authz/middleware'),
 })
 ```
 
-The user comes from `ctx.auth.user` (any `@adonisjs/auth` guard). The service arrives via
+The user comes from `ctx.auth.user` (any `@adonisjs/auth` guard, set by its
+`initialize_auth_middleware`). The service arrives via
 constructor injection (`@inject()`); no service locator in the flow.
 
 ## Core patterns
@@ -54,6 +57,9 @@ constructor injection (`@inject()`); no service locator in the flow.
 ```ts title="start/routes.ts"
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
+
+const CoordinatorController = () => import('#controllers/coordinator_controller')
+const ReportsController = () => import('#controllers/reports_controller')
 
 // single role
 router
@@ -74,6 +80,11 @@ Without redirects an unauthenticated request gets `401 { message:
 'Unauthenticated' }` and a role miss gets `403 { message: 'Forbidden' }`.
 
 ```ts
+import router from '@adonisjs/core/services/router'
+import { middleware } from '#start/kernel'
+
+const AdminController = () => import('#controllers/admin_controller')
+
 router
   .group(() => {
     router.get('/admin', [AdminController, 'dashboard'])
@@ -105,6 +116,11 @@ opens for a grant of `admin.users`). Permissions are only read when `roles`
 did not match — a role pass costs no permission query.
 
 ```ts
+import router from '@adonisjs/core/services/router'
+import { middleware } from '#start/kernel'
+
+const AdminController = () => import('#controllers/admin_controller')
+
 router
   .get('/admin', [AdminController, 'dashboard'])
   .use(middleware.requireRole({ permissions: ['admin.*'] }))
@@ -116,9 +132,13 @@ Source: `docs/middleware.mdx`
 
 ```ts
 import authz from '@adonis-agora/authz/services/main'
+import type User from '#models/user'
 
-const roles = await authz.effectiveRoles(user)                  // active tenant when context tenancy is on, else global scope
-const scoped = await authz.effectiveRoles(user, { tenantId: 'acme' })
+export async function rolesOf(user: User) {
+  const roles = await authz.effectiveRoles(user)                  // active tenant when context tenancy is on, else global scope
+  const scoped = await authz.effectiveRoles(user, { tenantId: 'acme' })
+  return { roles, scoped }
+}
 ```
 
 `effectiveRoles` populates the request's global roles along the way, so
@@ -168,6 +188,11 @@ hold the permission — silently, because both are just strings.
 Wrong:
 
 ```ts
+import router from '@adonisjs/core/services/router'
+import { middleware } from '#start/kernel'
+
+const PostsController = () => import('#controllers/posts_controller')
+
 router.get('/posts', [PostsController, 'index'])
   .use(middleware.requireRole({ roles: ['posts.view'] })) // never matches a role
 ```
@@ -175,6 +200,11 @@ router.get('/posts', [PostsController, 'index'])
 Correct:
 
 ```ts
+import router from '@adonisjs/core/services/router'
+import { middleware } from '#start/kernel'
+
+const PostsController = () => import('#controllers/posts_controller')
+
 router.get('/posts', [PostsController, 'index'])
   .use(middleware.requireRole({ permissions: ['posts.view'] }))
 // and when the user is an EDITOR by role:
@@ -205,6 +235,11 @@ router.get('/admin', ...).use(middleware.requireRole({ roles: ['ADMIN'] }));
 Correct:
 
 ```ts
+import router from '@adonisjs/core/services/router'
+import { middleware } from '#start/kernel'
+
+const AdminController = () => import('#controllers/admin_controller')
+
 // the claim alone matches — no seeding:
 router.get('/admin', [AdminController, 'dashboard'])
   .use(middleware.requireRole({ roles: ['ADMIN'] }));

@@ -54,9 +54,12 @@ export default defineConfig({
 
 ```ts
 import authz from '@adonis-agora/authz/services/main'
+import type User from '#models/user'
 
-await authz.effectiveRoles(user)                       // active tenant when context tenancy is on, else global scope
-await authz.effectiveRoles(user, { tenantId: 'acme' }) // tenant-filtered
+export async function rolesOf(user: User) {
+  await authz.effectiveRoles(user)                       // active tenant when context tenancy is on, else global scope
+  await authz.effectiveRoles(user, { tenantId: 'acme' }) // tenant-filtered
+}
 ```
 
 ## Core patterns
@@ -69,7 +72,11 @@ reversed), run in parallel, deduped by `(type, id)`. It
 returns `SubjectRef`s; hydrate with your own models.
 
 ```ts title="config/authz.ts"
-defineConfig({
+import { defineConfig } from '@adonis-agora/authz'
+import Account from '#models/account'
+import UserRole from '#models/user_role'
+
+export default defineConfig({
   // ...resolveRoles above...
   // Reverse of resolveRoles — read the SAME source.
   resolveRoleMembers: async (role, scope) => {
@@ -108,10 +115,15 @@ replaces ONLY its own rows with `setSubjectRoles` (transactional); a role held
 via two sources is two rows, so the manual grant survives the IdP dropping it.
 
 ```ts
-await authz.store.setSubjectRoles(ref, groups, { source: 'scim', tenantId })
-await authz.store.removeRole(ref, 'editor', { source: 'scim' }) // only SCIM's row
-await authz.store.removeRole(ref, 'editor')                      // every source
-await authz.store.getRoleAssignments(ref) // [{ role, source, tenantId }]
+import type { SubjectRef } from '@adonis-agora/authz'
+import authz from '@adonis-agora/authz/services/main'
+
+export async function syncScimGroups(ref: SubjectRef, groups: string[], tenantId: string) {
+  await authz.store.setSubjectRoles(ref, groups, { source: 'scim', tenantId })
+  await authz.store.removeRole(ref, 'editor', { source: 'scim' }) // only SCIM's row
+  await authz.store.removeRole(ref, 'editor')                      // every source
+  await authz.store.getRoleAssignments(ref) // [{ role, source, tenantId }]
+}
 ```
 
 Admin screens: `listRoleAssignments({ tenantId, role, subject, source })` returns raw
@@ -131,7 +143,9 @@ Map effective roles onto permissions/wildcards without seeding the store; the
 mapping applies to roles from any source (context, tenant, app, store).
 
 ```ts title="config/authz.ts"
-defineConfig({
+import { defineConfig } from '@adonis-agora/authz'
+
+export default defineConfig({
   roleGrants: {
     editor: ['posts.*', 'comments.moderate'],
     auditor: ['audit.*'],
@@ -154,7 +168,7 @@ global even when context enables tenancy).
 import { defineConfig, stores, tenantFromContext } from '@adonis-agora/authz'
 import { HttpContext } from '@adonisjs/core/http'
 
-defineConfig({
+export default defineConfig({
   // ...
   resolveTenant: tenantFromContext,          // Agora context, or any () => string | undefined
   tenant: () => HttpContext.getOrFail().request.header('x-tenant'),
@@ -188,15 +202,28 @@ answer disagrees with `bouncer.allows('hasRole', ...)` for the identical user.
 Wrong:
 
 ```ts
-if (await identity.hasGlobalRole('admin')) { /* admin-only path */ }
+import { getAuthkit } from '@adonis-agora/authkit-client'
+import type { HttpContext } from '@adonisjs/core/http'
+
+export default class AdminController {
+  async index(ctx: HttpContext) {
+    const identity = await getAuthkit(ctx)
+    if (identity.hasGlobalRole('admin')) { /* admin-only path */ }
+  }
+}
 ```
 
 Correct:
 
 ```ts
 import authz from '@adonis-agora/authz/services/main';
+import type { HttpContext } from '@adonisjs/core/http';
 
-if (await authz.hasRole(user, 'admin')) { /* admin-only path */ }
+export default class AdminController {
+  async index({ auth }: HttpContext) {
+    if (await authz.hasRole(auth.user, 'admin')) { /* admin-only path */ }
+  }
+}
 ```
 
 Mechanism: `hasRole` tests the full effective union (context ∪ tenant ∪ app ∪ store);
@@ -214,8 +241,12 @@ the reverse lookup is used.
 Wrong:
 
 ```ts
-defineConfig({
-  resolveRoles: async (user, scope) => { /* reads user_roles */ },
+import { defineConfig } from '@adonis-agora/authz'
+import UserRole from '#models/user_role'
+
+export default defineConfig({
+  resolveRoles: async (user) =>
+    (await UserRole.query().where('subject_id', user.id)).map((row) => row.role),
   // resolveRoleMembers missing → those users never come back
 })
 ```
@@ -223,9 +254,15 @@ defineConfig({
 Correct:
 
 ```ts
-defineConfig({
-  resolveRoles: async (user, scope) => { /* reads user_roles */ },
-  resolveRoleMembers: async (role, scope) => { /* reads the SAME table */ },
+import { defineConfig } from '@adonis-agora/authz'
+import UserRole from '#models/user_role'
+
+export default defineConfig({
+  resolveRoles: async (user) =>
+    (await UserRole.query().where('subject_id', user.id)).map((row) => row.role),
+  // reads the SAME table
+  resolveRoleMembers: async (role) =>
+    (await UserRole.query().where('role', role)).map((row) => row.userId),
 })
 ```
 
@@ -244,16 +281,21 @@ no checks.
 Wrong:
 
 ```ts
-defineConfig({ superAdminRoles: ['platform:super'] });
+import { defineConfig } from '@adonis-agora/authz';
+import authz from '@adonis-agora/authz/services/main';
+
+export default defineConfig({ superAdminRoles: ['platform:super'] });
 // elsewhere: hoping the store assignment grants the bypass
-await authz.store.assignRole(ref, 'platform:super');
+await authz.store.assignRole({ type: 'user', id: '42' }, 'platform:super');
 ```
 
 Correct:
 
 ```ts
+import { defineConfig } from '@adonis-agora/authz';
+
 // keep the bypass in the IdP claim — or use an auditable wildcard grant instead:
-defineConfig({
+export default defineConfig({
   superAdminRoles: ['platform:super'],
   roleGrants: { auditor: ['audit.*'] },
 });
@@ -273,16 +315,26 @@ carry a tenant.
 Wrong:
 
 ```ts
-// assuming a scoped variant exists
-await authz.store.giveSubjectPermission(ref, 'billing.view', { tenantId: 'acme' } as never);
+import type { SubjectRef } from '@adonis-agora/authz';
+import authz from '@adonis-agora/authz/services/main';
+
+export async function grantBilling(ref: SubjectRef) {
+  // assuming a scoped variant exists
+  await authz.store.giveSubjectPermission(ref, 'billing.view', { tenantId: 'acme' } as never);
+}
 ```
 
 Correct:
 
 ```ts
-// grants are global by design — put tenancy on a ROLE assignment instead:
-await authz.store.giveSubjectPermission(ref, 'billing.view'); // applies everywhere
-await authz.store.assignRole(ref, 'billing', { tenantId: 'acme' }); // scoped
+import type { SubjectRef } from '@adonis-agora/authz';
+import authz from '@adonis-agora/authz/services/main';
+
+export async function grantBilling(ref: SubjectRef) {
+  // grants are global by design — put tenancy on a ROLE assignment instead:
+  await authz.store.giveSubjectPermission(ref, 'billing.view'); // applies everywhere
+  await authz.store.assignRole(ref, 'billing', { tenantId: 'acme' }); // scoped
+}
 ```
 
 Mechanism: the visibility contract fixes direct grants outside the tenant model

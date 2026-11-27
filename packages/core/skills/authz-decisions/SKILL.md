@@ -42,8 +42,25 @@ import { defineAuthzAbilities } from '@adonis-agora/authz'
 export const { can, hasRole } = defineAuthzAbilities()
 ```
 
+Bouncer knows the abilities its middleware hands it. The middleware `node ace add @adonisjs/bouncer`
+writes passes `#abilities/main`, so re-export them there (`export * from '#abilities/authz'`); its
+declaration is what types `ctx.bouncer`:
+
+```ts title="app/middleware/initialize_bouncer_middleware.ts (excerpt)"
+import * as abilities from '#abilities/main'
+import { policies } from '#generated/policies'
+import type { Bouncer } from '@adonisjs/bouncer'
+
+declare module '@adonisjs/core/http' {
+  export interface HttpContext {
+    bouncer: Bouncer<Exclude<HttpContext['auth']['user'], undefined>, typeof abilities, typeof policies>
+  }
+}
+```
+
 ```ts title="start/routes.ts (or a controller)"
-import { can, hasRole } from '#abilities/authz'
+import router from '@adonisjs/core/services/router'
+import Post from '#models/post'
 
 router.put('/posts/:id', async (ctx) => {
   const post = await Post.findOrFail(ctx.params.id)
@@ -73,6 +90,7 @@ need the class from the container — same instance.
 
 ```ts title="app/jobs/publish_post.ts"
 import authz from '@adonis-agora/authz/services/main'
+import type User from '#models/user'
 
 export default class PublishPost {
   async handle(user: User) {
@@ -88,12 +106,12 @@ import type { HttpContext } from '@adonisjs/core/http'
 import authz from '@adonis-agora/authz/services/main'
 
 export default class PostsController {
-  async show({ auth, inertia }: HttpContext) {
+  async show({ auth }: HttpContext) {
     const cache = authz.createCache() // one per request
-    return inertia.render('posts/show', {
+    return {
       canEdit: await authz.can(auth.user!, 'posts.edit', { cache }),
       canDelete: await authz.can(auth.user!, 'posts.delete', { cache }),
-    })
+    }
   }
 }
 ```
@@ -109,9 +127,12 @@ audit logs, or debugging endpoints. It contains granted **patterns** —
 ```ts
 import authz from '@adonis-agora/authz/services/main'
 import { permissionSatisfied } from '@adonis-agora/authz'
+import type User from '#models/user'
 
-const permissions = await authz.effectivePermissions(user)
-permissionSatisfied(permissions, 'posts.edit') // wildcard-aware membership test
+export async function canEdit(user: User) {
+  const permissions = await authz.effectivePermissions(user)
+  return permissionSatisfied(permissions, 'posts.edit') // wildcard-aware membership test
+}
 ```
 
 Source: `docs/service.mdx`
@@ -124,7 +145,11 @@ checked: `'posts.edit'` for `can`, the action for `scope`, `'role:admin'` for
 `hasRole`, `'role:a,b'` for `hasAnyRole`.
 
 ```ts title="config/authz.ts"
-defineConfig({
+import { defineConfig } from '@adonis-agora/authz'
+
+const BANNED_ID = '666' // a SubjectRef id is a string
+
+export default defineConfig({
   superAdmin: (user, ability) => {
     if (user.type === 'service' && ability.startsWith('jobs.')) return true
     if (user.id === BANNED_ID) return false // hard deny — overrides every grant
@@ -159,9 +184,15 @@ defineConfig({
 ```
 
 ```ts
-await authz.can(user, 'update', { resource: post })          // Cerbos decides for Posts
-const { allowed, reason, message } = await authz.check(user, 'update', { resource: post })
-const flags = await authz.canMany(user, posts.map((p) => ({ permission: 'update', resource: p })))
+import authz from '@adonis-agora/authz/services/main'
+import type Post from '#models/post'
+import type User from '#models/user'
+
+export async function postAccess(user: User, post: Post, posts: Post[]) {
+  await authz.can(user, 'update', { resource: post })          // Cerbos decides for Posts
+  const { allowed, reason, message } = await authz.check(user, 'update', { resource: post })
+  const flags = await authz.canMany(user, posts.map((p) => ({ permission: 'update', resource: p })))
+}
 ```
 
 Source: `docs/decision-providers.mdx`
@@ -180,6 +211,9 @@ A job running inside one Agora context should pass a fresh `createCache()` per
 unit of work. A failed read is retried, not cached.
 
 ```ts title="app/controllers/posts_controller.ts"
+import { AuthzService } from '@adonis-agora/authz'
+import type { HttpContext } from '@adonisjs/core/http'
+
 export default class PostsController {
   async index(ctx: HttpContext) {
     const service = await ctx.containerResolver.make(AuthzService)
@@ -205,17 +239,28 @@ rejects every wildcard grant even though the server would allow the check.
 Wrong:
 
 ```ts
-const perms = await authz.effectivePermissions(user);
-if (!perms.includes('posts.edit')) throw new ForbiddenException();
+import authz from '@adonis-agora/authz/services/main';
+import type User from '#models/user';
+import { Exception } from '@adonisjs/core/exceptions';
+
+export async function assertCanEdit(user: User) {
+  const perms = await authz.effectivePermissions(user);
+  if (!perms.includes('posts.edit')) throw new Exception('Forbidden', { status: 403 });
+}
 ```
 
 Correct:
 
 ```ts
 import { permissionSatisfied } from '@adonis-agora/authz';
+import authz from '@adonis-agora/authz/services/main';
+import type User from '#models/user';
+import { Exception } from '@adonisjs/core/exceptions';
 
-const perms = await authz.effectivePermissions(user);
-if (!permissionSatisfied(perms, 'posts.edit')) throw new ForbiddenException();
+export async function assertCanEdit(user: User) {
+  const perms = await authz.effectivePermissions(user);
+  if (!permissionSatisfied(perms, 'posts.edit')) throw new Exception('Forbidden', { status: 403 });
+}
 ```
 
 Mechanism: wildcard expansion happens in the service, not the database — the
@@ -233,15 +278,27 @@ decide on grants alone.
 Wrong:
 
 ```ts
-// looks like an ownership check — is not
-await ctx.bouncer.authorize('can', 'posts.edit', post)
+import router from '@adonisjs/core/services/router'
+import Post from '#models/post'
+
+router.put('/posts/:id', async (ctx) => {
+  const post = await Post.findOrFail(ctx.params.id)
+  // looks like an ownership check — is not
+  await ctx.bouncer.authorize('can', 'posts.edit', post)
+})
 ```
 
 Correct:
 
 ```ts
-await ctx.bouncer.authorize('can', 'posts.edit');   // RBAC layer
-await ctx.bouncer.authorize('edit', post);          // your own policy owns records
+import router from '@adonisjs/core/services/router'
+import Post from '#models/post'
+
+router.put('/posts/:id', async (ctx) => {
+  const post = await Post.findOrFail(ctx.params.id)
+  await ctx.bouncer.authorize('can', 'posts.edit');   // RBAC layer
+  await ctx.bouncer.authorize('edit', post);          // your own policy owns records
+})
 ```
 
 Mechanism: model-less grants cannot express per-record ownership; pairing with a
@@ -257,6 +314,9 @@ one serves its warm grant set to every later caller, including after revocation.
 Wrong:
 
 ```ts
+import type { HttpContext } from '@adonisjs/core/http'
+import authz from '@adonis-agora/authz/services/main'
+
 // module scope — shared across requests, never invalidated
 const cache = authz.createCache()
 
@@ -270,6 +330,9 @@ export default class PostsController {
 Correct:
 
 ```ts
+import type { HttpContext } from '@adonisjs/core/http'
+import authz from '@adonis-agora/authz/services/main'
+
 export default class PostsController {
   async show({ auth }: HttpContext) {
     const cache = authz.createCache() // lives and dies with the request
