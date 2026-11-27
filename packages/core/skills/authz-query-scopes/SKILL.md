@@ -14,7 +14,7 @@ description: >
 metadata:
   type: core
   library: "@adonis-agora/authz"
-  library_version: "0.10.5"
+  library_version: "1.0.0"
   framework: adonisjs
 sources:
   - DavideCarvalho/adonis-authz:docs/query-scopes.mdx
