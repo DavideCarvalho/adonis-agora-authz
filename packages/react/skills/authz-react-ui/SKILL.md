@@ -14,7 +14,7 @@ description: >
 metadata:
   type: core
   library: "@adonis-agora/authz-react"
-  library_version: "0.2.1"
+  library_version: "1.0.1"
   framework: react
 sources:
   - DavideCarvalho/adonis-authz:docs/react.mdx
