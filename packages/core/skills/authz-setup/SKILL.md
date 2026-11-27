@@ -138,7 +138,7 @@ defineConfig({
 node ace authz:sync
 ```
 
-Source: `docs/commands.mdx`
+Source: `docs/cli.mdx`
 
 ### Map your user shape to a `{ type, id }` reference
 
@@ -247,12 +247,12 @@ node ace authz:sync
 Correct:
 
 ```sh
-node ace authz:roles:list    # inspect what exists
-# revoke explicitly via store.revokePermissionFromRole(...) first, then:
+node ace authz:roles:list --role=editor     # inspect what the store still grants
+node ace authz:roles:revoke editor posts.delete  # revoke explicitly, then:
 node ace authz:sync
 ```
 
 Mechanism: sync's contract is additive-only ("only missing rows are
 created/attached"), so stale grants survive every re-sync.
 
-Source: `docs/commands.mdx`
+Source: `docs/cli.mdx`
