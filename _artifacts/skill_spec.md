@@ -64,7 +64,7 @@ prefixed `authz-`), all `type: core`, no router skill.
    seeding store roles to satisfy token claims; missing redirects for SSR apps.
 
 6. **react / authz-react-ui** — frontend parity: `buildAuthzShare(authz, user,
-   scope?)` in Inertia `sharedData`, typing the prop with `AuthzSharedProps`,
+   scope?)` in the Inertia middleware's `share()`, typing the prop with `AuthzSharedProps`,
    `useAuthz()` precedence (provider > shared prop > empty share), `useCan`,
    `<Can permission|role fallback>` semantics, client-safe
    `permissionMatches`/`permissionSatisfied`, testing via `<AuthzProvider>`.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AuthzService } from './authz_service.js';
 import { PermissionCache } from './permission_cache.js';
-import { ScopeRegistry, scopeAll, scopeNone } from './scope.js';
+import { ScopeRegistry, scopeAll, scopeNone } from './scope_core.js';
 import type { PermissionStore } from './store.js';
 import { MemoryPermissionStore } from './stores/memory.js';
 

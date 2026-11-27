@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AuthzService, type AuthzServiceOptions } from '../src/authz_service.js';
 import { defineAuthzAbilities } from '../src/bouncer/abilities.js';
 import type { DecisionProvider } from '../src/decision_provider.js';
-import { eq, ScopeRegistry, scopeAll, scopeNone } from '../src/scope.js';
+import { eq, ScopeRegistry, scopeAll, scopeNone } from '../src/scope_core.js';
 import { MemoryPermissionStore } from '../src/stores/memory.js';
 
 class Post {

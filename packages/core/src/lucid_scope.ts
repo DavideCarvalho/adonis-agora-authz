@@ -14,14 +14,14 @@
  */
 
 import type { AuthzService } from './authz_service.js';
-import type { ResourceKey } from './scope.js';
+import type { ResourceKey } from './scope_core.js';
 import {
   assertSafeIdentifier,
   type ScopeCondition,
   type ScopeConstraint,
   type ScopeNode,
   type ScopeOperator,
-} from './scope.js';
+} from './scope_core.js';
 import type { TenantScope } from './subject_ref.js';
 
 /**

@@ -2,7 +2,7 @@ import type { AuthzTenancyOption } from './agora/tenancy.js';
 import type { SuperAdminHook, TenantResolver } from './authz_service.js';
 import type { DecisionProvider } from './decision_provider.js';
 import type { AuthzDevToolsOptions } from './dev_tools/tools.js';
-import type { ScopeRegistry } from './scope.js';
+import type { ScopeRegistry } from './scope_core.js';
 import { describeStackUse, lucidUse, type StackUse } from './stack.js';
 import { type StoreProvider, storeConnectionOf, stores } from './stores/factory.js';
 import type { ResolveSubjectRef, SubjectRef, SubjectRefInput, TenantScope } from './subject_ref.js';

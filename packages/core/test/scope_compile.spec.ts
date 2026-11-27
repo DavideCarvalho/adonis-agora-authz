@@ -9,7 +9,7 @@ import {
   scopeNone,
   where,
   whereIn,
-} from '../src/scope.js';
+} from '../src/scope_core.js';
 
 /**
  * A fake {@link ScopeableQuery} that records every clause applied to it as a flat list

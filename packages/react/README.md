@@ -43,20 +43,23 @@ client primitive decides from that snapshot.
 
 `buildAuthzShare()` reads `effectiveRoles` / `effectivePermissions` (store ∪ `roleGrants` ∪
 `resolveRoles` ∪ context), so what the UI sees matches what the server would decide. Call it in the
-Inertia middleware's `sharedData`.
+`share()` method of your app's Inertia middleware.
 
 ```ts
-// config/inertia.ts
-import { defineConfig } from '@adonisjs/inertia'
+// app/middleware/inertia_middleware.ts
+import type { HttpContext } from '@adonisjs/core/http'
+import BaseInertiaMiddleware from '@adonisjs/inertia/inertia_middleware'
 import { resolveAuthUser } from '@adonis-agora/authz'
 import authz from '@adonis-agora/authz/services/main'
 import { buildAuthzShare } from '@adonis-agora/authz-react/server'
 
-export default defineConfig({
-  sharedData: {
-    authz: async (ctx) => buildAuthzShare(authz, await resolveAuthUser(ctx.auth)),
-  },
-})
+export default class InertiaMiddleware extends BaseInertiaMiddleware {
+  async share(ctx: HttpContext) {
+    return {
+      authz: await buildAuthzShare(authz, await resolveAuthUser(ctx.auth)),
+    }
+  }
+}
 ```
 
 `resolveAuthUser(ctx.auth)` returns the signed-in user, authenticating on demand (`ctx.auth.check()`)

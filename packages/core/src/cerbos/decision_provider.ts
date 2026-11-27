@@ -4,7 +4,7 @@ import type {
   DecisionRequest,
   DecisionVerdict,
 } from '../decision_provider.js';
-import { type ResourceKey, type ScopeConstraint, scopeNone } from '../scope.js';
+import { type ResourceKey, type ScopeConstraint, scopeNone } from '../scope_core.js';
 import { type CerbosFieldMapper, type CerbosPlanLike, cerbosPlanToScope } from './plan.js';
 
 /** A Cerbos attribute value (JSON). */

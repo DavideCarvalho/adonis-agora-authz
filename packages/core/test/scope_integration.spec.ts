@@ -8,7 +8,7 @@ import {
   type ScopeableQuery,
   type ScopeResolvingService,
 } from '../src/lucid_scope.js';
-import { and, eq, ScopeRegistry } from '../src/scope.js';
+import { and, eq, ScopeRegistry } from '../src/scope_core.js';
 import { LucidPermissionStore } from '../src/stores/lucid.js';
 import { asLucidDatabase, makeMemoryDatabase } from './lucid_helpers.js';
 

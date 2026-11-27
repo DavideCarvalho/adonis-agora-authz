@@ -1,4 +1,4 @@
-import type { ResourceKey, ScopeConstraint } from './scope.js';
+import type { ResourceKey, ScopeConstraint } from './scope_core.js';
 import type { SubjectRef, TenantScope } from './subject_ref.js';
 
 /**

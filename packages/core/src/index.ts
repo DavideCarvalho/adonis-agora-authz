@@ -88,7 +88,7 @@ export type {
   ScopeNone,
   ScopeOperator,
   ScopeResult,
-} from './scope.js';
+} from './scope_core.js';
 // Query-scope DSL (the `accessibleBy` constraint model).
 export {
   and,
@@ -102,7 +102,7 @@ export {
   scopeNone,
   where,
   whereIn,
-} from './scope.js';
+} from './scope_core.js';
 // Store contract & implementations.
 export type {
   PermissionRecord,
