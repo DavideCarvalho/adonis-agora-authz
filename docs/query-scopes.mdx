@@ -168,7 +168,7 @@ for the two most common cases. Operators: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`,
 ### Boolean groups
 
 ```ts
-import { and, or } from '@adonis-agora/authz/scope'
+import { and, eq, or, where, type ScopeNode } from '@adonis-agora/authz/scope'
 
 // AND — owner AND in-tenant
 and(eq('author_id', user.id), eq('tenant_id', tenant.tenantId))
@@ -176,11 +176,15 @@ and(eq('author_id', user.id), eq('tenant_id', tenant.tenantId))
 // OR — owner OR published
 or(eq('author_id', user.id), eq('published', true))
 
-// nested — (owner OR published) AND not-archived
-and(
-  or(eq('author_id', user.id), eq('published', true)),
-  where('status', 'ne', 'archived'),
-)
+// nested — `and`/`or` return a ScopeConstraint (they may collapse to
+// allow-all/deny-all), not a ScopeNode, so a nested group is written as a
+// literal group node.
+const ownerOrPublished: ScopeNode = {
+  kind: 'or',
+  nodes: [eq('author_id', user.id), eq('published', true)],
+}
+// (owner OR published) AND not-archived
+and(ownerOrPublished, where('status', 'ne', 'archived'))
 ```
 
 <Callout type="info">
