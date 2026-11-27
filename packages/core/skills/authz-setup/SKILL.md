@@ -247,7 +247,7 @@ node ace authz:sync
 Correct:
 
 ```sh
-node ace authz:roles:list --drift          # inspect what exists vs the catalog
+node ace authz:roles:list --role=editor     # inspect what the store still grants
 node ace authz:roles:revoke editor posts.delete  # revoke explicitly, then:
 node ace authz:sync
 ```
