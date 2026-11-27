@@ -23,3 +23,15 @@ minimumReleaseAgeExclude:
   - '@adonis-agora/authkit-client@1.0.0-rc.7 || 1.0.0'
   - '@adonis-agora/authkit-core@1.0.0-rc.3 || 1.0.0'
   - '@adonis-agora/diagnostics@1.0.0'
+
+# Skill examples are typechecked by `intent validate` from the repo root, so a package they import
+# must resolve from the root node_modules. These are already in the workspace (devDependencies of
+# packages/core and packages/react; @adonisjs/auth through @adonis-agora/authkit-client) and hoist
+# against the same @adonisjs/core copy the library uses. Install-time only: no published changes.
+publicHoistPattern:
+  - "@adonis-agora/authkit-client"
+  - "@adonisjs/auth"
+  - "@adonisjs/bouncer"
+  - "@adonisjs/core"
+  - "@adonisjs/lucid"
+  - "@testing-library/react"

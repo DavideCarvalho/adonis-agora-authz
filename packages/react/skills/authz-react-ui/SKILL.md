@@ -61,6 +61,7 @@ export default defineConfig({
 
 ```tsx title="resources/js/pages/posts/index.tsx"
 import { Can, useCan, useAuthz } from '@adonis-agora/authz-react'
+import AdminBadge from '~/components/admin_badge'
 
 export default function PostsIndex() {
   const canCreate = useCan('posts.create') // wildcard-aware
@@ -110,6 +111,7 @@ Inertia `<App>` and `useAuthz` catches that, falling back to the context value.
 
 ```tsx title="posts-index.test.tsx"
 import { render, screen } from '@testing-library/react'
+import { expect, test } from 'vitest'
 import { AuthzProvider } from '@adonis-agora/authz-react'
 import PostsIndex from '#pages/posts/index'
 
@@ -119,7 +121,7 @@ test('shows the edit button for editors', () => {
       <PostsIndex />
     </AuthzProvider>,
   )
-  expect(screen.getByText('Edit')).toBeVisible()
+  expect(screen.getByText('Edit')).toBeTruthy() // getByText throws when it is missing
 })
 ```
 
@@ -172,19 +174,29 @@ consulted — the gate is broader than the author intended, not narrower.
 Wrong:
 
 ```tsx
-<Can permission="billing.manage" role="auditor">
-  <BillingSettings /> {/* role ignored — permission alone decides */}
-</Can>
+import { Can } from '@adonis-agora/authz-react'
+import BillingSettings from '~/components/billing_settings'
+
+export const Billing = () => (
+  <Can permission="billing.manage" role="auditor">
+    <BillingSettings /> {/* role ignored — permission alone decides */}
+  </Can>
+)
 ```
 
 Correct:
 
 ```tsx
-<Can permission="billing.manage">
-  <Can role="auditor">
-    <BillingSettings /> {/* nested Cans compose as AND */}
+import { Can } from '@adonis-agora/authz-react'
+import BillingSettings from '~/components/billing_settings'
+
+export const Billing = () => (
+  <Can permission="billing.manage">
+    <Can role="auditor">
+      <BillingSettings /> {/* nested Cans compose as AND */}
+    </Can>
   </Can>
-</Can>
+)
 ```
 
 Mechanism: `<Can>` checks `permissionSatisfied(permissions, permission)` first
@@ -208,6 +220,9 @@ render(<Can permission="posts.edit"><button>Edit</button></Can>);
 Correct:
 
 ```tsx
+import { render } from '@testing-library/react'
+import { AuthzProvider, Can } from '@adonis-agora/authz-react'
+
 render(
   <AuthzProvider value={{ roles: [], permissions: ['posts.*'] }}>
     <Can permission="posts.edit"><button>Edit</button></Can>

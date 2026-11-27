@@ -76,11 +76,20 @@ A filter receives the SAME authorization data `can` consults — no store
 re-query — and may return a constraint, `true` (allow-all), or
 `false`/`null`/`undefined` (deny-all). It may be async.
 
-```ts
-registry.register(Document, async ({ user, roles }) => {
-  if (roles.includes('auditor')) return true // sees everything
-  const teamIds = await TeamMember.query().where('subject_id', user.id).select('team_id')
-  return whereIn('team_id', teamIds.map((t) => t.teamId))
+```ts title="config/authz.ts"
+import { defineConfig } from '@adonis-agora/authz'
+import { whereIn } from '@adonis-agora/authz/scope'
+import Document from '#models/document'
+import TeamMember from '#models/team_member'
+
+export default defineConfig({
+  scopes: (registry) => {
+    registry.register(Document, async ({ user, roles }) => {
+      if (roles.includes('auditor')) return true // sees everything
+      const teamIds = await TeamMember.query().where('subject_id', user.id).select('team_id')
+      return whereIn('team_id', teamIds.map((t) => t.teamId))
+    })
+  },
 })
 ```
 
@@ -98,16 +107,18 @@ WHERE clauses. Operators: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `nin`,
 is deny-all — so you can spread conditionally without special cases.
 
 ```ts
-import { and, eq, where, type ScopeNode } from '@adonis-agora/authz/scope'
+import { and, eq, where, type ScopeFilter, type ScopeNode } from '@adonis-agora/authz/scope'
 
-// `and`/`or` return a ScopeConstraint (they may collapse to allow-all/deny-all),
-// not a ScopeNode — so a nested group is written as a literal group node.
-const ownerOrPublished: ScopeNode = {
-  kind: 'or',
-  nodes: [eq('author_id', user.id), eq('published', true)],
+export const visiblePosts: ScopeFilter = ({ user }) => {
+  // `and`/`or` return a ScopeConstraint (they may collapse to allow-all/deny-all),
+  // not a ScopeNode — so a nested group is written as a literal group node.
+  const ownerOrPublished: ScopeNode = {
+    kind: 'or',
+    nodes: [eq('author_id', user.id), eq('published', true)],
+  }
+  // (owner OR published) AND not archived
+  return and(ownerOrPublished, where('status', 'ne', 'archived'))
 }
-// (owner OR published) AND not archived
-and(ownerOrPublished, where('status', 'ne', 'archived'))
 ```
 
 Source: `docs/query-scopes.mdx`
@@ -159,17 +170,29 @@ even past a deny-all (`1 = 0`). The helper cannot re-group clauses you added.
 Wrong:
 
 ```ts
-const bad = Post.query().where('id', 1).orWhere('id', 2);
-const posts = await accessibleBy(bad, authz, user, Post);
-// id = 1 OR (id = 2 AND scope) — branch 1 is unscoped
+import authz from '@adonis-agora/authz/services/main'
+import Post from '#models/post'
+import type User from '#models/user'
+
+export async function listPosts(user: User) {
+  const bad = Post.query().where('id', 1).orWhere('id', 2);
+  const posts = await accessibleBy(bad, authz, user, Post);
+  // id = 1 OR (id = 2 AND scope) — branch 1 is unscoped
+}
 ```
 
 Correct:
 
 ```ts
-const base = Post.query().where((q) => q.where('id', 1).orWhere('id', 2));
-const posts = await accessibleBy(base, authz, user, Post);
-// (id = 1 OR id = 2) AND (scope)
+import authz from '@adonis-agora/authz/services/main'
+import Post from '#models/post'
+import type User from '#models/user'
+
+export async function listPosts(user: User) {
+  const base = Post.query().where((q) => q.where('id', 1).orWhere('id', 2));
+  const posts = await accessibleBy(base, authz, user, Post);
+  // (id = 1 OR id = 2) AND (scope)
+}
 ```
 
 Mechanism: `accessibleBy` appends clauses to the builder you pass; only you can
@@ -187,18 +210,30 @@ error anywhere.
 Wrong:
 
 ```ts
-const posts = await accessibleBy(Post.query(), authz, user, Post);
-// [] for admins too → "the table is empty" is the wrong conclusion
+import authz from '@adonis-agora/authz/services/main'
+import Post from '#models/post'
+import type User from '#models/user'
+
+export async function listPosts(user: User) {
+  const posts = await accessibleBy(Post.query(), authz, user, Post);
+  // [] for admins too → "the table is empty" is the wrong conclusion
+}
 ```
 
 Correct:
 
-```ts
-// register the filter in config/authz.ts first:
-scopes: (registry) => {
-  registry.register(Post, ({ user }) =>
-    or(eq('author_id', user.id), eq('published', true)));
-}
+```ts title="config/authz.ts"
+import { defineConfig } from '@adonis-agora/authz'
+import { eq, or } from '@adonis-agora/authz/scope'
+import Post from '#models/post'
+
+// register the filter first:
+export default defineConfig({
+  scopes: (registry) => {
+    registry.register(Post, ({ user }) =>
+      or(eq('author_id', user.id), eq('published', true)));
+  },
+})
 ```
 
 Mechanism: `AuthzService.scope` resolves an unregistered resource to
@@ -216,23 +251,35 @@ the resolved value as a builder fails — you are holding an array.
 Wrong:
 
 ```ts
-const scoped = await accessibleBy(Post.query(), authz, user, Post);
-await scoped.exec(); // TypeError: scoped.exec is not a function
+import authz from '@adonis-agora/authz/services/main'
+import Post from '#models/post'
+import type User from '#models/user'
 
-const recent = await accessibleBy(Post.query(), authz, user, Post);
-recent.orderBy('created_at'); // TypeError: recent.orderBy is not a function
+export async function listPosts(user: User) {
+  const scoped = await accessibleBy(Post.query(), authz, user, Post);
+  await scoped.exec(); // TypeError: scoped.exec is not a function
+
+  const recent = await accessibleBy(Post.query(), authz, user, Post);
+  recent.orderBy('created_at'); // TypeError: recent.orderBy is not a function
+}
 ```
 
 Correct:
 
 ```ts
-// one await, and you hold the rows
-const posts = await accessibleBy(Post.query(), authz, user, Post);
+import authz from '@adonis-agora/authz/services/main'
+import Post from '#models/post'
+import type User from '#models/user'
 
-// need to add clauses AFTER the scope? Resolve the halves yourself —
-// `applyScopeConstraint` is synchronous and never executes
-const constraint = await authz.scope(user, Post);
-const recent = await applyScopeConstraint(Post.query(), constraint).orderBy('created_at', 'desc');
+export async function listPosts(user: User) {
+  // one await, and you hold the rows
+  const posts = await accessibleBy(Post.query(), authz, user, Post);
+
+  // need to add clauses AFTER the scope? Resolve the halves yourself —
+  // `applyScopeConstraint` is synchronous and never executes
+  const constraint = await authz.scope(user, Post);
+  const recent = await applyScopeConstraint(Post.query(), constraint).orderBy('created_at', 'desc');
+}
 ```
 
 Mechanism: the helper is `async` and returns a thenable builder, so JavaScript

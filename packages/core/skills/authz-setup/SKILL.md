@@ -122,7 +122,9 @@ node ace authz:subjects:explain 42 posts.edit           # why allowed / denied
 Or declare a catalog and sync it (idempotent — only missing rows are created):
 
 ```ts title="config/authz.ts"
-defineConfig({
+import { defineConfig } from '@adonis-agora/authz'
+
+export default defineConfig({
   // ...
   catalog: {
     permissions: ['system.manage'],
@@ -166,9 +168,10 @@ Return a tenant id string for the current request; omit for single-tenant apps.
 Explicit `scope` call args take precedence over this resolver.
 
 ```ts title="config/authz.ts"
+import { defineConfig } from '@adonis-agora/authz'
 import { HttpContext } from '@adonisjs/core/http'
 
-defineConfig({
+export default defineConfig({
   // ...
   tenant: () => HttpContext.getOrFail().request.header('x-tenant'),
 })
@@ -214,17 +217,32 @@ created).
 
 Wrong:
 
-```ts
-await createAuthzTables(db, { tables: { ...AUTHZ_TABLES, roles: 'rbac_roles' } })
-// config still on defaults → mismatched names
+```ts title="database/migrations/xxxx_create_authz_tables.ts"
+import { BaseSchema } from '@adonisjs/lucid/schema'
+import { AUTHZ_TABLES, createAuthzTables } from '@adonis-agora/authz'
+
+export default class extends BaseSchema {
+  async up() {
+    this.defer((db) => createAuthzTables(db, { tables: { ...AUTHZ_TABLES, roles: 'rbac_roles' } }))
+    // config still on defaults → mismatched names
+  }
+}
 ```
 
 Correct:
 
-```ts
+```ts title="database/migrations/xxxx_create_authz_tables.ts"
+import { BaseSchema } from '@adonisjs/lucid/schema'
+import { AUTHZ_TABLES, createAuthzTables } from '@adonis-agora/authz'
+
 const tables = { ...AUTHZ_TABLES, roles: 'rbac_roles' };
 // config/authz.ts → stores.lucid({ autoCreateSchema: false, tables })
-await createAuthzTables(db, { tables }) // same override in both places
+
+export default class extends BaseSchema {
+  async up() {
+    this.defer((db) => createAuthzTables(db, { tables })) // same override in both places
+  }
+}
 ```
 
 Mechanism: the standalone schema helpers accept `{ tables? }` precisely so they
