@@ -60,8 +60,13 @@ export default defineConfig({
 })
 ```
 
-```ts no-check
+```ts
 import { accessibleBy } from '@adonis-agora/authz/scope'
+import authz from '@adonis-agora/authz/services/main'
+import Post from '#models/post'
+import type User from '#models/user'
+
+declare const user: User
 
 // A Lucid query builder is thenable (`then()` runs `exec()`), so the await already
 // executes the query and resolves to the ROWS — one await, you hold the rows.
@@ -130,8 +135,13 @@ to allow-all before any filter runs. The awaited `accessibleBy` resolves to the
 rows, so to chain clauses after the scope resolve the halves yourself —
 `applyScopeConstraint` is synchronous and never executes.
 
-```ts no-check
+```ts
 import { applyScopeConstraint } from '@adonis-agora/authz/scope'
+import authz from '@adonis-agora/authz/services/main'
+import Post from '#models/post'
+import type User from '#models/user'
+
+declare const user: User
 
 const constraint = await authz.scope(user, Post, { action: 'posts.edit' })
 const recent = await applyScopeConstraint(Post.query(), constraint)
@@ -146,15 +156,20 @@ Source: `docs/query-scopes.mdx`
 `authz.scope()` resolves the `ScopeConstraint` alone; `applyScopeConstraint`
 compiles it onto any Lucid query, synchronously, returning the same builder.
 
-```ts no-check
+```ts
 import { applyScopeConstraint } from '@adonis-agora/authz/scope'
 import authz from '@adonis-agora/authz/services/main'
+import Post from '#models/post'
+import type User from '#models/user'
 
-const constraint = await authz.scope(user, Post)
-if (constraint.kind === 'none') return { posts: [], count: 0 } // skip the query
+export async function listPosts(user: User) {
+  const constraint = await authz.scope(user, Post)
+  if (constraint.kind === 'none') return { posts: [], count: 0 } // skip the query
 
-const posts = await applyScopeConstraint(Post.query(), constraint).limit(20)
-const [{ count }] = await applyScopeConstraint(Post.query(), constraint).count('* as count')
+  const posts = await applyScopeConstraint(Post.query(), constraint).limit(20)
+  const [{ count }] = await applyScopeConstraint(Post.query(), constraint).count('* as count')
+  return { posts, count }
+}
 ```
 
 Source: `docs/query-scopes.mdx`, `docs/service.mdx`
@@ -170,6 +185,7 @@ even past a deny-all (`1 = 0`). The helper cannot re-group clauses you added.
 Wrong:
 
 ```ts
+import { accessibleBy } from '@adonis-agora/authz/scope'
 import authz from '@adonis-agora/authz/services/main'
 import Post from '#models/post'
 import type User from '#models/user'
@@ -184,6 +200,7 @@ export async function listPosts(user: User) {
 Correct:
 
 ```ts
+import { accessibleBy } from '@adonis-agora/authz/scope'
 import authz from '@adonis-agora/authz/services/main'
 import Post from '#models/post'
 import type User from '#models/user'
@@ -210,6 +227,7 @@ error anywhere.
 Wrong:
 
 ```ts
+import { accessibleBy } from '@adonis-agora/authz/scope'
 import authz from '@adonis-agora/authz/services/main'
 import Post from '#models/post'
 import type User from '#models/user'
@@ -251,6 +269,7 @@ the resolved value as a builder fails — you are holding an array.
 Wrong:
 
 ```ts
+import { accessibleBy } from '@adonis-agora/authz/scope'
 import authz from '@adonis-agora/authz/services/main'
 import Post from '#models/post'
 import type User from '#models/user'
@@ -267,6 +286,7 @@ export async function listPosts(user: User) {
 Correct:
 
 ```ts
+import { accessibleBy, applyScopeConstraint } from '@adonis-agora/authz/scope'
 import authz from '@adonis-agora/authz/services/main'
 import Post from '#models/post'
 import type User from '#models/user'

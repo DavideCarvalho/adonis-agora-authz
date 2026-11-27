@@ -3,7 +3,7 @@ name: authz-react-ui
 description: >
   Mirror server authorization decisions in an Inertia + React frontend with
   @adonis-agora/authz-react — the server-side buildAuthzShare() from
-  @adonis-agora/authz-react/server wired into Inertia sharedData, typing the
+  @adonis-agora/authz-react/server returned from the Inertia middleware's share(), typing the
   prop with AuthzSharedProps, and the client primitives useAuthz / useCan /
   <Can permission | role fallback> plus AuthzProvider for provider-less
   contexts (tests, Storybook) and the client-safe matchers
@@ -44,19 +44,24 @@ npm i @adonis-agora/authz-react
 Peers (`@adonis-agora/authz`, `@inertiajs/react`, `react`, `react-dom`) are
 already present in an Inertia + React Adonis app.
 
-```ts no-check title="config/inertia.ts"
-import { defineConfig } from '@adonisjs/inertia'
+```ts title="app/middleware/inertia_middleware.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import BaseInertiaMiddleware from '@adonisjs/inertia/inertia_middleware'
 import { resolveAuthUser } from '@adonis-agora/authz'
 import authz from '@adonis-agora/authz/services/main'
 import { buildAuthzShare } from '@adonis-agora/authz-react/server'
+// ctx.auth is typed by @adonisjs/auth's initialize_auth_middleware (start/kernel.ts)
+import type {} from '@adonisjs/auth/initialize_auth_middleware'
 
-export default defineConfig({
-  sharedData: {
-    // resolveAuthUser authenticates on demand (ctx.auth.check()) on pages
-    // without auth/silentAuth middleware, so no global silentAuth is needed.
-    authz: async (ctx) => buildAuthzShare(authz, await resolveAuthUser(ctx.auth)),
-  },
-})
+export default class InertiaMiddleware extends BaseInertiaMiddleware {
+  async share(ctx: HttpContext) {
+    return {
+      // resolveAuthUser authenticates on demand (ctx.auth.check()) on pages
+      // without auth/silentAuth middleware, so no global silentAuth is needed.
+      authz: await buildAuthzShare(authz, await resolveAuthUser(ctx.auth)),
+    }
+  }
+}
 ```
 
 ```tsx title="resources/js/pages/posts/index.tsx"
@@ -156,7 +161,7 @@ import { buildAuthzShare } from '@adonis-agora/authz-react'; // wrong entry poin
 
 Correct:
 
-```ts no-check
+```ts
 import { buildAuthzShare, type AuthzShare } from '@adonis-agora/authz-react/server';
 ```
 

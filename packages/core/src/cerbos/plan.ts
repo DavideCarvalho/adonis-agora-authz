@@ -6,7 +6,7 @@ import {
   type ScopeOperator,
   scopeAll,
   scopeNone,
-} from '../scope.js';
+} from '../scope_core.js';
 
 /** A Cerbos query-plan operand (structural mirror of `@cerbos/core`'s `PlanExpressionOperand`). */
 export type CerbosPlanOperand =

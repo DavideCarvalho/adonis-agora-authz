@@ -22,7 +22,7 @@ export type {
   ScopeNone,
   ScopeOperator,
   ScopeResult,
-} from './scope.js';
+} from './scope_core.js';
 export {
   and,
   assertSafeIdentifier,
@@ -35,4 +35,4 @@ export {
   scopeNone,
   where,
   whereIn,
-} from './scope.js';
+} from './scope_core.js';

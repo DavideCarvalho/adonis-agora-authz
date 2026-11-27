@@ -50,20 +50,23 @@ snapshot.
 
 `buildAuthzShare()` reads `effectiveRoles` / `effectivePermissions` (store ∪
 `roleGrants` ∪ `resolveRoles` ∪ context — see [effective roles](/docs/authz/config#effective-roles-resolveroles--rolegrants)),
-so what the UI sees matches what the server would decide. Call it in the Inertia
-middleware's `sharedData`.
+so what the UI sees matches what the server would decide. Call it in the `share()`
+method of your app's Inertia middleware.
 
-```ts title="config/inertia.ts"
-import { defineConfig } from '@adonisjs/inertia'
+```ts title="app/middleware/inertia_middleware.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import BaseInertiaMiddleware from '@adonisjs/inertia/inertia_middleware'
 import { resolveAuthUser } from '@adonis-agora/authz'
 import authz from '@adonis-agora/authz/services/main'
 import { buildAuthzShare } from '@adonis-agora/authz-react/server'
 
-export default defineConfig({
-  sharedData: {
-    authz: async (ctx) => buildAuthzShare(authz, await resolveAuthUser(ctx.auth)),
-  },
-})
+export default class InertiaMiddleware extends BaseInertiaMiddleware {
+  async share(ctx: HttpContext) {
+    return {
+      authz: await buildAuthzShare(authz, await resolveAuthUser(ctx.auth)),
+    }
+  }
+}
 ```
 
 `resolveAuthUser(ctx.auth)` returns the signed-in user. On a page with no `auth`
@@ -73,7 +76,7 @@ the share is right on every page without a global `silentAuth`.
 `buildAuthzShare` needs only the `effectiveRoles` / `effectivePermissions` slice
 of the service, so the
 [`services/main` singleton](/docs/authz/service#the-service-singleton) satisfies
-it — including here, at config-load time.
+it.
 
 `buildAuthzShare(authz, user, scope?)` returns `{ roles, permissions }`. A
 `null`/`undefined` user (anonymous) yields the empty share — no leak. Pass a

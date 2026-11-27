@@ -7,7 +7,7 @@ import { authzDevToolsDepsOf } from '../src/dev_tools/deps.js';
 import { registerAuthzDevTools } from '../src/dev_tools/tools.js';
 import { registerDoctorChecks } from '../src/doctor/agora_doctor.js';
 import { authzDoctorChecks } from '../src/doctor/checks.js';
-import { ScopeRegistry } from '../src/scope.js';
+import { ScopeRegistry } from '../src/scope_core.js';
 import { assertStoreSchema, storeSchemaOf } from '../src/stores/factory.js';
 
 /**

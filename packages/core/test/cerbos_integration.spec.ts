@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { AuthzService } from '../src/authz_service.js';
 import { CerbosDecisionProvider } from '../src/cerbos/index.js';
 import { applyScopeConstraint, type ScopeableQuery } from '../src/lucid_scope.js';
-import { eq, ScopeRegistry } from '../src/scope.js';
+import { eq, ScopeRegistry } from '../src/scope_core.js';
 import { MemoryPermissionStore } from '../src/stores/memory.js';
 import { asLucidDatabase, makeMemoryDatabase } from './lucid_helpers.js';
 

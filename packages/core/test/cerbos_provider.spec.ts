@@ -5,7 +5,7 @@ import {
   type CerbosDecisionProviderOptions,
 } from '../src/cerbos/index.js';
 import type { DecisionContext } from '../src/decision_provider.js';
-import { scopeAll, scopeNone } from '../src/scope.js';
+import { scopeAll, scopeNone } from '../src/scope_core.js';
 
 class Doc {
   constructor(

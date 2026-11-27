@@ -29,7 +29,7 @@ import {
   ScopeRegistry,
   scopeAll,
   scopeNone,
-} from './scope.js';
+} from './scope_core.js';
 import type { PermissionStore } from './store.js';
 import {
   defaultResolveSubjectRef,

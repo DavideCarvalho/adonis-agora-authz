@@ -16,5 +16,5 @@
     "configure.ts",
     "stubs/main.ts"
   ],
-  "exclude": ["**/*.spec.ts", "**/*.test.ts", "test/**", "dist/**"]
+  "exclude": ["**/*.spec.ts", "**/*.test.ts", "test/**", "dist/**", "src/scope.ts"]
 }

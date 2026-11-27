@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CerbosPlanUnsupportedError, cerbosPlanToScope } from '../src/cerbos/plan.js';
-import { scopeAll, scopeNone } from '../src/scope.js';
+import { scopeAll, scopeNone } from '../src/scope_core.js';
 
 const v = (name: string) => ({ name });
 const val = (value: unknown) => ({ value });
