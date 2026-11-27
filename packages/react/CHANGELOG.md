@@ -1,5 +1,11 @@
 # @adonis-agora/authz-react
 
+## 1.0.1
+
+### Patch Changes
+
+- [`71e0b22`](https://github.com/DavideCarvalho/adonis-agora-authz/commit/71e0b22bd9ba98fedb27f80d82fa013788bcf8b3) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - First stable release on npm `latest`. It is 1.0.1 because npm never reuses a version number, and an earlier 1.0.0 was published and then unpublished. There are no code changes since 1.0.0-rc.0.
+
 ## 1.0.0
 
 ### Major Changes
