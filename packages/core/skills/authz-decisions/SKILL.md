@@ -144,8 +144,10 @@ allow, **deny** or abstain (`undefined`) — unlike the grant-only store. Pass t
 `can` ability forwards its resource automatically. `authz.canMany` batches into
 one `decideMany`; `authz.scope`/`accessibleBy` consult `planScope`.
 
-```ts title="config/authz.ts"
+```ts no-check title="config/authz.ts"
+import { HTTP } from '@cerbos/http'
 import { CerbosDecisionProvider } from '@adonis-agora/authz/cerbos'
+import Post from '#models/post'
 
 defineConfig({
   decisionProvider: new CerbosDecisionProvider({
@@ -294,7 +296,7 @@ nullish falls through to RBAC.
 
 Wrong:
 
-```ts
+```ts no-check
 superAdmin: (user) => {
   if (isBlocked(user)) return undefined; // meant "not super", actually "fall through"
 },
@@ -302,7 +304,7 @@ superAdmin: (user) => {
 
 Correct:
 
-```ts
+```ts no-check
 superAdmin: (user) => {
   if (isBlocked(user)) return false; // hard deny wins over any grant
   return undefined;
